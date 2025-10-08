@@ -6,6 +6,20 @@ The Jumpchain Character Builder is a program for storing, managing, and exportin
 
 The goal of this project is primarily to suit my own needs, but I have also made an effort to include functionality that I feel others will find useful. It is my hope that those of you that choose to make use of this program will find it convenient to use. If it doesn't quite work for you for any reason then don't hesitate to let me know. I can't promise I'll take action on every piece of feedback that I receive, but I will make note of it.
 
+## Contributing to the new desktop app
+
+The repository now contains a Tauri + React rewrite of the builder located in `apps/desktop`. We ship a portable Node.js runtime in `tools/node/node-v22.12.0-win-x64`, along with helper scripts (`node.cmd`, `npm.cmd`, `npx.cmd`) at the repo root. Use these wrappers for installs, builds, and dev servers so everyone targets the same toolchain.
+
+Example workflow from PowerShell:
+
+```powershell
+.\npm.cmd install
+.\npm.cmd run dev
+.\npm.cmd run build
+```
+
+See `apps/desktop/README.md` for full details, including migration scripts and test commands.
+
 
 ## Feature List
 1. Jumpchain Overview
