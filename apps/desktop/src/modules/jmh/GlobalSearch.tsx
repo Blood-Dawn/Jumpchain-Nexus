@@ -39,11 +39,45 @@ export const GlobalSearch: React.FC = () => {
   const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
   const setSelectedFile = useJmhStore((state) => state.setSelectedFile);
 
+  const openResult = (item: ResultGroupProps["items"][number] | null) => {
+    if (!item) return;
+    if (item.source === "note") {
+      setSelectedNote(item.id);
+      setSelectedFile(null);
+      if (item.jump_id) {
+        setSelectedJump(item.jump_id);
+      }
+      if (nav !== "story") setNav("story");
+      setSearchOpen(false);
+      return;
+    }
+    if (item.source === "file") {
+      setSelectedFile(item.id);
+      setSelectedNote(null);
+      if (item.jump_id) {
+        setSelectedJump(item.jump_id);
+      }
+      if (nav !== "imports") setNav("imports");
+      setSearchOpen(false);
+      return;
+    }
+    setSelectedNote(null);
+    setSelectedFile(null);
+    if (nav !== "atlas") {
+      setNav("atlas");
+    }
+    setSearchOpen(false);
+  };
+
   const mutation = useMutation({
     mutationFn: globalSearch,
     onSuccess: (data) => {
       setSearchResults(data);
       setSearchOpen(true);
+      const best = data.notes[0] ?? data.files[0] ?? data.entities[0] ?? null;
+      if (best) {
+        openResult(best);
+      }
     },
   });
 
@@ -88,38 +122,19 @@ export const GlobalSearch: React.FC = () => {
             title="Notes"
             items={searchResults.notes}
             EmptyFallback="No notes match that query."
-            onSelect={(item) => {
-              setSelectedNote(item.id);
-              if (item.jump_id) {
-                setSelectedJump(item.jump_id);
-              }
-              if (nav !== "story") setNav("story");
-              setSearchOpen(false);
-            }}
+            onSelect={openResult}
           />
           <ResultGroup
             title="PDFs"
             items={searchResults.files}
             EmptyFallback="No indexed PDFs yet."
-            onSelect={(item) => {
-              setSelectedFile(item.id);
-              if (item.jump_id) {
-                setSelectedJump(item.jump_id);
-              }
-              if (nav !== "imports") setNav("imports");
-              setSearchOpen(false);
-            }}
+            onSelect={openResult}
           />
           <ResultGroup
             title="Entities"
             items={searchResults.entities}
             EmptyFallback="No entities matched."
-            onSelect={(_item) => {
-              setSelectedNote(null);
-              setSelectedFile(null);
-              if (nav !== "atlas") setNav("atlas");
-              setSearchOpen(false);
-            }}
+            onSelect={openResult}
           />
         </div>
       )}
@@ -135,6 +150,7 @@ interface ResultGroupProps {
     snippet: string;
     score: number;
     jump_id?: string | null;
+    source: "note" | "file" | "entity";
   }>;
   EmptyFallback: string;
   onSelect: (item: ResultGroupProps["items"][number]) => void;

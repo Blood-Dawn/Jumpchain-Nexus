@@ -1,9 +1,33 @@
 {
   "version": "2.0.0",
   "tasks": [
-    { "label": "Dev (Vite)", "type": "npm", "script": "dev", "problemMatcher": [] },
-    { "label": "Dev (Tauri)", "type": "npm", "script": "tauri:dev", "problemMatcher": [] },
-    { "label": "Migrate DB", "type": "npm", "script": "migrate", "problemMatcher": [] },
-    { "label": "Build (Tauri)", "type": "npm", "script": "tauri:build", "problemMatcher": [] }
+    {
+      "label": "Dev (Vite)",
+      "type": "npm",
+      "script": "dev",
+      "problemMatcher": [],
+      "detail": "Launch the React shell with bundled Node 22 (Ctrl+Shift+B, select Dev)."
+    },
+    {
+      "label": "Dev (Tauri)",
+      "type": "npm",
+      "script": "tauri:dev",
+      "problemMatcher": [],
+      "detail": "Run the desktop app with hot reload (Ctrl+Shift+B, choose Dev (Tauri))."
+    },
+    {
+      "label": "Migrate DB",
+      "type": "npm",
+      "script": "migrate",
+      "problemMatcher": [],
+      "detail": "Apply SQLite migrations to the bundled offline database."
+    },
+    {
+      "label": "Build (Tauri)",
+      "type": "npm",
+      "script": "tauri:build",
+      "problemMatcher": [],
+      "detail": "Create a production desktop bundle with Tauri."
+    }
   ]
 }

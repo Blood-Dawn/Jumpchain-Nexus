@@ -64,7 +64,7 @@ import { fileURLToPath } from "node:url";
 import envPaths from "env-paths";
 import initSqlJs from "sql.js";
 var PRODUCT_NAME = "Jumpchain Nexus";
-var DB_FILENAME = "jumpchain-nexus.db";
+var DB_FILENAME = "app.db";
 function resolveMigrationDir() {
     var __filename = fileURLToPath(import.meta.url);
     var __dirname = path.dirname(__filename);

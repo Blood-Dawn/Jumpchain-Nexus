@@ -1,0 +1,126 @@
+/*
+MIT License
+
+Copyright (c) 2025 Age-Of-Ages
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+import React, { Suspense, lazy, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { loadSnapshot } from "./data";
+import { useJmhStore } from "./store";
+import NavRail from "./NavRail";
+import { GlobalSearch } from "./GlobalSearch";
+import { Timeline } from "./Timeline";
+import { NextActionsPanel } from "./NextActionsPanel";
+
+const NotesEditor = lazy(async () => import("./NotesEditor"));
+const HelpPane = lazy(async () => import("./HelpPane"));
+const OnboardingWizard = lazy(async () => import("./OnboardingWizard"));
+
+export const JumpMemoryHub: React.FC = () => {
+  const setJumps = useJmhStore((state) => state.setJumps);
+  const setEntities = useJmhStore((state) => state.setEntities);
+  const setNotes = useJmhStore((state) => state.setNotes);
+  const setRecaps = useJmhStore((state) => state.setRecaps);
+  const setNextActions = useJmhStore((state) => state.setNextActions);
+  const setOnboardingComplete = useJmhStore((state) => state.setOnboardingComplete);
+  const onboardingComplete = useJmhStore((state) => state.onboardingComplete);
+  const helpPaneOpen = useJmhStore((state) => state.helpPaneOpen);
+  const setHelpPaneOpen = useJmhStore((state) => state.setHelpPaneOpen);
+
+  const snapshotQuery = useQuery({
+    queryKey: ["jmh-snapshot"],
+    queryFn: loadSnapshot,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (!snapshotQuery.data) {
+      return;
+    }
+    const { jumps, entities, notes, recaps, nextActions } = snapshotQuery.data;
+    setJumps(jumps);
+    setEntities(entities);
+    setNotes(notes);
+    setRecaps(recaps);
+    setNextActions(nextActions);
+    const hasExistingData = jumps.length > 0 || notes.length > 0 || recaps.length > 0;
+    if (hasExistingData) {
+      setOnboardingComplete(true);
+    }
+  }, [snapshotQuery.data, setEntities, setJumps, setNextActions, setNotes, setOnboardingComplete, setRecaps]);
+
+  const showWizard = !onboardingComplete && snapshotQuery.status !== "pending";
+
+  return (
+    <div className="hub-shell">
+      <NavRail />
+      <main className="hub-main">
+        <header className="hub-header">
+          <div className="hub-header__title">
+            <h1>Jump Memory Hub</h1>
+            <p>Centralize notes, recaps, and prep across your chain.</p>
+          </div>
+          <div className="hub-header__actions">
+            <GlobalSearch />
+            <button
+              type="button"
+              className="hub-header__help-toggle"
+              onClick={() => setHelpPaneOpen(!helpPaneOpen)}
+            >
+              {helpPaneOpen ? "Hide Help" : "Show Help"}
+            </button>
+          </div>
+        </header>
+        <section className="hub-grid">
+          <div className="hub-grid__timeline">
+            <Timeline />
+          </div>
+          <div className="hub-grid__next">
+            <NextActionsPanel />
+          </div>
+        </section>
+        <section className="hub-notes">
+          <Suspense fallback={<div className="hub-loading">Preparing Story Studio…</div>}>
+            <NotesEditor />
+          </Suspense>
+        </section>
+      </main>
+      {helpPaneOpen && (
+        <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
+          <HelpPane />
+        </Suspense>
+      )}
+      {showWizard && (
+        <Suspense fallback={null}>
+          <OnboardingWizard
+            onFinished={() => {
+              snapshotQuery.refetch().catch((error) => console.error("Failed to refresh snapshot", error));
+            }}
+          />
+        </Suspense>
+      )}
+    </div>
+  );
+};
+
+export default JumpMemoryHub;

@@ -91,6 +91,7 @@ export const Timeline: React.FC = () => {
           itemCount={filtered.length}
           itemSize={ITEM_HEIGHT}
           width="100%"
+          overscanCount={3}
           itemData={{ items: filtered, jumpLookup }}
         >
           {TimelineRow}

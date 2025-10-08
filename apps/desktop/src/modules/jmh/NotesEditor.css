@@ -47,6 +47,14 @@ SOFTWARE.
   text-transform: uppercase;
 }
 
+.notes-editor__hint {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: rgba(229, 236, 246, 0.5);
+}
+
 .notes-editor__badge {
   display: inline-flex;
   margin-left: 0.75rem;

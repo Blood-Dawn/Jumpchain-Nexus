@@ -30,7 +30,7 @@ import envPaths from "env-paths";
 import initSqlJs from "sql.js";
 
 const PRODUCT_NAME = "Jumpchain Nexus";
-const DB_FILENAME = "jumpchain-nexus.db";
+const DB_FILENAME = "app.db";
 
 function resolveMigrationDir(): string {
   const __filename = fileURLToPath(import.meta.url);

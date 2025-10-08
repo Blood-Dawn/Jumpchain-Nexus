@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS files (
     kind TEXT,
     path TEXT,
     original_name TEXT,
+    content TEXT DEFAULT '',
     indexed_at TEXT
 );
 
@@ -96,6 +97,23 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS note_ad AFTER DELETE ON notes BEGIN
     INSERT INTO note_fts(note_fts, rowid, content, note_id) VALUES('delete', old.rowid, old.md, old.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS file_ai AFTER INSERT ON files BEGIN
+    INSERT INTO file_fts(rowid, content, file_id)
+    VALUES (new.rowid, COALESCE(new.content, ''), new.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS file_au AFTER UPDATE ON files BEGIN
+    INSERT INTO file_fts(file_fts, rowid, content, file_id)
+    VALUES('delete', old.rowid, COALESCE(old.content, ''), old.id);
+    INSERT INTO file_fts(rowid, content, file_id)
+    VALUES (new.rowid, COALESCE(new.content, ''), new.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS file_ad AFTER DELETE ON files BEGIN
+    INSERT INTO file_fts(file_fts, rowid, content, file_id)
+    VALUES('delete', old.rowid, COALESCE(old.content, ''), old.id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS entity_ai AFTER INSERT ON entities BEGIN

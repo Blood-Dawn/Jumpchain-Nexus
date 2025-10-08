@@ -311,6 +311,7 @@ export const NotesEditor: React.FC = () => {
       <header className="notes-editor__header">
         <div>
           <h2>Story Studio</h2>
+          <span className="notes-editor__hint">Try @perk, @item, or @companion to link entities.</span>
           {currentNote?.jump_id && (
             <span className="notes-editor__badge">Jump-linked</span>
           )}
@@ -344,9 +345,10 @@ export const NotesEditor: React.FC = () => {
           <strong>{hover.entity.name}</strong>
           <span className="notes-editor__hover-type">{hover.entity.type}</span>
           {hoverSummary && <p>{hoverSummary}</p>}
-          {hoverSummary && <p>{hoverSummary}</p>}
         </div>
       )}
     </section>
   );
 };
+
+export default NotesEditor;

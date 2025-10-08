@@ -42,6 +42,37 @@ export default defineConfig(function () { return __awaiter(void 0, void 0, void 
     return __generator(this, function (_a) {
         return [2 /*return*/, ({
                 plugins: [react()],
+                build: {
+                    chunkSizeWarningLimit: 768,
+                    rollupOptions: {
+                        output: {
+                            manualChunks: function (id) {
+                                if (!id.includes("node_modules")) {
+                                    return undefined;
+                                }
+                                if (id.includes("pdfjs-dist")) {
+                                    return "pdf-viewer";
+                                }
+                                if (id.includes("@tiptap")) {
+                                    return "tiptap";
+                                }
+                                if (id.includes("@tanstack/react-query")) {
+                                    return "react-query";
+                                }
+                                if (id.includes("@tauri-apps")) {
+                                    return "tauri";
+                                }
+                                if (id.includes("zustand")) {
+                                    return "zustand";
+                                }
+                                if (id.includes("react")) {
+                                    return "react-vendor";
+                                }
+                                return "vendor";
+                            },
+                        },
+                    },
+                },
                 // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
                 //
                 // 1. prevent Vite from obscuring rust errors

@@ -71,6 +71,8 @@ export interface JmhState {
   setRightPaneMode: (mode: "glossary" | "context") => void;
   helpTopic: string;
   setHelpTopic: (topic: string) => void;
+  helpPaneOpen: boolean;
+  setHelpPaneOpen: (open: boolean) => void;
   onboardingComplete: boolean;
   setOnboardingComplete: (complete: boolean) => void;
 }
@@ -104,6 +106,8 @@ export const useJmhStore = create<JmhState>((set) => ({
   setRightPaneMode: (rightPaneMode) => set({ rightPaneMode }),
   helpTopic: "Origins",
   setHelpTopic: (helpTopic) => set({ helpTopic }),
+  helpPaneOpen: true,
+  setHelpPaneOpen: (helpPaneOpen) => set({ helpPaneOpen }),
   onboardingComplete: false,
   setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
 }));

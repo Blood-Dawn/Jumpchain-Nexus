@@ -22,14 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 import "./App.css";
+import { JumpMemoryHub } from "./modules/jmh";
 
-function App() {
-  return (
-    <main className="container">
-      <h1>Jumpchain Nexus</h1>
-      <p>Desktop shell ready. Feature modules arrive next.</p>
-    </main>
-  );
-}
+const App: React.FC = () => {
+  return <JumpMemoryHub />;
+};
 
 export default App;

@@ -45,7 +45,8 @@ export const NextActionsPanel: React.FC = () => {
         due_date: dueDate ? new Date(dueDate).toISOString() : null,
       } as const;
       await upsertNextAction({ ...action });
-      setNextActions([...actions, action]);
+      const current = useJmhStore.getState().nextActions;
+      setNextActions(sortNextActions([...current, action]));
       setSummary("");
       setDueDate("");
     },
@@ -54,7 +55,8 @@ export const NextActionsPanel: React.FC = () => {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await deleteNextAction(id);
-      setNextActions(actions.filter((action) => action.id !== id));
+      const current = useJmhStore.getState().nextActions;
+      setNextActions(current.filter((action) => action.id !== id));
     },
   });
 

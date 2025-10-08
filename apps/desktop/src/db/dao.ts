@@ -74,7 +74,7 @@ export interface NextActionRecord {
   due_date: string | null;
 }
 
-const DB_FILENAME = "jumpchain-nexus.db";
+const DB_FILENAME = "app.db";
 let dbPromise: Promise<Database> | null = null;
 let schemaApplied = false;
 
@@ -251,26 +251,34 @@ export async function upsertFileRecord(file: {
   original_name: string;
   indexed_at?: string | null;
 }): Promise<void> {
-  const now = new Date().toISOString();
   await withInit((db) =>
     db.execute(
-      `INSERT INTO files (id, jump_id, kind, path, original_name, indexed_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT(id) DO UPDATE SET jump_id = excluded.jump_id, kind = excluded.kind, path = excluded.path, original_name = excluded.original_name, indexed_at = COALESCE(excluded.indexed_at, files.indexed_at)`,
-      [file.id, file.jump_id ?? null, file.kind, file.path, file.original_name, file.indexed_at ?? now]
+      `INSERT INTO files (id, jump_id, kind, path, original_name, content, indexed_at)
+       VALUES ($1, $2, $3, $4, $5, '', $6)
+       ON CONFLICT(id) DO UPDATE SET
+         jump_id = excluded.jump_id,
+         kind = excluded.kind,
+         path = excluded.path,
+         original_name = excluded.original_name,
+         indexed_at = COALESCE(excluded.indexed_at, files.indexed_at)`,
+      [
+        file.id,
+        file.jump_id ?? null,
+        file.kind,
+        file.path,
+        file.original_name,
+        file.indexed_at ?? null,
+      ]
     )
   );
 }
 
 export async function indexFileText(fileId: string, content: string): Promise<void> {
   await withInit(async (db) => {
-    await db.execute(`INSERT INTO file_fts(file_fts) VALUES('rebuild')`);
     await db.execute(
-      `INSERT INTO file_fts(rowid, content, file_id)
-       VALUES ((SELECT rowid FROM files WHERE id = $1), $2, $1)`,
-      [fileId, content]
+      `UPDATE files SET content = $2, indexed_at = $3 WHERE id = $1`,
+      [fileId, content, new Date().toISOString()]
     );
-    await db.execute(`UPDATE files SET indexed_at = $2 WHERE id = $1`, [fileId, new Date().toISOString()]);
   });
 }
 
@@ -284,6 +292,16 @@ export interface RankedSearchResult {
 }
 
 const SNIPPET_LEN = 160;
+
+function toFtsPrefixQuery(term: string): string {
+  const trimmed = term.trim();
+  if (!trimmed) return trimmed;
+  const escaped = trimmed.replace(/"/g, '""');
+  return escaped
+    .split(/\s+/)
+    .map((token) => `${token}*`)
+    .join(" ");
+}
 
 function sanitizeSnippet(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -312,7 +330,10 @@ interface EntitySearchRow {
 }
 
 export async function searchNotes(term: string): Promise<RankedSearchResult[]> {
-  const query = `${term.replace(/"/g, '""')}*`;
+  const expression = toFtsPrefixQuery(term);
+  if (!expression) {
+    return [];
+  }
   const rows = await withInit((db) =>
     db.select<NoteSearchRow[]>(
       `SELECT n.id as id,
@@ -324,7 +345,7 @@ export async function searchNotes(term: string): Promise<RankedSearchResult[]> {
        WHERE note_fts MATCH $1
        ORDER BY score ASC
        LIMIT 20`,
-      [query, SNIPPET_LEN]
+      [expression, SNIPPET_LEN]
     )
   );
   return (rows as NoteSearchRow[]).map((row) => ({
@@ -338,7 +359,10 @@ export async function searchNotes(term: string): Promise<RankedSearchResult[]> {
 }
 
 export async function searchFiles(term: string): Promise<RankedSearchResult[]> {
-  const query = `${term.replace(/"/g, '""')}*`;
+  const expression = toFtsPrefixQuery(term);
+  if (!expression) {
+    return [];
+  }
   const rows = await withInit((db) =>
     db.select<FileSearchRow[]>(
       `SELECT f.id as id,
@@ -351,7 +375,7 @@ export async function searchFiles(term: string): Promise<RankedSearchResult[]> {
        WHERE file_fts MATCH $1
        ORDER BY score ASC
        LIMIT 20`,
-      [query, SNIPPET_LEN]
+      [expression, SNIPPET_LEN]
     )
   );
   return (rows as FileSearchRow[]).map((row) => ({
@@ -365,7 +389,10 @@ export async function searchFiles(term: string): Promise<RankedSearchResult[]> {
 }
 
 export async function searchEntities(term: string): Promise<RankedSearchResult[]> {
-  const query = term.replace(/"/g, '""');
+  const expression = toFtsPrefixQuery(term);
+  if (!expression) {
+    return [];
+  }
   const rows = await withInit((db) =>
     db.select<EntitySearchRow[]>(
       `SELECT e.id as id,
@@ -377,7 +404,7 @@ export async function searchEntities(term: string): Promise<RankedSearchResult[]
        WHERE entity_fts MATCH $1
        ORDER BY score ASC
        LIMIT 20`,
-      [query, SNIPPET_LEN]
+      [expression]
     )
   );
   return (rows as EntitySearchRow[]).map((row) => ({
