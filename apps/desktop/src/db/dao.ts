@@ -138,11 +138,56 @@ async function getDb(): Promise<Database> {
 }
 
 function splitStatements(sql: string): string[] {
-  return sql
-    .split(/;\s*(?:\n|$)/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((statement) => `${statement};`);
+  const lines = sql.split(/\r?\n/);
+  const statements: string[] = [];
+  let buffer: string[] = [];
+  let insideBeginEnd = false;
+
+  const flush = () => {
+    if (!buffer.length) {
+      return;
+    }
+    const statement = buffer.join("\n").trim();
+    if (statement) {
+      statements.push(statement);
+    }
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      if (buffer.length) {
+        buffer.push(line);
+      }
+      continue;
+    }
+
+    buffer.push(line);
+    const upper = trimmed.toUpperCase();
+
+    if (!insideBeginEnd && upper.endsWith("BEGIN")) {
+      insideBeginEnd = true;
+      continue;
+    }
+
+    if (insideBeginEnd) {
+      if (upper.endsWith("END;")) {
+        flush();
+        insideBeginEnd = false;
+      }
+      continue;
+    }
+
+    if (trimmed.endsWith(";")) {
+      flush();
+    }
+  }
+
+  flush();
+
+  return statements;
 }
 
 export async function ensureInitialized(): Promise<void> {

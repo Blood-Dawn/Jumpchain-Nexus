@@ -63,39 +63,14 @@ const StoryStudio: React.FC = () => {
     }
   }, [storiesQuery.data, setStories]);
 
-  if (storiesQuery.isLoading && !stories.length) {
-    return (
-      <main className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
-        <div className="studio-empty-state">
-          <div>
-            <h2>Loading Story Studio…</h2>
-            <p>Bootstrapping stories, chapters, and grammar tools.</p>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (storiesQuery.isError) {
-    const rawError = storiesQuery.error as unknown;
-    console.error("Story Studio failed to load", rawError);
-    const message =
-      rawError instanceof Error
-        ? rawError.message
-        : typeof rawError === "string"
-          ? rawError
-          : "Unknown error";
-    return (
-      <main className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
-        <div className="studio-empty-state">
-          <div>
-            <h2>Story Studio failed to load</h2>
-            <p>{message}</p>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const isInitialLoading = storiesQuery.isLoading && !stories.length;
+  const rawError = storiesQuery.error as unknown;
+  const errorMessage =
+    rawError instanceof Error
+      ? rawError.message
+      : typeof rawError === "string"
+        ? rawError
+        : "Unknown error";
 
   const currentStory = useMemo(() => {
     if (!stories.length) {
@@ -239,8 +214,31 @@ const StoryStudio: React.FC = () => {
     await handleCreateChapter(storyId);
   };
 
-  return (
-    <main className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
+  let shellContent: React.ReactNode = null;
+  let showSettings = false;
+
+  if (isInitialLoading) {
+    shellContent = (
+      <div className="studio-empty-state">
+        <div>
+          <h2>Loading Story Studio…</h2>
+          <p>Bootstrapping stories, chapters, and grammar tools.</p>
+        </div>
+      </div>
+    );
+  } else if (storiesQuery.isError) {
+    console.error("Story Studio failed to load", rawError);
+    shellContent = (
+      <div className="studio-empty-state">
+        <div>
+          <h2>Story Studio failed to load</h2>
+          <p>{errorMessage}</p>
+        </div>
+      </div>
+    );
+  } else {
+    showSettings = true;
+    shellContent = (
       <div className={layout === "top" ? "studio-shell__chrome studio-shell__chrome--top" : "studio-shell__chrome"}>
         {layout === "top" ? (
           <>
@@ -290,7 +288,13 @@ const StoryStudio: React.FC = () => {
           </>
         )}
       </div>
-      <StudioSettings />
+    );
+  }
+
+  return (
+    <main className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
+      {shellContent}
+      {showSettings ? <StudioSettings /> : null}
     </main>
   );
 };
