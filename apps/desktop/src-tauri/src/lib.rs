@@ -60,7 +60,7 @@ fn paths_to_strings(paths: Vec<FilePath>) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub async fn db_query(
+async fn db_query(
     _app: AppHandle,
     _query: String,
     _values: Option<Vec<Value>>,
@@ -69,7 +69,7 @@ pub async fn db_query(
 }
 
 #[tauri::command]
-pub async fn file_pick(
+async fn file_pick(
     app: AppHandle,
     payload: Option<FilePickRequest>,
 ) -> Result<Option<Vec<String>>, String> {
@@ -89,16 +89,12 @@ pub async fn file_pick(
         if request.multiple {
             dialog.blocking_pick_folders()
         } else {
-            dialog
-                .blocking_pick_folder()
-                .map(|opt| opt.map(|single| vec![single]))
+            dialog.blocking_pick_folder().map(|single| vec![single])
         }
     } else if request.multiple {
         dialog.blocking_pick_files()
     } else {
-        dialog
-            .blocking_pick_file()
-            .map(|opt| opt.map(|single| vec![single]))
+        dialog.blocking_pick_file().map(|single| vec![single])
     };
 
     match selection {
@@ -108,7 +104,7 @@ pub async fn file_pick(
 }
 
 #[tauri::command]
-pub async fn index_pdf(
+async fn index_pdf(
     _app: AppHandle,
     _file_id: String,
     _absolute_path: String,
