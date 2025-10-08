@@ -1,90 +1,164 @@
-# JumpchainCharacterBuilderWPF
-## A new way to store your Jumper data.
+# Jumpchain Nexus
+## A new way to build, manage, and narrate your Jumpchain.
 
 ## Overview
-The Jumpchain Character Builder is a program for storing, managing, and exporting Jumpchain character data. It is designed to take as much of the burden off the user's shoulders in favor of allowing them to focus on the less tedious parts of making builds. Budgeting, discounts, replication of purchases to character sheets, and even the process of exporting a build to share with the Jumpchain community are all automated, among other things.
+Jumpchain Nexus (formerly the Jumpchain Character Builder) is a full lifecycle toolkit for running a Jumpchain: planning Jumps, budgeting and tracking purchases, managing companions, modeling supplements (Body Mod, Warehouse, Drawback systems), exporting builds, analyzing statistics, randomizing future Jumps, and now outlining the evolving story of your chain. Beyond structured data entry, the project’s modern (Tauri + React) desktop rewrite introduces note & narrative scaffolding (onboarding prompts, markdown notes, perk mention indexing) so you can progressively develop a cohesive in?universe chronicle while you build. The classic WPF application automates repetitive bookkeeping (discounts, freebies, stipends, point banking, investment ratios, incremental supplement gains) so you can focus on creative and strategic decisions instead of manual recalculation.
 
-The goal of this project is primarily to suit my own needs, but I have also made an effort to include functionality that I feel others will find useful. It is my hope that those of you that choose to make use of this program will find it convenient to use. If it doesn't quite work for you for any reason then don't hesitate to let me know. I can't promise I'll take action on every piece of feedback that I receive, but I will make note of it.
+The goal remains: minimize friction, surface insight, and preserve flexibility. If something does not fit your workflow, feel free to open feedback—no guarantee of adoption, but all signals are noted.
+
+## Credits & Attribution
+Jumpchain Nexus is a continuation and adaptation of the original Jumpchain Character Builder by Age-Of-Ages. Core ideas, early data structures, and foundational workflows were inspired by (and in some cases ported from) that codebase.
+
+Original repository: https://github.com/Age-Of-Ages/JumpchainCharacterBuilder
+
+Additional acknowledgments:
+- TobiasCook (Reddit): Originator of the early spreadsheet lineage that sparked later tooling.
+- He_Who_Writes (Reddit): Expanded spreadsheet and early "skill" concept experimentation.
+
+Thanks to the broader Jumpchain community for patterns, export formats, and category conventions reflected in configuration options.
 
 ## Contributing to the new desktop app
+A Tauri + React rewrite lives in `apps/desktop`. A portable Node.js runtime is vendored under `tools/node/node-v22.12.0-win-x64`. Use the wrapper scripts at the repo root (`node.cmd`, `npm.cmd`, `npx.cmd`) so everyone targets the same toolchain.
 
-The repository now contains a Tauri + React rewrite of the builder located in `apps/desktop`. We ship a portable Node.js runtime in `tools/node/node-v22.12.0-win-x64`, along with helper scripts (`node.cmd`, `npm.cmd`, `npx.cmd`) at the repo root. Use these wrappers for installs, builds, and dev servers so everyone targets the same toolchain.
-
-Example workflow from PowerShell:
-
+From PowerShell (repository root):
 ```powershell
 .\npm.cmd install
-.\npm.cmd run dev
-.\npm.cmd run build
+.\npm.cmd run dev        # launches the React + Tauri dev environment
+.\npm.cmd run build      # production web build (Tauri bundling uses tauri:build)
+.\npm.cmd run tauri:dev  # native shell with live reload
+.\npm.cmd run tauri:build
 ```
-
-See `apps/desktop/README.md` for full details, including migration scripts and test commands.
-
+Migration & DB scripts (SQLite via `@tauri-apps/plugin-sql`):
+```powershell
+.\npm.cmd run migrate
+```
+See `apps/desktop/README.md` (if present) for module details, schema evolution, and test commands.
 
 ## Feature List
 1. Jumpchain Overview
    - Full storage of all Jumps and their builds.
-   - Store all Origin-related data, including but not limited to the actual Origin, Location, Age, and Species.
-   - Per-character lists of Purchases, Drawbacks, and Scenarios.
-   - Purchases can have various 'traits' associated with them, which will be combined and calculated in the Cosmic Passport.
-   - Companion Import options, which allow a stipend to be granted to selected characters.
-   - A complete variety of Purchase categories for both Perks and Items, including the ability to tag a Purchase as a Body-Mod or Warehouse Addon.
-   - Various Jump settings, such as whether it is a Gauntlet or not, what the default budget is, stipends, and special Purchase types (Such as a Power-builder section).
+   - Origin, Location, Species, Age, Gender, and custom Origin detail tracking.
+   - Per-character Purchases, Drawbacks, Scenarios, Companion Imports.
+   - Automated freebies/discounts based on Origin + threshold rules.
+   - Purchase trait attributes feeding Passport stat & skill aggregation.
+   - Gauntlet flag and per-Jump skip-number logic for supplement pacing.
 2. Cosmic Passport
-   - Store all character data, including cosmetic notes such as their personality or physical description.
-   - List of Alt-Forms.
-   - Full list of Perks, split into categories and automatically replicated from all Jump builds.
-   - Attributes and Skills to easily reference Jumper progression, calculated from the traits chosen for Purchases.
-   - Learning Rates section, to store data on those essential training boosters.
-   - And, of course, all Body-Mod data with the option to choose either a generic Supplement or preset configuration for the SB Body-Mod or Essential Body-Mod.
+   - Complete character profile data: biography, physical & personality notes.
+   - Alt-Forms list with strengths/weaknesses.
+   - Aggregated Perks & Items auto-synchronized from all Jumps.
+   - Attributes / Skills ranking + Booster tracking & derived calculations.
+   - Body Mod linkage (generic, SB Body Mod, Essential Body Mod) with per-character supplement delays.
 3. Cosmic Warehouse
-   - Store all Warehouse data, with the option to select a Personal Reality-focused configuration.
-   - List of Warehouse Addons, stored from all character builds.
+   - Generic Warehouse or Personal Reality modes (core modes, incremental, unlimited, patient jumper, investment calculus).
+   - Addons, Limitations, point investment & incremental gain modeling.
 4. Cosmic Locker
-   - Store all Item data, split into categories just like the character Perk lists.
+   - Consolidated Item inventory (mirrors perk-style categorization & export grouping).
 5. Drawback Supplement
-   - Store House-Rules and Universal Drawbacks, with different configurations available. (Currently only my U.U. Supplement has any unique features.)
-   - Drawback points are granted in every Jump unless suspended for that Jump or revoked at or before that Jump number.
+   - Multiple supplement frameworks (Generic, UDS, UU) including suspend & revoke timelines, gauntlet rules, and point channel segmentation (Companion, Item, Warehouse).
 6. Export
-   - This is the big one. Export various forms of data with BBCode, Markdown, or no visual formatting, with a variety of configuration options to customize the look of the output data.
-   - Each output option can have its various sections enabled, disabled, and reordered to suit the user's preferences.
-   - Configuration options have been drawn from my own observations of how various people format their builds for sharing with the community, to make this feature as useful as possible.
-   - Character sheets output, with all of the data stored in the Cosmic Passport feature (save for the Body-Mod) available to output.
-   - Jump build output, which can output one or all builds for a given Jump, and which can additionally output the details given for the document itself.
-   - Supplement output for Body-Mod, Warehouse, and Drawback Supplement data.
+   - Build, Profile, Warehouse, Body Mod, Drawback Supplement export in Generic text, BBCode, or Markdown.
+   - Reorderable sections, optional spoilers, per-mode formatting toggles, budget formatting variants.
+   - Companion build inclusion, origin description controls, attribute & category selective output.
 7. Statistics
-   - Display statistics data for individual characters and the overall Jumper save file.
-   - Displays data such as completed Jumps and Gauntlets, various Purchase types bought, Addons, and a summary of points spent.
-   - Additionally displays per-category data for Perks and Items.
+   - Global and per-character spend/earn summaries, perk vs item point splits, drawback/scenario yields.
+   - Category breakdowns, augmentation & addon tallies, point bank deltas.
 8. Jumpchain Options
-   - Configure defaults for newly created Jumps. 
-   - Select Body-Mod, Warehouse, and Drawback Supplement used, and configure options for each. 
-   - These options depend on the specific selections made, and can include various modes for certain Supplements, or on which Jump the Jumper took the Supplement.
-   - Add your own user-defined Perk and Item categories, for sorting and displaying your Jumper's purchases.
+   - Global defaults (budgets, stipends, freebie thresholds, discount mode).
+   - Point banking toggles (gauntlet access, shared supplemented Jump bank, companion bank caps).
+   - Supplement selection + per-supplement tuning (investment ratios, incremental intervals, delays, modes).
+   - User-defined perk & item categories with reorder and rename validations.
 9. Input Formatter
-   - Correctly format text copied from PDF files to remove unwanted line breaks automatically, for easier pasting into various Jump build fields.
-   - Can choose to remove or leave intended line breaks (blank lines) in.
+   - Cleans PDF-origin text (line break normalization, double-line preservation toggle, whitespace trimming, XML-safe filtering).
 10. Jump Randomizer
-   - Create any number of lists of Jumps in the Jump Randomizer Settings.
-   - Jumps can have a name, a weight to determine likelihood of selection, and a link to the Jump document.
-   - Use the Random Jump Selector to pick one or more randomly selected Jumps from these lists.
-   - Jump lists are not per-save and will be available for all Jumper saves.
+   - Weighted list management from a normalized text file (`JumpList.txt`).
+   - Multi-pull selection without replacement, optional link association, template regeneration safeguards.
+11. Narrative & Notes (Tauri rewrite)
+   - Onboarding workflow seeds a Jump, associated note, default actions, and perk entities.
+   - Markdown note storage (TipTap/ProseMirror based editor pipeline) enabling incremental story building.
+   - Mention-ready perk insertion & future-ready for cross-linking narrative beats to mechanical state.
+12. Point Banking & Investments
+   - Configurable per-character banking with withdrawal constraints, gauntlet gating, and supplemented Jump sharing.
+   - CP -> WP / BP / supplement investment ratios with incremental & capped modes (Unlimited / Access tiers / cumulative variants).
 
+(Other features from earlier versions persist unless explicitly deprecated.)
 
 ## Use Instructions
-(Todo: Write use instructions.)
+### Download (Prebuilt)
+Navigate to Releases and download the latest `JumpchainNexus.zip` (name may still appear as legacy until release naming is fully migrated). Extract and run the WPF executable (e.g., `JumpchainNexus.exe`). If Windows SmartScreen warns, choose "More Info" then "Run Anyway" or unblock via File Properties.
 
-Download the latest version of the software by navigating to the Releases page on the right side of this page and downloading the JumpchainCharacterBuilder.zip file located in the Assets section of the most recent release. If you download anything from the front page of the repository (where you are right now) then you will only receive the source code of this software. Once you have downloaded the correct file, you can unzip it into its own folder. If you have downloaded the correct file then you should have an executable file in the main folder. If you do not see the JumpchainCharacterBuilder.exe file then you have downloaded the incorrect .zip file.
+### Running Source (WPF)
+Prerequisites: .NET 8 SDK (Windows). From repo root:
+```powershell
+dotnet restore
+dotnet build
+# Optionally:
+dotnet run --project JumpchainCharacterBuilder/JumpchainCharacterBuilder.csproj
+```
+The WPF project remains under the original `JumpchainCharacterBuilder` folder pending full namespace remap.
 
-When running the program, Windows Smartscreen may complain about it being unrecognized. This can be resolved either by clicking 'More Info' in the warning window and then 'Run Anyway'. Alternatively, you can right click on the exe, select Properties in the context menu, and then look for a security notice at the bottom of the properties window. There should be a checkbox that is labeled 'Unblock', and checking this will tell Smartscreen to allow it.
+### Running Source (Tauri + React)
+Use the bundled Node runtime wrappers (do NOT rely on a different system Node to avoid drift):
+```powershell
+.\npm.cmd install
+.\npm.cmd run dev          # web + rust dev
+.\npm.cmd run tauri:dev    # native shell variant
+```
+Build production bundle:
+```powershell
+.\npm.cmd run tauri:build
+```
+Run DB migrations (idempotent):
+```powershell
+.\npm.cmd run migrate
+```
 
-## Credits
-Although this program was coded solely by myself, some aspects of the design do call back to my original Jumpchain Character Sheet. As such, I would like to share my thanks once again to those that helped me along the way.
-- TobiasCook (Reddit): For creating the original Jumpchain character spreadsheet that one day led to my own creation, thank you.
-- He_Who_Writes (Reddit): In addition to producing the expanded form of the Jumpchain character spreadsheet that I eventually used, they also designed the first take on a "skill" system.
+### Saving & Backups
+Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are maintained in `Backups/` (`(1)` oldest ? rotated). Use "Save As" for branching timelines.
 
-***
+### Randomizer Lists
+`JumpList.txt` regenerates with a template if missing. Edit via UI where possible—manual edits must preserve `JumpName | Weight | Link` format under `[Section]` tags.
 
-This project uses the following Nuget packages as dependencies:
-- CommunityToolkit.Mvvm - Using the MIT license.
-- Microsoft.Extensions.DependencyInjection - Using the MIT license.
+## Technology Stack
+### Legacy / Classic App (WPF)
+- .NET 8 (Windows), WPF MVVM
+- CommunityToolkit.Mvvm 8.2.0 (INPC / Commands / Messaging)
+- Microsoft.Extensions.DependencyInjection 8.0.0 (DI container)
+- XML DataContract serialization for `SaveFile`
+
+### Modern Desktop (Tauri + React)
+- React 19 + Vite + TypeScript 5
+- State / Data: Zustand, TanStack Query
+- Rich Text / Notes: TipTap (ProseMirror) + Mention extension
+- Markdown parsing: `marked`
+- PDF placeholder (future indexing): `pdfjs-dist`
+- Packaging + Native Bridges: Tauri 2, plugins (dialog, fs, sql, opener)
+- Local DB: SQLite via `@tauri-apps/plugin-sql` + migration scripts
+- Utility: `jszip`, `zod` validation, `react-window` virtualization
+- Rust Crate Dependencies: `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`, `tauri-plugin-sql`, `serde`, `serde_json`
+
+## Dependencies Summary (Top Level)
+WPF NuGet:
+- CommunityToolkit.Mvvm (MIT)
+- Microsoft.Extensions.DependencyInjection (MIT)
+
+Node / Rust (Desktop rewrite): see `apps/desktop/package.json` & `Cargo.toml` for authoritative versions (locked via repository toolchain).
+
+## Export Formats
+All export modes generate plain text artifacts into `Exports/` subfolders. Section ordering & inclusion are controlled via `Options -> Export Settings`. Budget formatting variants (enclosure, order reversal, separator character) allow alignment with common community style conventions (BBCode spoilers, Markdown headings, dense list mode).
+
+## Security Notes
+- XML loading forbids DTD processing and nulls the resolver to mitigate XXE vectors.
+- Rolling backups prevent silent corruption on abrupt save interruption.
+- No external network calls are made by the WPF app during normal operation.
+
+## Roadmap (Indicative / Non-Contractual)
+- Unified domain core shared between WPF and Tauri front ends.
+- Enhanced narrative linking (entity references, timeline synthesis, quest chains).
+- PDF ingestion & structured perk parsing (opt-in pipeline).
+- Modular plugin surface for custom supplement schemas.
+
+## License
+MIT License applies to derivative and original portions unless a subcomponent specifies otherwise.
+
+## Previous Name
+If you encounter references to "Jumpchain Character Builder" in folders or class namespaces, they persist for backward compatibility and will be gradually refactored.
