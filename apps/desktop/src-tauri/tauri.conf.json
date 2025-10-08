@@ -12,12 +12,7 @@
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none';",
-      "dangerousRemoteDomainIpcAccess": [],
-      "pattern": {
-        "use": "isolation",
-        "scope": ["$APP/"]
-      }
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none';"
     },
     "windows": [
       {
