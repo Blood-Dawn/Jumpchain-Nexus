@@ -1,0 +1,3 @@
+[submodule "apps/desktop/legacy/old-wpf"]
+	path = apps/desktop/legacy/old-wpf
+	url = https://github.com/Age-Of-Ages/JumpchainCharacterBuilder
