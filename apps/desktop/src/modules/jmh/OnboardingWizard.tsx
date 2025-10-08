@@ -30,21 +30,22 @@ import { useJmhStore } from "./store";
 
 export interface OnboardingWizardProps {
   onFinished: () => void;
+  onDismiss: () => void;
 }
 
-const BLANK_PAYLOAD: OnboardingPayload = {
+const makeBlankPayload = (): OnboardingPayload => ({
   universeName: "",
   jumpTitle: "",
   origin: "",
   perks: ["", "", ""],
   premiseLines: ["", "", ""],
-};
+});
 
 type PerkIndex = 0 | 1 | 2;
 type PremiseIndex = 0 | 1 | 2;
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished }) => {
-  const [payload, setPayload] = useState<OnboardingPayload>(BLANK_PAYLOAD);
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished, onDismiss }) => {
+  const [payload, setPayload] = useState<OnboardingPayload>(() => makeBlankPayload());
   const setOnboardingComplete = useJmhStore((state) => state.setOnboardingComplete);
   const setJumps = useJmhStore((state) => state.setJumps);
   const setEntities = useJmhStore((state) => state.setEntities);
@@ -64,7 +65,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished }
     },
     onSuccess: () => {
       setOnboardingComplete(true);
+      setPayload(makeBlankPayload());
       onFinished();
+      onDismiss();
+    },
+    onError: (error) => {
+      console.error("Failed to run onboarding", error);
     },
   });
 
@@ -87,12 +93,27 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished }
   const canSubmit =
     payload.universeName.trim() && payload.jumpTitle.trim() && payload.origin.trim();
 
+  const handleDismiss = () => {
+    if (mutation.isPending) return;
+    setPayload(makeBlankPayload());
+    mutation.reset();
+    onDismiss();
+  };
+
   return (
     <div className="onboarding-overlay">
       <section className="onboarding">
         <header>
           <h1>Jumpchain Nexus: First Jump Setup</h1>
           <p>We need a few details to tune your Story Studio and timeline.</p>
+          <button
+            type="button"
+            className="onboarding__close"
+            onClick={handleDismiss}
+            aria-label="Dismiss onboarding"
+          >
+            ×
+          </button>
         </header>
         <form
           onSubmit={(event) => {
@@ -101,6 +122,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished }
             mutation.mutate();
           }}
         >
+          {mutation.isError && (
+            <p className="onboarding__error" role="alert">
+              We couldn&apos;t create that jump yet. Please check your details or try again.
+            </p>
+          )}
           <div className="onboarding__grid">
             <label>
               Universe or Setting
@@ -164,6 +190,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onFinished }
           </fieldset>
 
           <footer className="onboarding__actions">
+            <button
+              type="button"
+              className="onboarding__secondary"
+              disabled={mutation.isPending}
+              onClick={handleDismiss}
+            >
+              Skip for now
+            </button>
             <button type="submit" disabled={!canSubmit || mutation.isPending}>
               {mutation.isPending ? "Fitting jump threads…" : "Create Jump"}
             </button>

@@ -49,6 +49,8 @@ export const HelpPane: React.FC = () => {
   const helpTopic = useJmhStore((state) => state.helpTopic);
   const setHelpTopic = useJmhStore((state) => state.setHelpTopic);
   const setHelpPaneOpen = useJmhStore((state) => state.setHelpPaneOpen);
+  const setOnboardingOpen = useJmhStore((state) => state.setOnboardingOpen);
+  const onboardingComplete = useJmhStore((state) => state.onboardingComplete);
   const [html, setHtml] = useState<string>("<p>Select a topic to learn more.</p>");
 
   const loader = useMemo(() => {
@@ -91,6 +93,19 @@ export const HelpPane: React.FC = () => {
           Close
         </button>
       </header>
+      <div className="help-pane__cta">
+        <div>
+          <h3>{onboardingComplete ? "Plan your next excursion" : "Kickstart your chain"}</h3>
+          <p>
+            {onboardingComplete
+              ? "Open the guided setup whenever you want to chart a fresh jump."
+              : "Walk through the first-jump wizard to seed your Story Studio and timeline."}
+          </p>
+        </div>
+        <button type="button" onClick={() => setOnboardingOpen(true)}>
+          Launch Jump Setup
+        </button>
+      </div>
       <div className="help-pane__topics">
         {topics.map((topic) => (
           <button

@@ -45,6 +45,8 @@ export const JumpMemoryHub: React.FC = () => {
   const onboardingComplete = useJmhStore((state) => state.onboardingComplete);
   const helpPaneOpen = useJmhStore((state) => state.helpPaneOpen);
   const setHelpPaneOpen = useJmhStore((state) => state.setHelpPaneOpen);
+  const onboardingOpen = useJmhStore((state) => state.onboardingOpen);
+  const setOnboardingOpen = useJmhStore((state) => state.setOnboardingOpen);
 
   const snapshotQuery = useQuery({
     queryKey: ["jmh-snapshot"],
@@ -69,7 +71,7 @@ export const JumpMemoryHub: React.FC = () => {
     }
   }, [snapshotQuery.data, setEntities, setJumps, setNextActions, setNotes, setOnboardingComplete, setRecaps]);
 
-  const showWizard = !onboardingComplete && snapshotQuery.status !== "pending";
+  const showWizard = onboardingOpen;
 
   return (
     <div className="hub-shell">
@@ -81,6 +83,14 @@ export const JumpMemoryHub: React.FC = () => {
             <p>Centralize notes, recaps, and prep across your chain.</p>
           </div>
           <div className="hub-header__actions">
+            <button
+              type="button"
+              className="hub-header__cta"
+              onClick={() => setOnboardingOpen(true)}
+              disabled={onboardingOpen}
+            >
+              {onboardingComplete ? "Plan New Jump" : "Start First Jump"}
+            </button>
             <GlobalSearch />
             <button
               type="button"
@@ -116,6 +126,7 @@ export const JumpMemoryHub: React.FC = () => {
             onFinished={() => {
               snapshotQuery.refetch().catch((error) => console.error("Failed to refresh snapshot", error));
             }}
+            onDismiss={() => setOnboardingOpen(false)}
           />
         </Suspense>
       )}

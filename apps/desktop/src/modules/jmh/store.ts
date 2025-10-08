@@ -75,6 +75,8 @@ export interface JmhState {
   setHelpPaneOpen: (open: boolean) => void;
   onboardingComplete: boolean;
   setOnboardingComplete: (complete: boolean) => void;
+  onboardingOpen: boolean;
+  setOnboardingOpen: (open: boolean) => void;
 }
 
 export const useJmhStore = create<JmhState>((set) => ({
@@ -110,6 +112,8 @@ export const useJmhStore = create<JmhState>((set) => ({
   setHelpPaneOpen: (helpPaneOpen) => set({ helpPaneOpen }),
   onboardingComplete: false,
   setOnboardingComplete: (onboardingComplete) => set({ onboardingComplete }),
+  onboardingOpen: false,
+  setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 }));
 
 export function selectCurrentJump(jumps: JumpRecord[], id: string | null): JumpRecord | null {

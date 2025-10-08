@@ -38,6 +38,13 @@ export interface OnboardingPayload {
   premiseLines: string[];
 }
 
+function randomId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 function normalizeLines(lines: string[]): string[] {
   return lines
     .map((line) => line.trim())
@@ -57,7 +64,7 @@ export async function runOnboarding(payload: OnboardingPayload) {
   const mentionablePerks = normalizeLines(payload.perks);
   for (const name of mentionablePerks) {
     await upsertEntity({
-      id: crypto.randomUUID(),
+      id: randomId(),
       type: "perk" satisfies EntityKind,
       name,
       meta_json: null,
@@ -71,14 +78,14 @@ export async function runOnboarding(payload: OnboardingPayload) {
       .map((line) => `- ${line}`)
       .join("\n")}`;
     await upsertNote({
-      id: crypto.randomUUID(),
+      id: randomId(),
       jump_id: jump.id,
       md,
     });
   }
 
   await upsertNextAction({
-    id: crypto.randomUUID(),
+    id: randomId(),
     jump_id: jump.id,
     summary: `Plan first steps for ${payload.jumpTitle}`,
     due_date: null,
