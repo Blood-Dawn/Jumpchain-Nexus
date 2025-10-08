@@ -74,6 +74,58 @@ export interface NextActionRecord {
   due_date: string | null;
 }
 
+export interface StoryRecord {
+  id: string;
+  title: string;
+  jump_id: string | null;
+  summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterRecord {
+  id: string;
+  story_id: string;
+  title: string;
+  synopsis: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChapterTextRecord {
+  chapter_id: string;
+  json: string;
+  plain: string;
+  updated_at: string;
+}
+
+export interface ChapterSnapshotRecord {
+  id: string;
+  chapter_id: string;
+  json: string;
+  created_at: string;
+}
+
+export interface ChapterMentionRecord {
+  id: string;
+  chapter_id: string;
+  entity_id: string;
+  start: number | null;
+  end: number | null;
+}
+
+export interface StoryWithChapters extends StoryRecord {
+  chapters: ChapterRecord[];
+}
+
+export interface ChapterEntityLinkSummary {
+  entity_id: string;
+  name: string;
+  type: EntityKind;
+  mentions: number;
+}
+
 const DB_FILENAME = "app.db";
 let dbPromise: Promise<Database> | null = null;
 let schemaApplied = false;
@@ -282,13 +334,17 @@ export async function indexFileText(fileId: string, content: string): Promise<vo
   });
 }
 
+export type RankedSearchSource = "note" | "file" | "entity" | "chapter";
+
 export interface RankedSearchResult {
   id: string;
-  source: "note" | "file" | "entity";
+  source: RankedSearchSource;
   title: string;
   snippet: string;
-  jump_id?: string | null;
   score: number;
+  jump_id?: string | null;
+  story_id?: string | null;
+  story_title?: string | null;
 }
 
 const SNIPPET_LEN = 160;
@@ -324,6 +380,15 @@ interface FileSearchRow {
 
 interface EntitySearchRow {
   id: string;
+  title: string;
+  raw_snippet: string;
+  score: number;
+}
+
+interface ChapterSearchRow {
+  id: string;
+  story_id: string;
+  story_title: string | null;
   title: string;
   raw_snippet: string;
   score: number;
@@ -416,6 +481,358 @@ export async function searchEntities(term: string): Promise<RankedSearchResult[]
   }));
 }
 
+export async function searchChapters(term: string): Promise<RankedSearchResult[]> {
+  const expression = toFtsPrefixQuery(term);
+  if (!expression) {
+    return [];
+  }
+  const rows = await withInit((db) =>
+    db.select<ChapterSearchRow[]>(
+      `SELECT c.id as id,
+              c.story_id as story_id,
+              s.title as story_title,
+              c.title as title,
+              substr(chapter_fts.content, 1, $2) as raw_snippet,
+              bm25(chapter_fts) AS score
+       FROM chapter_fts
+       JOIN chapters c ON c.id = chapter_fts.chapter_id
+       LEFT JOIN stories s ON s.id = c.story_id
+       WHERE chapter_fts MATCH $1
+       ORDER BY score ASC
+       LIMIT 20`,
+      [expression, SNIPPET_LEN]
+    )
+  );
+  return (rows as ChapterSearchRow[]).map((row) => ({
+    id: row.id,
+    source: "chapter",
+    title: row.title,
+    snippet: sanitizeSnippet(row.raw_snippet ?? ""),
+    score: row.score,
+    story_id: row.story_id,
+    story_title: row.story_title ?? null,
+  }));
+}
+
+export async function listStories(): Promise<StoryWithChapters[]> {
+  return withInit(async (db) => {
+    const stories = (await db.select<StoryRecord[]>(
+      `SELECT * FROM stories ORDER BY created_at DESC`
+    )) as StoryRecord[];
+    if (!stories.length) {
+      return [];
+    }
+    const storyIds = stories.map((story) => story.id);
+    const chapters = (await db.select<ChapterRecord[]>(
+      `SELECT * FROM chapters WHERE story_id IN (${storyIds.map((_, idx) => `$${idx + 1}`).join(", ")})
+       ORDER BY sort_order ASC, created_at ASC`,
+      storyIds
+    )) as ChapterRecord[];
+    const grouped = new Map<string, ChapterRecord[]>();
+    for (const story of stories) {
+      grouped.set(story.id, []);
+    }
+    for (const chapter of chapters) {
+      const bucket = grouped.get(chapter.story_id);
+      if (bucket) {
+        bucket.push(chapter);
+      }
+    }
+    return stories.map<StoryWithChapters>((story) => ({
+      ...story,
+      chapters: grouped.get(story.id) ?? [],
+    }));
+  });
+}
+
+export async function getStoryById(id: string): Promise<StoryRecord | null> {
+  const rows = await withInit((db) =>
+    db.select<StoryRecord[]>(`SELECT * FROM stories WHERE id = $1`, [id])
+  );
+  return (rows as StoryRecord[])[0] ?? null;
+}
+
+export async function createStory(input: {
+  title: string;
+  summary?: string | null;
+  jump_id?: string | null;
+}): Promise<StoryRecord> {
+  return withInit(async (db) => {
+    const id = uuid();
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO stories (id, title, jump_id, summary, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5)`,
+      [id, input.title, input.jump_id ?? null, input.summary ?? null, now]
+    );
+    return {
+      id,
+      title: input.title,
+      jump_id: input.jump_id ?? null,
+      summary: input.summary ?? null,
+      created_at: now,
+      updated_at: now,
+    };
+  });
+}
+
+export async function updateStory(
+  id: string,
+  updates: Partial<Pick<StoryRecord, "title" | "summary" | "jump_id">>
+): Promise<StoryRecord> {
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+    if (typeof updates.title === "string") {
+      sets.push(`title = $${index++}`);
+      values.push(updates.title);
+    }
+    if (updates.summary !== undefined) {
+      sets.push(`summary = $${index++}`);
+      values.push(updates.summary);
+    }
+    if (updates.jump_id !== undefined) {
+      sets.push(`jump_id = $${index++}`);
+      values.push(updates.jump_id);
+    }
+    sets.push(`updated_at = $${index++}`);
+    values.push(now);
+    values.push(id);
+    await db.execute(`UPDATE stories SET ${sets.join(", ")} WHERE id = $${index}`, values);
+    const rows = await db.select<StoryRecord[]>(`SELECT * FROM stories WHERE id = $1`, [id]);
+    const record = rows[0] as StoryRecord | undefined;
+    if (!record) {
+      throw new Error("Story not found after update");
+    }
+    return record;
+  });
+}
+
+export async function deleteStory(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM stories WHERE id = $1`, [id]));
+}
+
+export async function createChapter(input: {
+  story_id: string;
+  title: string;
+  synopsis?: string | null;
+}): Promise<ChapterRecord> {
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM chapters WHERE story_id = $1`,
+      [input.story_id]
+    )) as { max_order: number }[];
+    const sortOrder = (row?.max_order ?? -1) + 1;
+    const id = uuid();
+    await db.execute(
+      `INSERT INTO chapters (id, story_id, title, synopsis, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      [id, input.story_id, input.title, input.synopsis ?? null, sortOrder, now]
+    );
+    await db.execute(`UPDATE stories SET updated_at = $1 WHERE id = $2`, [now, input.story_id]);
+    return {
+      id,
+      story_id: input.story_id,
+      title: input.title,
+      synopsis: input.synopsis ?? null,
+      sort_order: sortOrder,
+      created_at: now,
+      updated_at: now,
+    };
+  });
+}
+
+export async function updateChapter(
+  id: string,
+  updates: Partial<Pick<ChapterRecord, "title" | "synopsis" | "sort_order">>
+): Promise<ChapterRecord> {
+  return withInit(async (db) => {
+    const rows = await db.select<ChapterRecord[]>(`SELECT * FROM chapters WHERE id = $1`, [id]);
+    const existing = rows[0] as ChapterRecord | undefined;
+    if (!existing) {
+      throw new Error("Chapter not found");
+    }
+    const now = new Date().toISOString();
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+    if (typeof updates.title === "string") {
+      sets.push(`title = $${index++}`);
+      values.push(updates.title);
+    }
+    if (updates.synopsis !== undefined) {
+      sets.push(`synopsis = $${index++}`);
+      values.push(updates.synopsis);
+    }
+    if (typeof updates.sort_order === "number") {
+      sets.push(`sort_order = $${index++}`);
+      values.push(updates.sort_order);
+    }
+    sets.push(`updated_at = $${index++}`);
+    values.push(now);
+    values.push(id);
+    await db.execute(`UPDATE chapters SET ${sets.join(", ")} WHERE id = $${index}`, values);
+    await db.execute(`UPDATE stories SET updated_at = $1 WHERE id = $2`, [now, existing.story_id]);
+    const refreshed = await db.select<ChapterRecord[]>(`SELECT * FROM chapters WHERE id = $1`, [id]);
+    return refreshed[0] as ChapterRecord;
+  });
+}
+
+export async function reorderChapters(storyId: string, orderedIds: string[]): Promise<void> {
+  await withInit(async (db) => {
+    await db.execute("BEGIN TRANSACTION");
+    try {
+      const now = new Date().toISOString();
+      for (let index = 0; index < orderedIds.length; index += 1) {
+        const chapterId = orderedIds[index];
+        await db.execute(`UPDATE chapters SET sort_order = $1, updated_at = $2 WHERE id = $3`, [
+          index,
+          now,
+          chapterId,
+        ]);
+      }
+      await db.execute(`UPDATE stories SET updated_at = $1 WHERE id = $2`, [now, storyId]);
+      await db.execute("COMMIT");
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function deleteChapter(id: string): Promise<void> {
+  await withInit(async (db) => {
+    const rows = await db.select<ChapterRecord[]>(`SELECT story_id FROM chapters WHERE id = $1`, [id]);
+    const storyId = rows[0]?.story_id ?? null;
+    await db.execute(`DELETE FROM chapters WHERE id = $1`, [id]);
+    if (storyId) {
+      const now = new Date().toISOString();
+      await db.execute(`UPDATE stories SET updated_at = $1 WHERE id = $2`, [now, storyId]);
+    }
+  });
+}
+
+export async function getChapterText(chapterId: string): Promise<ChapterTextRecord | null> {
+  const rows = await withInit((db) =>
+    db.select<ChapterTextRecord[]>(`SELECT * FROM chapter_text WHERE chapter_id = $1`, [chapterId])
+  );
+  return (rows as ChapterTextRecord[])[0] ?? null;
+}
+
+export async function saveChapterText(input: {
+  chapter_id: string;
+  json: string;
+  plain: string;
+}): Promise<ChapterTextRecord> {
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    const storyRows = await db.select<{ story_id: string }[]>(
+      `SELECT story_id FROM chapters WHERE id = $1`,
+      [input.chapter_id]
+    );
+    const storyId = storyRows[0]?.story_id ?? null;
+    await db.execute(
+      `INSERT INTO chapter_text (chapter_id, json, plain, updated_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT(chapter_id) DO UPDATE SET json = excluded.json, plain = excluded.plain, updated_at = excluded.updated_at`,
+      [input.chapter_id, input.json, input.plain, now]
+    );
+    await db.execute(
+      `UPDATE chapters SET updated_at = $1 WHERE id = $2`,
+      [now, input.chapter_id]
+    );
+    if (storyId) {
+      await db.execute(`UPDATE stories SET updated_at = $1 WHERE id = $2`, [now, storyId]);
+    }
+    const rows = await db.select<ChapterTextRecord[]>(
+      `SELECT * FROM chapter_text WHERE chapter_id = $1`,
+      [input.chapter_id]
+    );
+    return rows[0] as ChapterTextRecord;
+  });
+}
+
+export async function recordChapterSnapshot(
+  chapterId: string,
+  json: string
+): Promise<ChapterSnapshotRecord> {
+  const id = uuid();
+  const now = new Date().toISOString();
+  await withInit((db) =>
+    db.execute(
+      `INSERT INTO chapter_snapshots (id, chapter_id, json, created_at)
+       VALUES ($1, $2, $3, $4)`,
+      [id, chapterId, json, now]
+    )
+  );
+  return { id, chapter_id: chapterId, json, created_at: now };
+}
+
+export async function listChapterSnapshots(
+  chapterId: string,
+  limit = 20
+): Promise<ChapterSnapshotRecord[]> {
+  const rows = await withInit((db) =>
+    db.select<ChapterSnapshotRecord[]>(
+      `SELECT * FROM chapter_snapshots WHERE chapter_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [chapterId, limit]
+    )
+  );
+  return rows as ChapterSnapshotRecord[];
+}
+
+export async function clearChapterMentions(chapterId: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM chapter_mentions WHERE chapter_id = $1`, [chapterId]));
+}
+
+export async function recordChapterMention(
+  chapterId: string,
+  entityId: string,
+  start: number | null,
+  end: number | null
+): Promise<void> {
+  await withInit((db) =>
+    db.execute(
+      `INSERT INTO chapter_mentions (id, chapter_id, entity_id, start, "end")
+       VALUES ($1, $2, $3, $4, $5)`,
+      [uuid(), chapterId, entityId, start, end]
+    )
+  );
+}
+
+export async function listChapterMentions(chapterId: string): Promise<ChapterMentionRecord[]> {
+  const rows = await withInit((db) =>
+    db.select<ChapterMentionRecord[]>(
+      `SELECT * FROM chapter_mentions WHERE chapter_id = $1`,
+      [chapterId]
+    )
+  );
+  return rows as ChapterMentionRecord[];
+}
+
+export async function listChapterEntityLinks(
+  chapterId: string
+): Promise<ChapterEntityLinkSummary[]> {
+  const rows = await withInit((db) =>
+    db.select<ChapterEntityLinkSummary[]>(
+      `SELECT cm.entity_id AS entity_id,
+              e.name AS name,
+              e.type AS type,
+              COUNT(*) AS mentions
+       FROM chapter_mentions cm
+       JOIN entities e ON e.id = cm.entity_id
+       WHERE cm.chapter_id = $1
+       GROUP BY cm.entity_id, e.name, e.type
+       ORDER BY mentions DESC, name COLLATE NOCASE ASC`,
+      [chapterId]
+    )
+  );
+  return rows as ChapterEntityLinkSummary[];
+}
+
 export interface GlobalSearchPayload {
   term: string;
 }
@@ -424,15 +841,17 @@ export interface GlobalSearchResults {
   notes: RankedSearchResult[];
   files: RankedSearchResult[];
   entities: RankedSearchResult[];
+  chapters: RankedSearchResult[];
 }
 
 export async function globalSearch(term: string): Promise<GlobalSearchResults> {
-  const [notes, files, entities] = await Promise.all([
+  const [notes, files, entities, chapters] = await Promise.all([
     searchNotes(term),
     searchFiles(term),
     searchEntities(term),
+    searchChapters(term),
   ]);
-  return { notes, files, entities };
+  return { notes, files, entities, chapters };
 }
 
 export interface PurchaseCostInput {
@@ -494,8 +913,14 @@ export async function runInTransaction<T>(callback: (db: Database) => Promise<T>
 export async function clearAllData(): Promise<void> {
   await withInit(async (db) => {
     await db.execute("DELETE FROM mentions");
+    await db.execute("DELETE FROM chapter_mentions");
+    await db.execute("DELETE FROM chapter_snapshots");
+    await db.execute("DELETE FROM chapter_text");
+    await db.execute("DELETE FROM chapters");
+    await db.execute("DELETE FROM stories");
     await db.execute("DELETE FROM note_fts");
     await db.execute("DELETE FROM file_fts");
+    await db.execute("DELETE FROM chapter_fts");
     await db.execute("DELETE FROM entity_fts");
     await db.execute("DELETE FROM notes");
     await db.execute("DELETE FROM files");

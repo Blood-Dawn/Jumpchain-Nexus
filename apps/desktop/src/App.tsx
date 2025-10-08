@@ -21,11 +21,46 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+import React, { lazy, Suspense } from "react";
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./App.css";
-import { JumpMemoryHub } from "./modules/jmh";
+
+const StoryStudio = lazy(async () => import("./modules/studio"));
+const JumpMemoryHub = lazy(async () => import("./modules/jmh"));
+const JumpchainOverview = lazy(async () => import("./modules/overview"));
+const CosmicPassport = lazy(async () => import("./modules/passport"));
+const CosmicWarehouse = lazy(async () => import("./modules/warehouse"));
+const CosmicLocker = lazy(async () => import("./modules/locker"));
+const DrawbackSupplement = lazy(async () => import("./modules/drawbacks"));
+const ExportCenter = lazy(async () => import("./modules/export"));
+const StatisticsHub = lazy(async () => import("./modules/stats"));
+const JumpchainOptions = lazy(async () => import("./modules/options"));
+const InputFormatter = lazy(async () => import("./modules/formatter"));
+const JumpRandomizer = lazy(async () => import("./modules/randomizer"));
 
 const App: React.FC = () => {
-  return <JumpMemoryHub />;
+  return (
+    <HashRouter>
+      <Suspense fallback={<div className="app-loading">Loading module…</div>}>
+        <Routes>
+          <Route path="/studio" element={<StoryStudio />} />
+          <Route path="/overview" element={<JumpchainOverview />} />
+          <Route path="/passport" element={<CosmicPassport />} />
+          <Route path="/warehouse" element={<CosmicWarehouse />} />
+          <Route path="/locker" element={<CosmicLocker />} />
+          <Route path="/drawbacks" element={<DrawbackSupplement />} />
+          <Route path="/export" element={<ExportCenter />} />
+          <Route path="/stats" element={<StatisticsHub />} />
+          <Route path="/options" element={<JumpchainOptions />} />
+          <Route path="/formatter" element={<InputFormatter />} />
+          <Route path="/randomizer" element={<JumpRandomizer />} />
+          <Route path="/hub" element={<JumpMemoryHub />} />
+          <Route path="/" element={<Navigate to="/studio" replace />} />
+          <Route path="*" element={<Navigate to="/studio" replace />} />
+        </Routes>
+      </Suspense>
+    </HashRouter>
+  );
 };
 
 export default App;

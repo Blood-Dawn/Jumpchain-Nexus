@@ -24,13 +24,14 @@ SOFTWARE.
 
 import { useMutation } from "@tanstack/react-query";
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { globalSearch } from "../../db/dao";
+import type { RankedSearchResult } from "../../db/dao";
 import { useJmhStore } from "./store";
+import { useStudioStore } from "../studio/store";
 
 export const GlobalSearch: React.FC = () => {
   const [term, setTerm] = useState("");
-  const nav = useJmhStore((state) => state.nav);
-  const setNav = useJmhStore((state) => state.setNav);
   const setSearchResults = useJmhStore((state) => state.setSearchResults);
   const searchResults = useJmhStore((state) => state.searchResults);
   const searchOpen = useJmhStore((state) => state.searchOpen);
@@ -38,8 +39,9 @@ export const GlobalSearch: React.FC = () => {
   const setSelectedNote = useJmhStore((state) => state.setSelectedNote);
   const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
   const setSelectedFile = useJmhStore((state) => state.setSelectedFile);
+  const navigate = useNavigate();
 
-  const openResult = (item: ResultGroupProps["items"][number] | null) => {
+  const openResult = (item: RankedSearchResult | null) => {
     if (!item) return;
     if (item.source === "note") {
       setSelectedNote(item.id);
@@ -47,7 +49,7 @@ export const GlobalSearch: React.FC = () => {
       if (item.jump_id) {
         setSelectedJump(item.jump_id);
       }
-      if (nav !== "story") setNav("story");
+      navigate("/hub");
       setSearchOpen(false);
       return;
     }
@@ -57,15 +59,25 @@ export const GlobalSearch: React.FC = () => {
       if (item.jump_id) {
         setSelectedJump(item.jump_id);
       }
-      if (nav !== "imports") setNav("imports");
+      navigate("/hub");
+      setSearchOpen(false);
+      return;
+    }
+    if (item.source === "chapter") {
+      const studio = useStudioStore.getState();
+      if (item.story_id) {
+        studio.selectStory(item.story_id);
+      }
+      studio.selectChapter(item.id);
+      setSelectedNote(null);
+      setSelectedFile(null);
+      navigate("/studio");
       setSearchOpen(false);
       return;
     }
     setSelectedNote(null);
     setSelectedFile(null);
-    if (nav !== "atlas") {
-      setNav("atlas");
-    }
+    navigate("/hub");
     setSearchOpen(false);
   };
 
@@ -74,7 +86,7 @@ export const GlobalSearch: React.FC = () => {
     onSuccess: (data) => {
       setSearchResults(data);
       setSearchOpen(true);
-      const best = data.notes[0] ?? data.files[0] ?? data.entities[0] ?? null;
+      const best = data.chapters[0] ?? data.notes[0] ?? data.files[0] ?? data.entities[0] ?? null;
       if (best) {
         openResult(best);
       }
@@ -104,7 +116,7 @@ export const GlobalSearch: React.FC = () => {
           type="search"
           value={term}
           onChange={(event) => setTerm(event.target.value)}
-          placeholder="Search notes, PDFs, and entities"
+          placeholder="Search chapters, notes, PDFs, and entities"
         />
         <button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? "Searching…" : "Search"}
@@ -118,6 +130,12 @@ export const GlobalSearch: React.FC = () => {
 
       {searchOpen && searchResults && (
         <div className="jmh-search__results">
+          <ResultGroup
+            title="Chapters"
+            items={searchResults.chapters}
+            EmptyFallback="No chapters match that query."
+            onSelect={openResult}
+          />
           <ResultGroup
             title="Notes"
             items={searchResults.notes}
@@ -144,16 +162,9 @@ export const GlobalSearch: React.FC = () => {
 
 interface ResultGroupProps {
   title: string;
-  items: Array<{
-    id: string;
-    title: string;
-    snippet: string;
-    score: number;
-    jump_id?: string | null;
-    source: "note" | "file" | "entity";
-  }>;
+  items: RankedSearchResult[];
   EmptyFallback: string;
-  onSelect: (item: ResultGroupProps["items"][number]) => void;
+  onSelect: (item: RankedSearchResult) => void;
 }
 
 const ResultGroup: React.FC<ResultGroupProps> = ({ title, items, EmptyFallback, onSelect }) => {

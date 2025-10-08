@@ -26,10 +26,10 @@ import React, { Suspense, lazy, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { loadSnapshot } from "./data";
 import { useJmhStore } from "./store";
-import NavRail from "./NavRail";
 import { GlobalSearch } from "./GlobalSearch";
 import { Timeline } from "./Timeline";
 import { NextActionsPanel } from "./NextActionsPanel";
+import PageLayout from "../../components/PageLayout";
 
 const NotesEditor = lazy(async () => import("./NotesEditor"));
 const HelpPane = lazy(async () => import("./HelpPane"));
@@ -73,10 +73,16 @@ export const JumpMemoryHub: React.FC = () => {
 
   const showWizard = onboardingOpen;
 
+  const rightPane =
+    helpPaneOpen ? (
+      <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
+        <HelpPane />
+      </Suspense>
+    ) : undefined;
+
   return (
-    <div className="hub-shell">
-      <NavRail />
-      <main className="hub-main">
+    <>
+      <PageLayout rightPane={rightPane}>
         <header className="hub-header">
           <div className="hub-header__title">
             <h1>Jump Memory Hub</h1>
@@ -114,12 +120,7 @@ export const JumpMemoryHub: React.FC = () => {
             <NotesEditor />
           </Suspense>
         </section>
-      </main>
-      {helpPaneOpen && (
-        <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
-          <HelpPane />
-        </Suspense>
-      )}
+      </PageLayout>
       {showWizard && (
         <Suspense fallback={null}>
           <OnboardingWizard
@@ -130,7 +131,7 @@ export const JumpMemoryHub: React.FC = () => {
           />
         </Suspense>
       )}
-    </div>
+    </>
   );
 };
 

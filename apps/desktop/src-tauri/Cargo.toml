@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "appsdesktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,6 +23,15 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+axum = { version = "0.7", default-features = false, features = ["form", "http1", "json", "macros", "tokio"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tower = "0.4"
+
+[[bin]]
+name = "languagetool-proxy"
+path = "src/bin/languagetool-proxy.rs"
 

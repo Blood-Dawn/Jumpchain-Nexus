@@ -80,10 +80,52 @@ CREATE TABLE IF NOT EXISTS next_actions (
     due_date TEXT
 );
 
+CREATE TABLE IF NOT EXISTS stories (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    jump_id TEXT REFERENCES jumps(id) ON DELETE SET NULL,
+    summary TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chapters (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    synopsis TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chapter_text (
+    chapter_id TEXT PRIMARY KEY REFERENCES chapters(id) ON DELETE CASCADE,
+    json TEXT NOT NULL,
+    plain TEXT DEFAULT '',
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chapter_snapshots (
+    id TEXT PRIMARY KEY,
+    chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    json TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS chapter_mentions (
+    id TEXT PRIMARY KEY,
+    chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    start INTEGER,
+    "end" INTEGER
+);
+
 -- FTS5
 CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(content, note_id UNINDEXED);
 CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(content, file_id UNINDEXED);
 CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(name, search_terms, entity_id UNINDEXED);
+CREATE VIRTUAL TABLE IF NOT EXISTS chapter_fts USING fts5(content, chapter_id UNINDEXED);
 
 -- triggers keep FTS in sync
 CREATE TRIGGER IF NOT EXISTS note_ai AFTER INSERT ON notes BEGIN
@@ -131,4 +173,21 @@ END;
 CREATE TRIGGER IF NOT EXISTS entity_ad AFTER DELETE ON entities BEGIN
     INSERT INTO entity_fts(entity_fts, rowid, name, search_terms, entity_id)
     VALUES('delete', old.rowid, old.name, COALESCE(old.search_terms, ''), old.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chapter_text_ai AFTER INSERT ON chapter_text BEGIN
+    INSERT INTO chapter_fts(rowid, content, chapter_id)
+    VALUES ((SELECT rowid FROM chapters WHERE id = new.chapter_id), COALESCE(new.plain, ''), new.chapter_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chapter_text_au AFTER UPDATE ON chapter_text BEGIN
+    INSERT INTO chapter_fts(chapter_fts, rowid, content, chapter_id)
+    VALUES('delete', (SELECT rowid FROM chapters WHERE id = old.chapter_id), COALESCE(old.plain, ''), old.chapter_id);
+    INSERT INTO chapter_fts(rowid, content, chapter_id)
+    VALUES ((SELECT rowid FROM chapters WHERE id = new.chapter_id), COALESCE(new.plain, ''), new.chapter_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chapter_text_ad AFTER DELETE ON chapter_text BEGIN
+    INSERT INTO chapter_fts(chapter_fts, rowid, content, chapter_id)
+    VALUES('delete', (SELECT rowid FROM chapters WHERE id = old.chapter_id), COALESCE(old.plain, ''), old.chapter_id);
 END;

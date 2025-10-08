@@ -23,41 +23,45 @@ SOFTWARE.
 */
 
 import React from "react";
-import { useJmhStore, type NavKey } from "./store";
+import { NavLink } from "react-router-dom";
 
 interface NavItem {
-  key: NavKey;
+  to: string;
   label: string;
   description: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "Dashboard", description: "Timeline + recap" },
-  { key: "jumps", label: "Jumps", description: "Manage jump cards" },
-  { key: "story", label: "Story Studio", description: "Notes & mentions" },
-  { key: "atlas", label: "Atlas", description: "Entity glossary" },
-  { key: "imports", label: "Imports", description: "PDFs & files" },
-  { key: "help", label: "Help", description: "Guides & glossary" },
+  { to: "/studio", label: "Story Studio", description: "Write chapters & recaps" },
+  { to: "/overview", label: "Overview", description: "Manage jumps & builds" },
+  { to: "/passport", label: "Cosmic Passport", description: "Profile & attributes" },
+  { to: "/warehouse", label: "Cosmic Warehouse", description: "Configure storage" },
+  { to: "/locker", label: "Cosmic Locker", description: "Catalog items" },
+  { to: "/drawbacks", label: "Drawback Supplement", description: "Rules & mechanics" },
+  { to: "/export", label: "Exports", description: "Share builds & notes" },
+  { to: "/stats", label: "Statistics", description: "Totals & analytics" },
+  { to: "/options", label: "Options", description: "Defaults & categories" },
+  { to: "/formatter", label: "Input Formatter", description: "Clean pasted text" },
+  { to: "/randomizer", label: "Jump Randomizer", description: "Weighted selection" },
+  { to: "/hub", label: "Jump Memory Hub", description: "Timeline & archives" },
 ];
 
 export const NavRail: React.FC = () => {
-  const nav = useJmhStore((state) => state.nav);
-  const setNav = useJmhStore((state) => state.setNav);
-
   return (
     <nav className="jmh-nav">
       <h1 className="jmh-nav__title">Jumpchain Nexus</h1>
       <ul className="jmh-nav__list">
         {NAV_ITEMS.map((item) => (
-          <li key={item.key}>
-            <button
-              type="button"
-              className={`jmh-nav__button${nav === item.key ? " jmh-nav__button--active" : ""}`}
-              onClick={() => setNav(item.key)}
+          <li key={item.to}>
+            <NavLink
+              to={item.to}
+              className={({ isActive }: { isActive: boolean }) =>
+                `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
+              }
             >
               <span className="jmh-nav__label">{item.label}</span>
               <span className="jmh-nav__hint">{item.description}</span>
-            </button>
+            </NavLink>
           </li>
         ))}
       </ul>

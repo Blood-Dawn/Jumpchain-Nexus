@@ -32,19 +32,9 @@ import type {
   RecapRecord,
 } from "../../db/dao";
 
-export type NavKey =
-  | "dashboard"
-  | "jumps"
-  | "story"
-  | "atlas"
-  | "imports"
-  | "help";
-
 export type TimelineFilter = "all" | "current" | "past" | "future";
 
 export interface JmhState {
-  nav: NavKey;
-  setNav: (nav: NavKey) => void;
   jumps: JumpRecord[];
   setJumps: (jumps: JumpRecord[]) => void;
   entities: EntityRecord[];
@@ -80,8 +70,6 @@ export interface JmhState {
 }
 
 export const useJmhStore = create<JmhState>((set) => ({
-  nav: "dashboard",
-  setNav: (nav) => set({ nav }),
   jumps: [],
   setJumps: (jumps) => set({ jumps }),
   entities: [],
