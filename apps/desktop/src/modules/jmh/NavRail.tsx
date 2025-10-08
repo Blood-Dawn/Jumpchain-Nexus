@@ -24,47 +24,42 @@ SOFTWARE.
 
 import React from "react";
 import { NavLink } from "react-router-dom";
-
-interface NavItem {
-  to: string;
-  label: string;
-  description: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { to: "/studio", label: "Story Studio", description: "Write chapters & recaps" },
-  { to: "/overview", label: "Overview", description: "Manage jumps & builds" },
-  { to: "/passport", label: "Cosmic Passport", description: "Profile & attributes" },
-  { to: "/warehouse", label: "Cosmic Warehouse", description: "Configure storage" },
-  { to: "/locker", label: "Cosmic Locker", description: "Catalog items" },
-  { to: "/drawbacks", label: "Drawback Supplement", description: "Rules & mechanics" },
-  { to: "/export", label: "Exports", description: "Share builds & notes" },
-  { to: "/stats", label: "Statistics", description: "Totals & analytics" },
-  { to: "/options", label: "Options", description: "Defaults & categories" },
-  { to: "/formatter", label: "Input Formatter", description: "Clean pasted text" },
-  { to: "/randomizer", label: "Jump Randomizer", description: "Weighted selection" },
-  { to: "/hub", label: "Jump Memory Hub", description: "Timeline & archives" },
-];
+import { modules, resolveModulePath, sectionLabels, sectionOrder } from "../registry";
 
 export const NavRail: React.FC = () => {
+  const sections = sectionOrder
+    .map((section) => ({
+      section,
+      label: sectionLabels[section],
+      entries: modules.filter((module) => module.section === section),
+    }))
+    .filter((group) => group.entries.length > 0);
+
   return (
     <nav className="jmh-nav">
       <h1 className="jmh-nav__title">Jumpchain Nexus</h1>
-      <ul className="jmh-nav__list">
-        {NAV_ITEMS.map((item) => (
-          <li key={item.to}>
-            <NavLink
-              to={item.to}
-              className={({ isActive }: { isActive: boolean }) =>
-                `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
-              }
-            >
-              <span className="jmh-nav__label">{item.label}</span>
-              <span className="jmh-nav__hint">{item.description}</span>
-            </NavLink>
-          </li>
+      <div className="jmh-nav__sections">
+        {sections.map((group) => (
+          <section className="jmh-nav__section" key={group.section}>
+            <h2 className="jmh-nav__section-title">{group.label}</h2>
+            <ul className="jmh-nav__list">
+              {group.entries.map((module) => (
+                <li key={module.id}>
+                  <NavLink
+                    to={resolveModulePath(module)}
+                    className={({ isActive }: { isActive: boolean }) =>
+                      `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
+                    }
+                  >
+                    <span className="jmh-nav__label">{module.title}</span>
+                    <span className="jmh-nav__hint">{module.description}</span>
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
     </nav>
   );
 };

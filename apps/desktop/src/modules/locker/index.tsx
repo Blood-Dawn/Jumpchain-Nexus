@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const CosmicLocker: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Cosmic Locker</h1>
-          <p>Register items and categorize them for quick reference.</p>
-        </header>
-        <p>
-          The locker registry is being rebuilt. Item import, tagging, and cross-jump tracking will show
-          up here soon.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Cosmic Locker</h1>
+        <p>Register items and categorize them for quick reference.</p>
+      </header>
+      <p>
+        The locker registry is being rebuilt. Item import, tagging, and cross-jump tracking will show
+        up here soon.
+      </p>
+    </section>
   );
 };
 

@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const DrawbackSupplement: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Drawback Supplement</h1>
-          <p>Balance draw points, house rules, and universal modifiers.</p>
-        </header>
-        <p>
-          Drawback logic is queued for implementation. Expect calculators and per-jump summaries here in
-          the next milestone.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Drawback Supplement</h1>
+        <p>Balance draw points, house rules, and universal modifiers.</p>
+      </header>
+      <p>
+        Drawback logic is queued for implementation. Expect calculators and per-jump summaries here in
+        the next milestone.
+      </p>
+    </section>
   );
 };
 

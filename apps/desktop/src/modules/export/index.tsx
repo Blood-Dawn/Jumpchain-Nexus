@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const ExportCenter: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Export Suite</h1>
-          <p>Generate BBCode, Markdown, and plaintext summaries.</p>
-        </header>
-        <p>
-          Export tools are being modernized. Section toggles, per-jump sheets, and supplement exports will
-          resurface shortly.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Export Suite</h1>
+        <p>Generate BBCode, Markdown, and plaintext summaries.</p>
+      </header>
+      <p>
+        Export tools are being modernized. Section toggles, per-jump sheets, and supplement exports will
+        resurface shortly.
+      </p>
+    </section>
   );
 };
 

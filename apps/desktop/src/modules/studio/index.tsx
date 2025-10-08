@@ -292,10 +292,10 @@ const StoryStudio: React.FC = () => {
   }
 
   return (
-    <main className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
+    <div className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
       {shellContent}
       {showSettings ? <StudioSettings /> : null}
-    </main>
+    </div>
   );
 };
 

@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const CosmicPassport: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Cosmic Passport</h1>
-          <p>Character profiles, alt-forms, and derived attributes.</p>
-        </header>
-        <p>
-          Passport management is being ported from the legacy app. Data entry and auto-derivations will
-          return in an upcoming iteration.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Cosmic Passport</h1>
+        <p>Character profiles, alt-forms, and derived attributes.</p>
+      </header>
+      <p>
+        Passport management is being ported from the legacy app. Data entry and auto-derivations will
+        return in an upcoming iteration.
+      </p>
+    </section>
   );
 };
 

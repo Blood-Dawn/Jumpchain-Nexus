@@ -29,7 +29,7 @@ import { useJmhStore } from "./store";
 import { GlobalSearch } from "./GlobalSearch";
 import { Timeline } from "./Timeline";
 import { NextActionsPanel } from "./NextActionsPanel";
-import PageLayout from "../../components/PageLayout";
+import { PageLayoutRightPane } from "../../components/PageLayout";
 
 const NotesEditor = lazy(async () => import("./NotesEditor"));
 const HelpPane = lazy(async () => import("./HelpPane"));
@@ -73,54 +73,52 @@ export const JumpMemoryHub: React.FC = () => {
 
   const showWizard = onboardingOpen;
 
-  const rightPane =
-    helpPaneOpen ? (
-      <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
-        <HelpPane />
-      </Suspense>
-    ) : undefined;
+  const rightPane = helpPaneOpen ? (
+    <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
+      <HelpPane />
+    </Suspense>
+  ) : null;
 
   return (
     <>
-      <PageLayout rightPane={rightPane}>
-        <header className="hub-header">
-          <div className="hub-header__title">
-            <h1>Jump Memory Hub</h1>
-            <p>Centralize notes, recaps, and prep across your chain.</p>
-          </div>
-          <div className="hub-header__actions">
-            <button
-              type="button"
-              className="hub-header__cta"
-              onClick={() => setOnboardingOpen(true)}
-              disabled={onboardingOpen}
-            >
-              {onboardingComplete ? "Plan New Jump" : "Start First Jump"}
-            </button>
-            <GlobalSearch />
-            <button
-              type="button"
-              className="hub-header__help-toggle"
-              onClick={() => setHelpPaneOpen(!helpPaneOpen)}
-            >
-              {helpPaneOpen ? "Hide Help" : "Show Help"}
-            </button>
-          </div>
-        </header>
-        <section className="hub-grid">
-          <div className="hub-grid__timeline">
-            <Timeline />
-          </div>
-          <div className="hub-grid__next">
-            <NextActionsPanel />
-          </div>
-        </section>
-        <section className="hub-notes">
-          <Suspense fallback={<div className="hub-loading">Preparing Story Studio…</div>}>
-            <NotesEditor />
-          </Suspense>
-        </section>
-      </PageLayout>
+      <PageLayoutRightPane>{rightPane}</PageLayoutRightPane>
+      <header className="hub-header">
+        <div className="hub-header__title">
+          <h1>Jump Memory Hub</h1>
+          <p>Centralize notes, recaps, and prep across your chain.</p>
+        </div>
+        <div className="hub-header__actions">
+          <button
+            type="button"
+            className="hub-header__cta"
+            onClick={() => setOnboardingOpen(true)}
+            disabled={onboardingOpen}
+          >
+            {onboardingComplete ? "Plan New Jump" : "Start First Jump"}
+          </button>
+          <GlobalSearch />
+          <button
+            type="button"
+            className="hub-header__help-toggle"
+            onClick={() => setHelpPaneOpen(!helpPaneOpen)}
+          >
+            {helpPaneOpen ? "Hide Help" : "Show Help"}
+          </button>
+        </div>
+      </header>
+      <section className="hub-grid">
+        <div className="hub-grid__timeline">
+          <Timeline />
+        </div>
+        <div className="hub-grid__next">
+          <NextActionsPanel />
+        </div>
+      </section>
+      <section className="hub-notes">
+        <Suspense fallback={<div className="hub-loading">Preparing Story Studio…</div>}>
+          <NotesEditor />
+        </Suspense>
+      </section>
       {showWizard && (
         <Suspense fallback={null}>
           <OnboardingWizard

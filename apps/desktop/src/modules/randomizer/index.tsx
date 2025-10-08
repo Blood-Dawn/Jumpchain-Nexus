@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const JumpRandomizer: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Jump Randomizer</h1>
-          <p>Weighted lists and multi-pick selectors for adventure planning.</p>
-        </header>
-        <p>
-          Randomizer utilities are on the roadmap. Weighted pools and quick picks will be wired up after
-          the data layer refactor lands.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Jump Randomizer</h1>
+        <p>Weighted lists and multi-pick selectors for adventure planning.</p>
+      </header>
+      <p>
+        Randomizer utilities are on the roadmap. Weighted pools and quick picks will be wired up after the
+        data layer refactor lands.
+      </p>
+    </section>
   );
 };
 

@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const CosmicWarehouse: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Cosmic Warehouse</h1>
-          <p>Configure storage presets and addons across builds.</p>
-        </header>
-        <p>
-          Warehouse configuration is scheduled for the next phase of the port. Your saved settings will
-          appear here once the persistence layer is complete.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Cosmic Warehouse</h1>
+        <p>Configure storage presets and addons across builds.</p>
+      </header>
+      <p>
+        Warehouse configuration is scheduled for the next phase of the port. Your saved settings will
+        appear here once the persistence layer is complete.
+      </p>
+    </section>
   );
 };
 

@@ -22,21 +22,57 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { Outlet } from "react-router-dom";
 import NavRail from "../modules/jmh/NavRail";
 
-export interface PageLayoutProps {
-  children: React.ReactNode;
-  rightPane?: React.ReactNode;
+interface PageLayoutContextValue {
+  setRightPane: (node: React.ReactNode | null) => void;
 }
 
-export const PageLayout: React.FC<PageLayoutProps> = ({ children, rightPane }) => {
+const PageLayoutContext = createContext<PageLayoutContextValue | null>(null);
+
+export const usePageLayout = (): PageLayoutContextValue => {
+  const context = useContext(PageLayoutContext);
+  if (!context) {
+    throw new Error("usePageLayout must be used within PageLayout");
+  }
+  return context;
+};
+
+export const PageLayoutRightPane: React.FC<{ children: React.ReactNode | null }> = ({ children }) => {
+  const { setRightPane } = usePageLayout();
+
+  useEffect(() => {
+    setRightPane(children ?? null);
+    return () => {
+      setRightPane(null);
+    };
+  }, [children, setRightPane]);
+
+  return null;
+};
+
+export const PageLayout: React.FC = () => {
+  const [rightPane, setRightPane] = useState<React.ReactNode | null>(null);
+
+  const contextValue = useMemo<PageLayoutContextValue>(
+    () => ({
+      setRightPane,
+    }),
+    [setRightPane]
+  );
+
   return (
-    <div className="hub-shell">
-      <NavRail />
-      <main className="hub-main">{children}</main>
-      {rightPane ?? null}
-    </div>
+    <PageLayoutContext.Provider value={contextValue}>
+      <div className="hub-shell">
+        <NavRail />
+        <main className="hub-main">
+          <Outlet />
+        </main>
+        {rightPane}
+      </div>
+    </PageLayoutContext.Provider>
   );
 };
 

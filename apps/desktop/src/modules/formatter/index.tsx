@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const InputFormatter: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Input Formatter</h1>
-          <p>Clean pasted PDF text and fix stubborn line breaks.</p>
-        </header>
-        <p>
-          The formatter tool will return shortly with updated algorithms for smart spacing and anomaly
-          detection. Stay tuned.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Input Formatter</h1>
+        <p>Clean pasted PDF text and fix stubborn line breaks.</p>
+      </header>
+      <p>
+        The formatter tool will return shortly with updated algorithms for smart spacing and anomaly
+        detection. Stay tuned.
+      </p>
+    </section>
   );
 };
 

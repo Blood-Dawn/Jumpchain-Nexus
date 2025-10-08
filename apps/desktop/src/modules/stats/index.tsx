@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const StatisticsHub: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Statistics</h1>
-          <p>Visualize totals per character and across the chain.</p>
-        </header>
-        <p>
-          Analytics and aggregate metrics will return soon. Once data models land you&apos;ll see charts and
-          derived counts here.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Statistics</h1>
+        <p>Visualize totals per character and across the chain.</p>
+      </header>
+      <p>
+        Analytics and aggregate metrics will return soon. Once data models land you&apos;ll see charts and
+        derived counts here.
+      </p>
+    </section>
   );
 };
 

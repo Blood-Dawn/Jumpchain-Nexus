@@ -23,22 +23,20 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const JumpchainOptions: React.FC = () => {
+
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Jumpchain Options</h1>
-          <p>Set defaults, supplements, and custom categories.</p>
-        </header>
-        <p>
-          Configuration presets will live here. The form system is mid-port and will arrive alongside the
-          data schema update.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Jumpchain Options</h1>
+        <p>Set defaults, supplements, and custom categories.</p>
+      </header>
+      <p>
+        Configuration presets will live here. The form system is mid-port and will arrive alongside the
+        data schema update.
+      </p>
+    </section>
   );
 };
 

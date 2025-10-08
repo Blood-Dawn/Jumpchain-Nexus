@@ -23,22 +23,19 @@ SOFTWARE.
 */
 
 import React from "react";
-import PageLayout from "../../components/PageLayout";
 
 const JumpchainOverview: React.FC = () => {
   return (
-    <PageLayout>
-      <section className="module-placeholder">
-        <header>
-          <h1>Jumpchain Overview</h1>
-          <p>Track jumps, characters, and build summaries.</p>
-        </header>
-        <p>
-          The overview dashboard is being reimplemented. Existing data will appear here once the
-          module is restored.
-        </p>
-      </section>
-    </PageLayout>
+    <section className="module-placeholder">
+      <header>
+        <h1>Jumpchain Overview</h1>
+        <p>Track jumps, characters, and build summaries.</p>
+      </header>
+      <p>
+        The overview dashboard is being reimplemented. Existing data will appear here once the module is
+        restored.
+      </p>
+    </section>
   );
 };
 
