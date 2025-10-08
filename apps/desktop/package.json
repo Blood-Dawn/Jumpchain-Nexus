@@ -1,0 +1,48 @@
+{
+	"name": "jumpchain-nexus-desktop",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc -b && vite build",
+		"preview": "vite preview",
+		"tauri:dev": "tauri dev",
+		"tauri:build": "tauri build",
+		"migrate": "tsx ./src/db/runMigrations.ts",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@tanstack/react-query": "^5.64.2",
+		"@tauri-apps/api": "^2.0.0",
+		"@tauri-apps/plugin-dialog": "^2.0.0",
+		"@tauri-apps/plugin-opener": "^2.0.0",
+		"@tauri-apps/plugin-fs": "^2.0.0",
+		"@tauri-apps/plugin-sql": "^2.0.0",
+		"@tiptap/extension-mention": "^2.7.3",
+		"@tiptap/react": "^2.7.3",
+		"@tiptap/starter-kit": "^2.7.3",
+		"env-paths": "^3.0.0",
+		"jszip": "^3.10.1",
+		"marked": "^15.0.11",
+		"pdfjs-dist": "^4.8.0",
+		"react": "^19.1.0",
+		"react-dom": "^19.1.0",
+		"react-window": "^1.8.9",
+		"sql.js": "^1.11.0",
+		"zod": "^3.24.1",
+		"zustand": "^4.5.3"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "^2.0.0",
+		"@types/react": "^19.1.8",
+		"@types/react-dom": "^19.1.6",
+		"@types/react-window": "^1.8.5",
+		"@vitejs/plugin-react": "^4.6.0",
+		"tsx": "^4.19.2",
+		"typescript": "~5.8.3",
+			"vite": "^7.0.4",
+			"vitest": "^2.1.4",
+			"@types/node": "^22.10.2"
+	}
+}

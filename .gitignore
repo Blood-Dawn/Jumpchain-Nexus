@@ -366,3 +366,6 @@ FodyWeavers.xsd
 /Log.txt
 /Configuration.cfg
 /JumpList.txt
+
+tools/
+

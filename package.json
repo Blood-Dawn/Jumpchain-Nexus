@@ -1,0 +1,16 @@
+{
+  "name": "jumpchain-nexus",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "npm run dev --prefix apps/desktop",
+    "build": "npm run build --prefix apps/desktop",
+    "tauri:dev": "npm run tauri:dev --prefix apps/desktop",
+    "tauri:build": "npm run tauri:build --prefix apps/desktop",
+    "migrate": "npm run migrate --prefix apps/desktop"
+  }
+}
