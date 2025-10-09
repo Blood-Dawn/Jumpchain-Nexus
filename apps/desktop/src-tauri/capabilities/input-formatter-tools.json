@@ -1,11 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "story-studio-sql",
-  "description": "SQL access for Story Studio local DB",
+  "identifier": "input-formatter-tools",
+  "description": "Filesystem and SQL access for the input formatter",
   "windows": ["main"],
   "permissions": [
     "sql:default",
     "sql:allow-execute",
-    "shell:default"
+    "fs:default"
   ]
 }

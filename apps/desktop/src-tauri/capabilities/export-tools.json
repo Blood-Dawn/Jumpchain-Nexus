@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "story-studio-sql",
-  "description": "SQL access for Story Studio local DB",
+  "identifier": "export-tools",
+  "description": "Filesystem and SQL access for export module",
   "windows": ["main"],
   "permissions": [
     "sql:default",
     "sql:allow-execute",
-    "shell:default"
+    "fs:default",
+    "dialog:default"
   ]
 }

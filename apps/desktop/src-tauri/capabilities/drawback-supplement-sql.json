@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "drawback-supplement-sql",
+  "description": "SQL access for Drawback Supplement accounting",
+  "windows": ["main"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}

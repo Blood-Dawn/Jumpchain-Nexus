@@ -41,6 +41,22 @@ export interface JumpRecord {
   end_date: string | null;
   status: string | null;
   created_at: string;
+  sort_order: number;
+  cp_budget: number;
+  cp_spent: number;
+  cp_income: number;
+}
+
+export interface CreateJumpInput {
+  title: string;
+  world?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  status?: string | null;
+  sort_order?: number;
+  cp_budget?: number;
+  cp_spent?: number;
+  cp_income?: number;
 }
 
 export interface EntityRecord {
@@ -72,6 +88,148 @@ export interface NextActionRecord {
   jump_id: string;
   summary: string;
   due_date: string | null;
+}
+
+export type JumpAssetType = "origin" | "perk" | "item" | "drawback" | "companion";
+
+export interface JumpAssetRecord {
+  id: string;
+  jump_id: string;
+  asset_type: JumpAssetType;
+  name: string;
+  category: string | null;
+  subcategory: string | null;
+  cost: number;
+  quantity: number;
+  discounted: 0 | 1;
+  freebie: 0 | 1;
+  notes: string | null;
+  metadata: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateJumpAssetInput {
+  jump_id: string;
+  asset_type: JumpAssetType;
+  name: string;
+  category?: string | null;
+  subcategory?: string | null;
+  cost?: number;
+  quantity?: number;
+  discounted?: boolean;
+  freebie?: boolean;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | string | null;
+  sort_order?: number;
+}
+
+export interface UpdateJumpAssetInput {
+  name?: string;
+  category?: string | null;
+  subcategory?: string | null;
+  cost?: number;
+  quantity?: number;
+  discounted?: boolean;
+  freebie?: boolean;
+  notes?: string | null;
+  metadata?: Record<string, unknown> | string | null;
+  sort_order?: number;
+}
+
+export type InventoryScope = "warehouse" | "locker";
+
+export interface InventoryItemRecord {
+  id: string;
+  scope: InventoryScope;
+  name: string;
+  category: string | null;
+  quantity: number;
+  slot: string | null;
+  notes: string | null;
+  tags: string | null;
+  jump_id: string | null;
+  metadata: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateInventoryItemInput {
+  scope: InventoryScope;
+  name: string;
+  category?: string | null;
+  quantity?: number;
+  slot?: string | null;
+  notes?: string | null;
+  tags?: string[] | string | null;
+  jump_id?: string | null;
+  metadata?: Record<string, unknown> | string | null;
+  sort_order?: number;
+}
+
+export interface UpdateInventoryItemInput {
+  scope?: InventoryScope;
+  name?: string;
+  category?: string | null;
+  quantity?: number;
+  slot?: string | null;
+  notes?: string | null;
+  tags?: string[] | string | null;
+  jump_id?: string | null;
+  metadata?: Record<string, unknown> | string | null;
+  sort_order?: number;
+}
+
+export interface CharacterProfileRecord {
+  id: string;
+  name: string;
+  alias: string | null;
+  species: string | null;
+  homeland: string | null;
+  biography: string | null;
+  attributes_json: string | null;
+  traits_json: string | null;
+  alt_forms_json: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertCharacterProfileInput {
+  id?: string;
+  name: string;
+  alias?: string | null;
+  species?: string | null;
+  homeland?: string | null;
+  biography?: string | null;
+  attributes?: Record<string, unknown> | string | null;
+  traits?: Record<string, unknown> | string | null;
+  alt_forms?: Record<string, unknown> | string | null;
+  notes?: string | null;
+}
+
+export interface AppSettingRecord {
+  key: string;
+  value: string | null;
+  updated_at: string;
+}
+
+export interface ExportPresetRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  options_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertExportPresetInput {
+  id?: string;
+  name: string;
+  description?: string | null;
+  options: Record<string, unknown> | string;
 }
 
 export interface StoryRecord {
@@ -215,19 +373,90 @@ function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export async function createJump(payload: Omit<JumpRecord, "id" | "created_at">): Promise<JumpRecord> {
+function toJsonString(value: Record<string, unknown> | string | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    console.warn("Failed to serialize value to JSON", error);
+    return null;
+  }
+}
+
+function toNullableText(value: string | null | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length ? trimmed : null;
+}
+
+function boolToInt(value: boolean | undefined): 0 | 1 {
+  return value ? 1 : 0;
+}
+
+function serializeTags(value: string[] | string | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    try {
+      return JSON.stringify(value);
+    } catch (error) {
+      console.warn("Failed to serialize tags", error);
+      return null;
+    }
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+export async function createJump(payload: CreateJumpInput): Promise<JumpRecord> {
   return withInit(async (db) => {
     const id = uuid();
     const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM jumps`
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof payload.sort_order === "number" ? payload.sort_order : (row?.max_order ?? -1) + 1;
+    const cpBudget = payload.cp_budget ?? 0;
+    const cpSpent = payload.cp_spent ?? 0;
+    const cpIncome = payload.cp_income ?? 0;
     await db.execute(
-      `INSERT INTO jumps (id, title, world, start_date, end_date, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, payload.title, payload.world, payload.start_date, payload.end_date, payload.status, now]
+      `INSERT INTO jumps (id, title, world, start_date, end_date, status, created_at, sort_order, cp_budget, cp_spent, cp_income)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        id,
+        payload.title,
+        payload.world ?? null,
+        payload.start_date ?? null,
+        payload.end_date ?? null,
+        payload.status ?? null,
+        now,
+        sortOrder,
+        cpBudget,
+        cpSpent,
+        cpIncome,
+      ]
     );
     return {
       id,
+      title: payload.title,
+      world: payload.world ?? null,
+      start_date: payload.start_date ?? null,
+      end_date: payload.end_date ?? null,
+      status: payload.status ?? null,
       created_at: now,
-      ...payload,
+      sort_order: sortOrder,
+      cp_budget: cpBudget,
+      cp_spent: cpSpent,
+      cp_income: cpIncome,
     };
   });
 }
@@ -250,13 +479,123 @@ export async function updateJump(
 
 export async function listJumps(): Promise<JumpRecord[]> {
   return withInit(async (db) => {
-    const rows = await db.select<JumpRecord[]>("SELECT * FROM jumps ORDER BY created_at DESC");
+    const rows = await db.select<JumpRecord[]>(
+      "SELECT * FROM jumps ORDER BY sort_order ASC, created_at DESC"
+    );
     return rows as JumpRecord[];
   });
 }
 
 export async function deleteJump(id: string): Promise<void> {
   await withInit((db) => db.execute("DELETE FROM jumps WHERE id = $1", [id]));
+}
+
+export async function reorderJumps(orderedIds: string[]): Promise<void> {
+  await withInit(async (db) => {
+    await db.execute("BEGIN TRANSACTION");
+    try {
+      for (let index = 0; index < orderedIds.length; index += 1) {
+        const jumpId = orderedIds[index];
+        await db.execute(`UPDATE jumps SET sort_order = $1 WHERE id = $2`, [index, jumpId]);
+      }
+      await db.execute("COMMIT");
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function duplicateJump(
+  jumpId: string,
+  overrides: Partial<CreateJumpInput> = {}
+): Promise<JumpRecord> {
+  return withInit(async (db) => {
+    await db.execute("BEGIN TRANSACTION");
+    try {
+      const rows = await db.select<JumpRecord[]>(`SELECT * FROM jumps WHERE id = $1`, [jumpId]);
+      const original = rows[0];
+      if (!original) {
+        throw new Error(`Jump ${jumpId} not found`);
+      }
+
+      const [maxOrderRow] = (await db.select<{ max_order: number }[]>(
+        `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM jumps`
+      )) as { max_order: number }[];
+
+      const newId = uuid();
+      const now = new Date().toISOString();
+      const sortOrder = overrides.sort_order ?? (maxOrderRow?.max_order ?? -1) + 1;
+      const title = overrides.title ?? `${original.title} (Copy)`;
+      const world = overrides.world ?? original.world;
+      const startDate = overrides.start_date ?? original.start_date;
+      const endDate = overrides.end_date ?? original.end_date;
+      const status = overrides.status ?? original.status;
+      const cpBudget = overrides.cp_budget ?? original.cp_budget ?? 0;
+
+      await db.execute(
+        `INSERT INTO jumps (id, title, world, start_date, end_date, status, created_at, sort_order, cp_budget, cp_spent, cp_income)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          newId,
+          title,
+          world,
+          startDate,
+          endDate,
+          status,
+          now,
+          sortOrder,
+          cpBudget,
+          overrides.cp_spent ?? 0,
+          overrides.cp_income ?? 0,
+        ]
+      );
+
+      const assets = (await db.select<JumpAssetRecord[]>(
+        `SELECT * FROM jump_assets WHERE jump_id = $1`,
+        [jumpId]
+      )) as JumpAssetRecord[];
+
+      for (const asset of assets) {
+        await db.execute(
+          `INSERT INTO jump_assets
+             (id, jump_id, asset_type, name, category, subcategory, cost, quantity, discounted, freebie, notes, metadata, sort_order, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
+          [
+            uuid(),
+            newId,
+            asset.asset_type,
+            asset.name,
+            asset.category,
+            asset.subcategory,
+            asset.cost,
+            asset.quantity,
+            asset.discounted,
+            asset.freebie,
+            asset.notes,
+            asset.metadata,
+            asset.sort_order,
+            now,
+          ]
+        );
+      }
+
+      const summary = await summarizeJumpBudgetWithDb(db, newId);
+      await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
+        summary.netCost,
+        summary.drawbackCredit,
+        newId,
+      ]);
+
+      await db.execute("COMMIT");
+
+      const newRows = await db.select<JumpRecord[]>(`SELECT * FROM jumps WHERE id = $1`, [newId]);
+      return newRows[0] as JumpRecord;
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  });
 }
 
 export async function upsertEntity(entity: Omit<EntityRecord, "search_terms"> & { search_terms?: string | null }): Promise<void> {
@@ -912,6 +1251,11 @@ export interface BudgetComputation {
   netCost: number;
 }
 
+export interface JumpBudgetSummary extends BudgetComputation {
+  drawbackCredit: number;
+  balance: number;
+}
+
 export function computeBudget(purchases: PurchaseCostInput[]): BudgetComputation {
   const result: BudgetComputation = {
     totalCost: 0,
@@ -1037,4 +1381,592 @@ export async function upsertNextAction(action: NextActionRecord): Promise<void> 
 
 export async function deleteNextAction(id: string): Promise<void> {
   await withInit((db) => db.execute(`DELETE FROM next_actions WHERE id = $1`, [id]));
+}
+
+async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
+  const rows = (await db.select<JumpAssetRecord[]>(
+    `SELECT asset_type, cost, quantity, discounted, freebie
+     FROM jump_assets
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpAssetRecord[];
+
+  const purchases: PurchaseCostInput[] = [];
+  let drawbackCredit = 0;
+
+  for (const row of rows) {
+    const quantity = Math.max(row.quantity ?? 1, 1);
+    const cost = Math.max(row.cost ?? 0, 0) * quantity;
+    if (row.asset_type === "drawback") {
+      drawbackCredit += cost;
+      continue;
+    }
+    purchases.push({
+      cost,
+      discount: row.discounted === 1,
+      freebie: row.freebie === 1,
+    });
+  }
+
+  const computation = computeBudget(purchases);
+  return {
+    ...computation,
+    drawbackCredit,
+    balance: drawbackCredit - computation.netCost,
+  };
+}
+
+export async function summarizeJumpBudget(jumpId: string): Promise<JumpBudgetSummary> {
+  return withInit((db) => summarizeJumpBudgetWithDb(db, jumpId));
+}
+
+async function updateJumpCostSummary(jumpId: string): Promise<void> {
+  await withInit(async (db) => {
+    const summary = await summarizeJumpBudgetWithDb(db, jumpId);
+    await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
+      summary.netCost,
+      summary.drawbackCredit,
+      jumpId,
+    ]);
+  });
+}
+
+export async function listJumpAssets(
+  jumpId: string,
+  types?: JumpAssetType | JumpAssetType[]
+): Promise<JumpAssetRecord[]> {
+  return withInit(async (db) => {
+    const typeList = Array.isArray(types) ? types : types ? [types] : [];
+    if (typeList.length) {
+      const placeholders = typeList.map((_, index) => `$${index + 2}`).join(", ");
+      const rows = await db.select<JumpAssetRecord[]>(
+        `SELECT * FROM jump_assets
+         WHERE jump_id = $1 AND asset_type IN (${placeholders})
+         ORDER BY sort_order ASC, created_at ASC`,
+        [jumpId, ...typeList]
+      );
+      return rows as JumpAssetRecord[];
+    }
+    const rows = await db.select<JumpAssetRecord[]>(
+      `SELECT * FROM jump_assets
+       WHERE jump_id = $1
+       ORDER BY asset_type ASC, sort_order ASC, created_at ASC`,
+      [jumpId]
+    );
+    return rows as JumpAssetRecord[];
+  });
+}
+
+export async function createJumpAsset(input: CreateJumpAssetInput): Promise<JumpAssetRecord> {
+  return withInit(async (db) => {
+    const id = uuid();
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+       FROM jump_assets
+       WHERE jump_id = $1 AND asset_type = $2`,
+      [input.jump_id, input.asset_type]
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
+    const quantity = input.quantity ?? 1;
+    const discounted = boolToInt(input.discounted);
+    const freebie = boolToInt(input.freebie);
+    await db.execute(
+      `INSERT INTO jump_assets
+         (id, jump_id, asset_type, name, category, subcategory, cost, quantity, discounted, freebie, notes, metadata, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
+      [
+        id,
+        input.jump_id,
+        input.asset_type,
+        input.name,
+        toNullableText(input.category ?? null),
+        toNullableText(input.subcategory ?? null),
+        input.cost ?? 0,
+        quantity,
+        discounted,
+        freebie,
+        toNullableText(input.notes ?? null),
+        toJsonString(input.metadata ?? null),
+        sortOrder,
+        now,
+      ]
+    );
+    await updateJumpCostSummary(input.jump_id);
+    const rows = await db.select<JumpAssetRecord[]>(`SELECT * FROM jump_assets WHERE id = $1`, [id]);
+    return rows[0] as JumpAssetRecord;
+  });
+}
+
+export async function updateJumpAsset(
+  id: string,
+  updates: UpdateJumpAssetInput
+): Promise<JumpAssetRecord> {
+  return withInit(async (db) => {
+    const existingRows = await db.select<JumpAssetRecord[]>(
+      `SELECT * FROM jump_assets WHERE id = $1`,
+      [id]
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      throw new Error(`Jump asset ${id} not found`);
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (updates.name !== undefined) {
+      sets.push(`name = $${index++}`);
+      values.push(updates.name);
+    }
+    if (updates.category !== undefined) {
+      sets.push(`category = $${index++}`);
+      values.push(toNullableText(updates.category));
+    }
+    if (updates.subcategory !== undefined) {
+      sets.push(`subcategory = $${index++}`);
+      values.push(toNullableText(updates.subcategory));
+    }
+    if (updates.cost !== undefined) {
+      sets.push(`cost = $${index++}`);
+      values.push(updates.cost ?? 0);
+    }
+    if (updates.quantity !== undefined) {
+      sets.push(`quantity = $${index++}`);
+      values.push(Math.max(updates.quantity ?? 1, 1));
+    }
+    if (updates.discounted !== undefined) {
+      sets.push(`discounted = $${index++}`);
+      values.push(boolToInt(updates.discounted));
+    }
+    if (updates.freebie !== undefined) {
+      sets.push(`freebie = $${index++}`);
+      values.push(boolToInt(updates.freebie));
+    }
+    if (updates.notes !== undefined) {
+      sets.push(`notes = $${index++}`);
+      values.push(toNullableText(updates.notes));
+    }
+    if (updates.metadata !== undefined) {
+      sets.push(`metadata = $${index++}`);
+      values.push(toJsonString(updates.metadata));
+    }
+    if (updates.sort_order !== undefined) {
+      sets.push(`sort_order = $${index++}`);
+      values.push(updates.sort_order);
+    }
+
+    if (!sets.length) {
+      return existing;
+    }
+
+    sets.push(`updated_at = $${index++}`);
+    const now = new Date().toISOString();
+    values.push(now);
+    values.push(id);
+
+    await db.execute(
+      `UPDATE jump_assets SET ${sets.join(", ")} WHERE id = $${index}`,
+      values
+    );
+
+    await updateJumpCostSummary(existing.jump_id);
+
+    const rows = await db.select<JumpAssetRecord[]>(`SELECT * FROM jump_assets WHERE id = $1`, [id]);
+    return rows[0] as JumpAssetRecord;
+  });
+}
+
+export async function deleteJumpAsset(id: string): Promise<void> {
+  await withInit(async (db) => {
+    const rows = await db.select<Pick<JumpAssetRecord, "jump_id">[]>(
+      `SELECT jump_id FROM jump_assets WHERE id = $1`,
+      [id]
+    );
+    const jumpId = rows[0]?.jump_id;
+    await db.execute(`DELETE FROM jump_assets WHERE id = $1`, [id]);
+    if (jumpId) {
+      await updateJumpCostSummary(jumpId);
+    }
+  });
+}
+
+export async function reorderJumpAssets(
+  jumpId: string,
+  assetType: JumpAssetType,
+  orderedIds: string[]
+): Promise<void> {
+  await withInit(async (db) => {
+    await db.execute("BEGIN TRANSACTION");
+    try {
+      for (let index = 0; index < orderedIds.length; index += 1) {
+        const assetId = orderedIds[index];
+        await db.execute(
+          `UPDATE jump_assets
+             SET sort_order = $1, updated_at = $2
+           WHERE id = $3 AND jump_id = $4 AND asset_type = $5`,
+          [index, new Date().toISOString(), assetId, jumpId, assetType]
+        );
+      }
+      await db.execute("COMMIT");
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function listInventoryItems(
+  scope?: InventoryScope
+): Promise<InventoryItemRecord[]> {
+  return withInit(async (db) => {
+    if (scope) {
+      const rows = await db.select<InventoryItemRecord[]>(
+        `SELECT * FROM inventory_items
+         WHERE scope = $1
+         ORDER BY sort_order ASC, created_at ASC`,
+        [scope]
+      );
+      return rows as InventoryItemRecord[];
+    }
+    const rows = await db.select<InventoryItemRecord[]>(
+      `SELECT * FROM inventory_items ORDER BY scope ASC, sort_order ASC, created_at ASC`
+    );
+    return rows as InventoryItemRecord[];
+  });
+}
+
+export async function createInventoryItem(
+  input: CreateInventoryItemInput
+): Promise<InventoryItemRecord> {
+  return withInit(async (db) => {
+    const id = uuid();
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+       FROM inventory_items
+       WHERE scope = $1`,
+      [input.scope]
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
+    await db.execute(
+      `INSERT INTO inventory_items
+         (id, scope, name, category, quantity, slot, notes, tags, jump_id, metadata, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
+      [
+        id,
+        input.scope,
+        input.name,
+        toNullableText(input.category ?? null),
+        input.quantity ?? 1,
+        toNullableText(input.slot ?? null),
+        toNullableText(input.notes ?? null),
+        serializeTags(input.tags ?? null),
+        input.jump_id ?? null,
+        toJsonString(input.metadata ?? null),
+        sortOrder,
+        now,
+      ]
+    );
+    const rows = await db.select<InventoryItemRecord[]>(
+      `SELECT * FROM inventory_items WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as InventoryItemRecord;
+  });
+}
+
+export async function updateInventoryItem(
+  id: string,
+  updates: UpdateInventoryItemInput
+): Promise<InventoryItemRecord> {
+  return withInit(async (db) => {
+    const existingRows = await db.select<InventoryItemRecord[]>(
+      `SELECT * FROM inventory_items WHERE id = $1`,
+      [id]
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      throw new Error(`Inventory item ${id} not found`);
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (updates.scope !== undefined) {
+      sets.push(`scope = $${index++}`);
+      values.push(updates.scope);
+    }
+    if (updates.name !== undefined) {
+      sets.push(`name = $${index++}`);
+      values.push(updates.name);
+    }
+    if (updates.category !== undefined) {
+      sets.push(`category = $${index++}`);
+      values.push(toNullableText(updates.category));
+    }
+    if (updates.quantity !== undefined) {
+      sets.push(`quantity = $${index++}`);
+      values.push(Math.max(updates.quantity ?? 1, 0));
+    }
+    if (updates.slot !== undefined) {
+      sets.push(`slot = $${index++}`);
+      values.push(toNullableText(updates.slot));
+    }
+    if (updates.notes !== undefined) {
+      sets.push(`notes = $${index++}`);
+      values.push(toNullableText(updates.notes));
+    }
+    if (updates.tags !== undefined) {
+      sets.push(`tags = $${index++}`);
+      values.push(serializeTags(updates.tags));
+    }
+    if (updates.jump_id !== undefined) {
+      sets.push(`jump_id = $${index++}`);
+      values.push(updates.jump_id ?? null);
+    }
+    if (updates.metadata !== undefined) {
+      sets.push(`metadata = $${index++}`);
+      values.push(toJsonString(updates.metadata));
+    }
+    if (updates.sort_order !== undefined) {
+      sets.push(`sort_order = $${index++}`);
+      values.push(updates.sort_order ?? 0);
+    }
+
+    if (!sets.length) {
+      return existing;
+    }
+
+    sets.push(`updated_at = $${index++}`);
+    const now = new Date().toISOString();
+    values.push(now);
+    values.push(id);
+
+    await db.execute(
+      `UPDATE inventory_items SET ${sets.join(", ")} WHERE id = $${index}`,
+      values
+    );
+
+    const rows = await db.select<InventoryItemRecord[]>(
+      `SELECT * FROM inventory_items WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as InventoryItemRecord;
+  });
+}
+
+export async function deleteInventoryItem(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM inventory_items WHERE id = $1`, [id]));
+}
+
+export async function moveInventoryItem(
+  id: string,
+  scope: InventoryScope,
+  sortOrder?: number
+): Promise<void> {
+  await withInit(async (db) => {
+    const newOrder =
+      typeof sortOrder === "number"
+        ? sortOrder
+        : ((await db.select<{ max_order: number }[]>(
+            `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM inventory_items WHERE scope = $1`,
+            [scope]
+          )) as { max_order: number }[])[0]?.max_order ?? -1;
+    await db.execute(
+      `UPDATE inventory_items SET scope = $1, sort_order = $2, updated_at = $3 WHERE id = $4`,
+      [scope, typeof sortOrder === "number" ? sortOrder : newOrder + 1, new Date().toISOString(), id]
+    );
+  });
+}
+
+export async function listCharacterProfiles(): Promise<CharacterProfileRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<CharacterProfileRecord[]>(
+      `SELECT * FROM character_profiles ORDER BY created_at DESC`
+    );
+    return rows as CharacterProfileRecord[];
+  });
+}
+
+export async function getCharacterProfile(id: string): Promise<CharacterProfileRecord | null> {
+  const rows = await withInit((db) =>
+    db.select<CharacterProfileRecord[]>(`SELECT * FROM character_profiles WHERE id = $1`, [id])
+  );
+  return (rows as CharacterProfileRecord[])[0] ?? null;
+}
+
+export async function upsertCharacterProfile(
+  input: UpsertCharacterProfileInput
+): Promise<CharacterProfileRecord> {
+  return withInit(async (db) => {
+    const id = input.id ?? uuid();
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO character_profiles
+         (id, name, alias, species, homeland, biography, attributes_json, traits_json, alt_forms_json, notes, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         alias = excluded.alias,
+         species = excluded.species,
+         homeland = excluded.homeland,
+         biography = excluded.biography,
+         attributes_json = excluded.attributes_json,
+         traits_json = excluded.traits_json,
+         alt_forms_json = excluded.alt_forms_json,
+         notes = excluded.notes,
+         updated_at = excluded.updated_at`,
+      [
+        id,
+        input.name,
+        toNullableText(input.alias ?? null),
+        toNullableText(input.species ?? null),
+        toNullableText(input.homeland ?? null),
+        toNullableText(input.biography ?? null),
+        toJsonString(input.attributes ?? null),
+        toJsonString(input.traits ?? null),
+        toJsonString(input.alt_forms ?? null),
+        toNullableText(input.notes ?? null),
+        now,
+      ]
+    );
+    const rows = await db.select<CharacterProfileRecord[]>(
+      `SELECT * FROM character_profiles WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as CharacterProfileRecord;
+  });
+}
+
+export async function deleteCharacterProfile(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM character_profiles WHERE id = $1`, [id]));
+}
+
+export async function listAppSettings(): Promise<AppSettingRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<AppSettingRecord[]>(
+      `SELECT * FROM app_settings ORDER BY key COLLATE NOCASE`
+    );
+    return rows as AppSettingRecord[];
+  });
+}
+
+export async function getAppSetting(key: string): Promise<AppSettingRecord | null> {
+  const rows = await withInit((db) =>
+    db.select<AppSettingRecord[]>(`SELECT * FROM app_settings WHERE key = $1`, [key])
+  );
+  return (rows as AppSettingRecord[])[0] ?? null;
+}
+
+export async function setAppSetting(
+  key: string,
+  value: unknown
+): Promise<AppSettingRecord> {
+  return withInit(async (db) => {
+    const serialized =
+      value === null || value === undefined
+        ? null
+        : typeof value === "string"
+          ? value
+          : JSON.stringify(value);
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [key, serialized, now]
+    );
+    const rows = await db.select<AppSettingRecord[]>(
+      `SELECT * FROM app_settings WHERE key = $1`,
+      [key]
+    );
+    return rows[0] as AppSettingRecord;
+  });
+}
+
+export async function deleteAppSetting(key: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM app_settings WHERE key = $1`, [key]));
+}
+
+export async function listExportPresets(): Promise<ExportPresetRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<ExportPresetRecord[]>(
+      `SELECT * FROM export_presets ORDER BY name COLLATE NOCASE`
+    );
+    return rows as ExportPresetRecord[];
+  });
+}
+
+export async function upsertExportPreset(
+  input: UpsertExportPresetInput
+): Promise<ExportPresetRecord> {
+  return withInit(async (db) => {
+    const id = input.id ?? uuid();
+    const now = new Date().toISOString();
+    const options =
+      typeof input.options === "string" ? input.options : JSON.stringify(input.options ?? {});
+    await db.execute(
+      `INSERT INTO export_presets (id, name, description, options_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         options_json = excluded.options_json,
+         updated_at = excluded.updated_at`,
+      [id, input.name, toNullableText(input.description ?? null), options, now]
+    );
+    const rows = await db.select<ExportPresetRecord[]>(
+      `SELECT * FROM export_presets WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as ExportPresetRecord;
+  });
+}
+
+export async function deleteExportPreset(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM export_presets WHERE id = $1`, [id]));
+}
+
+export interface ExportSnapshot {
+  jumps: JumpRecord[];
+  jumpAssets: JumpAssetRecord[];
+  inventory: InventoryItemRecord[];
+  notes: NoteRecord[];
+  recaps: RecapRecord[];
+  profiles: CharacterProfileRecord[];
+  settings: AppSettingRecord[];
+  presets: ExportPresetRecord[];
+}
+
+export async function loadExportSnapshot(): Promise<ExportSnapshot> {
+  const [jumps, jumpAssets, inventory, notes, recaps, profiles, settings, presets] = await Promise.all([
+    listJumps(),
+    withInit((db) =>
+      db.select<JumpAssetRecord[]>(
+        `SELECT * FROM jump_assets ORDER BY jump_id ASC, asset_type ASC, sort_order ASC`
+      )
+    ).then((rows) => rows as JumpAssetRecord[]),
+    listInventoryItems(),
+    listAllNotes(),
+    listRecaps(),
+    listCharacterProfiles(),
+    listAppSettings(),
+    listExportPresets(),
+  ]);
+
+  return {
+    jumps,
+    jumpAssets,
+    inventory,
+    notes,
+    recaps,
+    profiles,
+    settings,
+    presets,
+  };
 }

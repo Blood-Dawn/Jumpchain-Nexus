@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS jumps (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE jumps ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE jumps ADD COLUMN IF NOT EXISTS cp_budget INTEGER DEFAULT 0;
+ALTER TABLE jumps ADD COLUMN IF NOT EXISTS cp_spent INTEGER DEFAULT 0;
+ALTER TABLE jumps ADD COLUMN IF NOT EXISTS cp_income INTEGER DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS entities (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
@@ -120,6 +125,75 @@ CREATE TABLE IF NOT EXISTS chapter_mentions (
     start INTEGER,
     "end" INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS jump_assets (
+    id TEXT PRIMARY KEY,
+    jump_id TEXT NOT NULL REFERENCES jumps(id) ON DELETE CASCADE,
+    asset_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT,
+    subcategory TEXT,
+    cost INTEGER DEFAULT 0,
+    quantity INTEGER DEFAULT 1,
+    discounted INTEGER DEFAULT 0,
+    freebie INTEGER DEFAULT 0,
+    notes TEXT,
+    metadata TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT,
+    quantity INTEGER DEFAULT 1,
+    slot TEXT,
+    notes TEXT,
+    tags TEXT,
+    jump_id TEXT REFERENCES jumps(id) ON DELETE SET NULL,
+    metadata TEXT,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS character_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    alias TEXT,
+    species TEXT,
+    homeland TEXT,
+    biography TEXT,
+    attributes_json TEXT,
+    traits_json TEXT,
+    alt_forms_json TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS export_presets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    options_json TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_jump_assets_jump_type ON jump_assets (jump_id, asset_type, sort_order);
+CREATE INDEX IF NOT EXISTS idx_inventory_scope ON inventory_items (scope, sort_order);
+CREATE INDEX IF NOT EXISTS idx_inventory_jump ON inventory_items (jump_id);
+CREATE INDEX IF NOT EXISTS idx_export_presets_name ON export_presets (name COLLATE NOCASE);
 
 -- FTS5
 CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(content, note_id UNINDEXED);

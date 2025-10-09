@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "statistics-sql",
+  "description": "SQL read access for statistics dashboards",
+  "windows": ["main"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}

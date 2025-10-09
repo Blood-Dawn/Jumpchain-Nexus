@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "cosmic-passport-sql",
+  "description": "SQL access for Cosmic Passport profiles",
+  "windows": ["main"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}

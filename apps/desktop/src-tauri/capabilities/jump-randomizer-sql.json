@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "jump-randomizer-sql",
+  "description": "SQL access for Jump Randomizer module",
+  "windows": ["main"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}

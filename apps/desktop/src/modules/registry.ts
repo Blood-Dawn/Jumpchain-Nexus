@@ -12,7 +12,7 @@ export interface ModuleDef {
   element: LazyExoticComponent<ComponentType>;
   icon?: string;
   badge?: string;
-  requires?: string[];
+  requiredPermissions?: string[];
 }
 
 const lazyModule = (loader: () => Promise<{ default: ComponentType }>) => lazy(loader);
@@ -20,19 +20,12 @@ const lazyModule = (loader: () => Promise<{ default: ComponentType }>) => lazy(l
 export const modules: ModuleDef[] = [
   {
     id: "jump-hub",
-    title: "Jump Overview",
+    title: "Jump Hub",
     description: "Manage jumps & builds",
-    path: "overview",
-    section: "build",
-    element: lazyModule(() => import("./overview")),
-  },
-  {
-    id: "jump-memory-hub",
-    title: "Jump Memory Hub",
-    description: "Timeline & archives",
     path: "hub",
     section: "build",
     element: lazyModule(() => import("./jmh")),
+    requiredPermissions: ["jump-hub-sql"],
   },
   {
     id: "cosmic-passport",
@@ -41,6 +34,7 @@ export const modules: ModuleDef[] = [
     path: "passport",
     section: "supplements",
     element: lazyModule(() => import("./passport")),
+    requiredPermissions: ["cosmic-passport-sql"],
   },
   {
     id: "cosmic-warehouse",
@@ -49,6 +43,7 @@ export const modules: ModuleDef[] = [
     path: "warehouse",
     section: "supplements",
     element: lazyModule(() => import("./warehouse")),
+    requiredPermissions: ["cosmic-warehouse-sql"],
   },
   {
     id: "cosmic-locker",
@@ -57,6 +52,7 @@ export const modules: ModuleDef[] = [
     path: "locker",
     section: "supplements",
     element: lazyModule(() => import("./locker")),
+    requiredPermissions: ["cosmic-locker-sql"],
   },
   {
     id: "drawback-supplement",
@@ -65,6 +61,7 @@ export const modules: ModuleDef[] = [
     path: "drawbacks",
     section: "supplements",
     element: lazyModule(() => import("./drawbacks")),
+    requiredPermissions: ["drawback-supplement-sql"],
   },
   {
     id: "exporter",
@@ -73,6 +70,7 @@ export const modules: ModuleDef[] = [
     path: "export",
     section: "tools",
     element: lazyModule(() => import("./export")),
+    requiredPermissions: ["export-tools"],
   },
   {
     id: "statistics",
@@ -81,6 +79,7 @@ export const modules: ModuleDef[] = [
     path: "stats",
     section: "tools",
     element: lazyModule(() => import("./stats")),
+    requiredPermissions: ["statistics-sql"],
   },
   {
     id: "jump-options",
@@ -89,6 +88,7 @@ export const modules: ModuleDef[] = [
     path: "options",
     section: "tools",
     element: lazyModule(() => import("./options")),
+    requiredPermissions: ["jump-options-sql"],
   },
   {
     id: "input-formatter",
@@ -97,6 +97,7 @@ export const modules: ModuleDef[] = [
     path: "formatter",
     section: "tools",
     element: lazyModule(() => import("./formatter")),
+    requiredPermissions: ["input-formatter-tools"],
   },
   {
     id: "jump-randomizer",
@@ -105,6 +106,7 @@ export const modules: ModuleDef[] = [
     path: "randomizer",
     section: "tools",
     element: lazyModule(() => import("./randomizer")),
+    requiredPermissions: ["jump-randomizer-sql"],
   },
   {
     id: "story-studio",
@@ -113,6 +115,7 @@ export const modules: ModuleDef[] = [
     path: "studio",
     section: "story",
     element: lazyModule(() => import("./studio")),
+    requiredPermissions: ["story-studio-sql"],
   },
 ];
 

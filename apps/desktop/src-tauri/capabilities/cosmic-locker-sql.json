@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "cosmic-locker-sql",
+  "description": "SQL access for Cosmic Locker loadouts",
+  "windows": ["main"],
+  "permissions": [
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}
