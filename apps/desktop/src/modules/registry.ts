@@ -91,6 +91,15 @@ export const modules: ModuleDef[] = [
     requiredPermissions: ["jump-options-sql"],
   },
   {
+    id: "knowledge-base",
+    title: "Knowledge Base",
+    description: "Guides & best practices",
+    path: "knowledge",
+    section: "tools",
+    element: lazyModule(() => import("./knowledge-base")),
+    requiredPermissions: ["knowledge-base-sql"],
+  },
+  {
     id: "input-formatter",
     title: "Input Formatter",
     description: "Clean pasted text",

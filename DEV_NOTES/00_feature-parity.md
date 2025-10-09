@@ -1,16 +1,94 @@
-# Feature Parity Inventory
+# Feature Parity Matrix
 
-| Module | Current UI state | Data source(s) | Missing actions | Tauri permissions needed | Files to change |
-| --- | --- | --- | --- | --- | --- |
-| Jump Hub | Placeholder text only (`module-placeholder` section) | None (no data wiring) | Jump listing, summaries, CRUD, reorder, duplication, quick actions | `sql:default`, `sql:allow-execute` | `src/modules/overview/**`, `src/db/**`, `src/services/**`
-| Jump Memory Hub | Functional timeline, notes editor, onboarding wizard; data loads via DAO snapshot | SQLite via `db/dao.ts`, Zustand stores, React Query | Link to other modules, entity management, syncing with new tables, error handling toasts | `sql:default`, `sql:allow-execute` | `src/modules/jmh/**`, `src/db/**`
-| Cosmic Passport | Placeholder text only | None | Profile form, derived attributes, persistence | `sql:*`, possibly `fs:readTextFile` for imports | `src/modules/passport/**`, `src/db/**`, `src/services/forms/**`
-| Cosmic Warehouse | Placeholder text only | None | Inventory CRUD, categories, drag/drop with locker, persistence | `sql:*` | `src/modules/warehouse/**`, `src/modules/locker/**`, `src/db/**`
-| Cosmic Locker | Placeholder text only | None | Personal loadout tracking, counts, notes, sync with warehouse | `sql:*` | `src/modules/locker/**`, `src/db/**`
-| Drawback Supplement | Placeholder text only | None | Point accounting UI, toggles, rule presets, persistence | `sql:*` | `src/modules/drawbacks/**`, `src/db/**`
-| Export | Placeholder text only | None | Format options, preview, generation to clipboard/files, export to disk | `sql:*`, `fs:writeFile`, `fs:readTextFile`, `dialog:default` | `src/modules/export/**`, `src/services/export/**`
-| Statistics | Placeholder text only | None | Aggregations, charts, cross-module metrics | `sql:*` | `src/modules/stats/**`, `src/db/**`
-| Jump Settings/Options | Placeholder text only | None | Config presets, defaults management, schema editor, persistence | `sql:*` | `src/modules/options/**`, `src/db/**`
-| Input Formatter | Placeholder text only | None | Paste normalization pipeline, preview, apply to DB entities | Possibly `fs:readTextFile` for imports; `sql:*` for applying results | `src/modules/formatter/**`, `src/services/formatter/**`
-| Jump Randomizer | Placeholder text only | None | Weighted random selection, seeding, apply to DB | `sql:*` | `src/modules/randomizer/**`, `src/services/randomizer/**`
-| Story Studio | Functional CRUD, editor, layouts; persists via DAO | SQLite via `db/dao.ts`, Zustand store | Entity linking UI, grammar hooks, cross-module references | `sql:*` | `src/modules/studio/**`, `src/db/**`, `src/modules/jmh/**` |
+_Last updated: 2025-10-09_
+
+## Scope & Method
+- Legacy reference: `apps/desktop/legacy/old-wpf/JumpchainCharacterBuilder/` (WPF net8.0 MVVM).
+- Modern target: `apps/desktop/src/` (React + Vite + Tauri).
+- Status codes: ✅ complete · ⚠️ partial · 🚧 not started · 🛠 in progress · ❌ missing/blocked.
+- Each row links the authoritative legacy artifact to the modern implementation and highlights gaps plus migration/QA follow-ups.
+
+## UI Module Parity
+
+| Legacy Module (WPF) | Key Responsibilities (legacy refs) | Modern Implementation | Parity Status | Gaps / Follow-ups |
+| --- | --- | --- | --- | --- |
+| Jumpchain Overview (`Views/JumpchainOverviewView.xaml`, `ViewModel/JumpchainOverviewViewModel.cs`) | Manage jump list CRUD, origin metadata, per-character builds, purchases, stipends, drawbacks, scenarios, supplements. Messenger hooks for save/load/settings. | `src/routes/jumpchain/overview` (JumpHub + nested tabs). Uses Zustand `useJumpStore`, TanStack Query for persistence. | ⚠️ | Missing: draw/scenario re-order drag, stipend calculators, origin misc categories, messenger-equivalent save triggers. Need purchase attribute editor, category management, spellcheck toggle. |
+| Cosmic Passport (`Views/CosmicPassportView.xaml`, `ViewModel/CosmicPassportViewModel.cs`) | Character management, biography fields, stats, boosters, alt forms, attribute tables. | `src/routes/passport` (Character Passport). Core identity fields present. | ⚠️ | Outstanding: attribute/skill matrix, booster dependency toggles, EBMEssence tracker, alt-form editing parity, companion sync, spellcheck toggle. |
+| Cosmic Warehouse (`Views/CosmicWarehouseView.xaml`, `ViewModel/CosmicWarehouseViewModel.cs`) | Supplement toggles (Generic/Personal Reality), statistics rollups, purchase categorization by warehouse mode. | `src/routes/warehouse` modules. | ⚠️ | Need Personal Reality switch logic, limitation tracking, section-specific export toggles, stat rollups. |
+| Cosmic Locker (`Views/CosmicLockerView.xaml`, `ViewModel/CosmicLockerViewModel.cs`) | Body mod management (Universal + Essential + SB). Tracks costs, dependencies. | `src/routes/locker`. | ⚠️ | Missing Universal vs Essential feature flag parity, booster dependency warnings, purchase filtering. |
+| Drawback Supplement (`Views/DrawbackSupplementView.xaml`, `ViewModel/DrawbackSupplementViewModel.cs`) | Manage drawback add-ons, scenario bank, UU supplement toggles. | `src/routes/drawbacks`. | ⚠️ | Need scenario category filters, UU supplement handling, reward text formatting. |
+| Export Center (`Views/ExportView.xaml`, `ViewModel/ExportViewModel.cs`) | Assemble exports (Generic, BBCode, Markdown), toggle sections, format budgets, companion exports, mass write via `TxtAccess`. | `src/routes/export`. | ⚠️ | Lacks BBCode/Markdown formatting parity, spoiler formatting, section toggle persistence, per-section preview. |
+| Statistics (`Views/StatisticsView.xaml`, `ViewModel/StatisticsViewModel.cs`) | Aggregate point totals, purchase metrics, companion stats, attribute rankings. | `src/routes/statistics`. | 🚧 | Implement full metrics pipeline, including booster/attribute calculations. |
+| Jumpchain Options (`Views/JumpchainOptionsView.xaml`, `ViewModel/JumpchainOptionsViewModel.cs`) | Global defaults, supplement settings, export options, point bank policies. | `src/routes/options`. | ⚠️ | Pending: body mod toggle wiring, export option groups, default presets import, validation on point-bank limits. |
+| Story Studio (`Views/StoryStudioView.xaml`, `ViewModel/StoryStudioViewModel.cs`) | Narrative editor with section templates, markdown export, clipboard helpers. | `src/routes/story-studio`. | 🚧 | Needs isolation per requirement, template parity, clipboard integration, auto-save. |
+
+## Cross-Cutting Services & Systems
+
+| Legacy Component | Responsibilities | Modern Status | Action Items |
+| --- | --- | --- | --- |
+| `SaveFileLoader`, `SaveMigration` | Load/save XML, migrate older versions (<1.1, <1.3, <1.4). | DAO layer `src/data/sqlite/*`, JSON schemas. | Recreate migration steps in SQLite migrations; ensure triggers align with legacy field defaults. Map `saveVersion` to schema version table. |
+| `RandomizeListAccess` & `RandomizeServices` | Provide random jump/drawback/companion selection with filters. | Randomizer route placeholder. | Port randomizer logic; ensure seed/history tracking; hook into Zustand store. |
+| `FormatHelper` | Clean imported text, budget formatting (thousand separators, custom enclosures). | Minimal `formatText` utils. | Implement full formatter (linebreak scrub, bullet normalization, budget formatting). |
+| `DialogService` | Prompts for confirmation, file dialogs (open/save). | Using Tauri dialog API ad hoc. | Wrap Tauri dialog calls in shared service; mimic message patterns (e.g., safe-delete confirmations). |
+| `WeakReferenceMessenger` messages (`Messages/`) | Decoupled notifications (save/load, settings, randomizer). | Partial custom events. | Establish event bus (React context or Zustand slices) with parity message payloads. |
+| `TxtAccess`/`XmlAccess`/`FileAccess` | Export writing, config handling, backups. | Tauri fs setup with SQLite exports. | Recreate backup rotation, ensure hashed filenames, implement export directory chooser. |
+| `AttributeCalculationClass` | Rank-based numeric conversions for stats. | Not ported. | Port rank table, integrate with stats + booster calculators. |
+| `BudgetCalculationsClass` | Calculate budgets, freebies, stipends. | Partial (jump store). | Finish calculations, including origin thresholds and bank rules. |
+| `AppSettingsModel` (`CfgAccess`) | Window size, spellcheck toggles, theme. | Basic settings store. | Wire to Tauri `settings.json`, persist per user, feed into UI toggles. |
+
+## Data Model Coverage Snapshot
+
+| Entity | Legacy Fields Covered? | Modern Coverage | Notes |
+| --- | --- | --- | --- |
+| `SaveFile` root | ✅ | ⚠️ | Supplements missing (`GenericDrawbackSupplement`, `UUSupplement`, `GenericWarehouse`, etc.). Need SQLite tables + DAO + Zustand hydration. |
+| `Jump` & nested `JumpBuild` | ✅ | ⚠️ | Most core fields ported, but purchase attribute lists & stipend arrays need parity. |
+| `Character` | ✅ | ⚠️ | Alt forms, boosters, EBMEssence partial. Ensure biography string fields accept large text with formatting. |
+| Supplements (`GenericWarehouse`, `PersonalReality`, `EssentialBodyMod`, `UUSupplement`, etc.) | ✅ | 🚧 | Create dedicated tables, UI slices, export integration. |
+| `Options` + `ExportOptions` | ✅ | ⚠️ | Persisted defaults not wired into all UIs; export toggle arrays incomplete. |
+| `KnowledgeBase` (legacy `KnowledgeBaseViewModel.cs`) | ✅ | ❌ | Feature absent; implement searchable KB with categories + PDF ingestion plan. |
+
+## High-Priority Parity Gaps
+
+1. **Knowledge Base module**
+	- Legacy: `ViewModel/KnowledgeBaseViewModel.cs` provides searchable entries sourced from XML.
+	- To-do: Implement `src/routes/knowledge-base`, seed initial dataset, add PDF/text ingestion, surface in navigation.
+
+2. **Randomizer parity**
+	- Port filters (origin, cost ceiling, gauntlet flag) and ensure deterministic seed support.
+	- Add history list + undo, mimic `RandomizeListAccess` weighting rules.
+
+3. **Formatter utilities**
+	- Recreate `FormatHelper` functions: whitespace normalization, bullet/quote cleanup, budget display helpers.
+	- Expose via UI "Paste Cleanup" action in relevant editors.
+
+4. **Options & Export**
+	- Migrate export toggle matrices, spoiler formatting, per-format output writer.
+	- Implement reverse budget format + section separators.
+
+5. **Tauri SQLite migrations**
+	- Mirror versions: base schema, supplement tables, triggers ensuring budget auto-updates.
+	- Add migration tests to guard regression.
+
+6. **Story Studio isolation**
+	- Ensure independent route + store slice; support templates, Markdown preview, and safe-save to disk.
+
+## Testing & QA Backlog
+- Snapshot tests for Zustand stores to verify default state matches legacy defaults (`Options`, `SaveFile` seeds).
+- End-to-end test plan covering:
+  - Jump CRUD → export roundtrip.
+  - Character creation → passport export.
+  - Supplement toggles → stats recalculation.
+  - Randomizer run with deterministic seed.
+  - Knowledge Base search + PDF ingestion stub.
+- Migration regression tests to validate upgrade from legacy XML import to SQLite schema.
+
+## Next Implementation Targets
+1. Stand up Knowledge Base route + DAO (seed from legacy XML if available).
+2. Implement budget/formatter utilities and retrofit Jump Overview UI.
+3. Build migration scripts (`src-tauri/migrations/`) for supplement tables + triggers; fix existing syntax issues.
+4. Flesh out Story Studio with template parity and separate persistence.
+5. Port Randomizer filters and history UX.
+6. Expand export options and formatting toggles.
+
+---
+_This matrix should be updated after each module reaches ✅ parity or when new gaps emerge._

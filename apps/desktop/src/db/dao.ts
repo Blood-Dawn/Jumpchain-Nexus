@@ -24,6 +24,7 @@ SOFTWARE.
 
 import Database from "@tauri-apps/plugin-sql";
 import schema from "./migrations/001_init.sql?raw";
+import { knowledgeSeed } from "./knowledgeSeed";
 
 export type EntityKind =
   | "perk"
@@ -65,6 +66,49 @@ export interface EntityRecord {
   name: string;
   meta_json: string | null;
   search_terms: string | null;
+}
+
+export interface KnowledgeArticleRecord {
+  id: string;
+  title: string;
+  category: string | null;
+  summary: string | null;
+  content: string;
+  tags: string[];
+  source: string | null;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertKnowledgeArticleInput {
+  id?: string;
+  title: string;
+  category?: string | null;
+  summary?: string | null;
+  content: string;
+  tags?: string[];
+  source?: string | null;
+}
+
+export interface KnowledgeArticleQuery {
+  search?: string;
+  category?: string | null;
+  tag?: string | null;
+  includeSystem?: boolean;
+}
+
+interface KnowledgeArticleRow {
+  id: string;
+  title: string;
+  category: string | null;
+  summary: string | null;
+  content: string;
+  tags: string | null;
+  source: string | null;
+  is_system: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NoteRecord {
@@ -287,6 +331,7 @@ export interface ChapterEntityLinkSummary {
 const DB_FILENAME = "app.db";
 let dbPromise: Promise<Database> | null = null;
 let schemaApplied = false;
+let knowledgeSeedInitialized = false;
 
 async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -414,6 +459,28 @@ function serializeTags(value: string[] | string | null | undefined): string | nu
   }
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function deserializeTags(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.map((tag) => String(tag)).filter((tag) => tag.trim().length > 0);
+    }
+  } catch (error) {
+    console.warn("Failed to parse tags JSON", error);
+  }
+  return trimmed
+    .split(/[,;\n]/)
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
 }
 
 export async function createJump(payload: CreateJumpInput): Promise<JumpRecord> {
@@ -618,6 +685,222 @@ export async function listEntities(kind?: EntityKind): Promise<EntityRecord[]> {
       kind ? [kind] : []
     );
     return rows as EntityRecord[];
+  });
+}
+
+function mapKnowledgeRow(row: KnowledgeArticleRow): KnowledgeArticleRecord {
+  return {
+    id: row.id,
+    title: row.title,
+    category: row.category ?? null,
+    summary: row.summary ?? null,
+    content: row.content,
+    tags: deserializeTags(row.tags),
+    source: row.source ?? null,
+    is_system: row.is_system === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function seedKnowledgeBase(): Promise<void> {
+  if (knowledgeSeedInitialized) {
+    return;
+  }
+  await withInit(async (db) => {
+    const rows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(*) AS count FROM knowledge_articles`
+    );
+    const count = rows[0]?.count ?? 0;
+    if (count > 0) {
+      knowledgeSeedInitialized = true;
+      return;
+    }
+    const now = new Date().toISOString();
+    for (const entry of knowledgeSeed) {
+      await db.execute(
+        `INSERT INTO knowledge_articles
+           (id, title, category, summary, content, tags, source, is_system, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $8)`,
+        [
+          uuid(),
+          entry.title,
+          toNullableText(entry.category ?? null),
+          toNullableText(entry.summary ?? null),
+          entry.content,
+          serializeTags(entry.tags ?? []) ?? null,
+          toNullableText(entry.source ?? null),
+          now,
+        ]
+      );
+    }
+  });
+  knowledgeSeedInitialized = true;
+}
+
+export async function ensureKnowledgeBaseSeeded(): Promise<void> {
+  if (knowledgeSeedInitialized) {
+    return;
+  }
+  await seedKnowledgeBase();
+}
+
+export async function countKnowledgeArticles(): Promise<number> {
+  await ensureKnowledgeBaseSeeded();
+  const rows = await withInit((db) =>
+    db.select<{ count: number }[]>(`SELECT COUNT(*) AS count FROM knowledge_articles`)
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function fetchKnowledgeArticles(
+  query: KnowledgeArticleQuery = {}
+): Promise<KnowledgeArticleRecord[]> {
+  await ensureKnowledgeBaseSeeded();
+  return withInit(async (db) => {
+    const categoryValue = query.category?.trim();
+    const includeSystem = query.includeSystem ?? true;
+    const baseConditions: string[] = [];
+    const baseParams: unknown[] = [];
+
+    if (categoryValue) {
+      baseConditions.push("COALESCE(category, '') = $" + (baseParams.length + 1));
+      baseParams.push(categoryValue);
+    }
+
+    if (!includeSystem) {
+      baseConditions.push("is_system = 0");
+    }
+
+    let rows: KnowledgeArticleRow[] = [];
+
+    if (query.search && query.search.trim()) {
+      const expression = toFtsPrefixQuery(query.search);
+      if (expression) {
+        const whereClauses: string[] = [];
+        const params: unknown[] = [expression];
+        let paramIndex = 2;
+        if (categoryValue) {
+          whereClauses.push(`COALESCE(ka.category, '') = $${paramIndex}`);
+          params.push(categoryValue);
+          paramIndex += 1;
+        }
+        if (!includeSystem) {
+          whereClauses.push("ka.is_system = 0");
+        }
+        const where = whereClauses.length ? ` AND ${whereClauses.join(" AND ")}` : "";
+        rows = (await db.select<KnowledgeArticleRow[]>(
+          `SELECT ka.*,
+                  bm25(knowledge_fts) AS score
+             FROM knowledge_fts
+             JOIN knowledge_articles ka ON ka.id = knowledge_fts.article_id
+            WHERE knowledge_fts MATCH $1${where}
+            ORDER BY score ASC, ka.title COLLATE NOCASE`,
+          params
+        )) as KnowledgeArticleRow[];
+      } else {
+        rows = (await db.select<KnowledgeArticleRow[]>(
+          `SELECT * FROM knowledge_articles
+            ${baseConditions.length ? `WHERE ${baseConditions.join(" AND ")}` : ""}
+            ORDER BY is_system DESC, title COLLATE NOCASE`,
+          baseParams
+        )) as KnowledgeArticleRow[];
+      }
+    } else {
+      rows = (await db.select<KnowledgeArticleRow[]>(
+        `SELECT * FROM knowledge_articles
+          ${baseConditions.length ? `WHERE ${baseConditions.join(" AND ")}` : ""}
+          ORDER BY is_system DESC, title COLLATE NOCASE`,
+        baseParams
+      )) as KnowledgeArticleRow[];
+    }
+
+    const articles = rows.map(mapKnowledgeRow);
+    if (query.tag && query.tag.trim()) {
+      const tag = query.tag.trim().toLowerCase();
+      return articles.filter((article) =>
+        article.tags.some((candidate) => candidate.toLowerCase() === tag)
+      );
+    }
+    return articles;
+  });
+}
+
+export async function getKnowledgeArticle(id: string): Promise<KnowledgeArticleRecord | null> {
+  await ensureKnowledgeBaseSeeded();
+  const rows = await withInit((db) =>
+    db.select<KnowledgeArticleRow[]>(`SELECT * FROM knowledge_articles WHERE id = $1`, [id])
+  );
+  const row = rows[0];
+  return row ? mapKnowledgeRow(row) : null;
+}
+
+export async function upsertKnowledgeArticle(
+  input: UpsertKnowledgeArticleInput
+): Promise<KnowledgeArticleRecord> {
+  await ensureKnowledgeBaseSeeded();
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    const category = toNullableText(input.category ?? null);
+    const summary = toNullableText(input.summary ?? null);
+    const source = toNullableText(input.source ?? null);
+    const tags = serializeTags(input.tags ?? null);
+
+    if (input.id) {
+      const existingRows = await db.select<KnowledgeArticleRow[]>(
+        `SELECT * FROM knowledge_articles WHERE id = $1`,
+        [input.id]
+      );
+      const existing = existingRows[0];
+      if (!existing) {
+        throw new Error(`Knowledge article ${input.id} not found`);
+      }
+      await db.execute(
+        `UPDATE knowledge_articles
+            SET title = $1,
+                category = $2,
+                summary = $3,
+                content = $4,
+                tags = $5,
+                source = $6,
+                updated_at = $7
+          WHERE id = $8`,
+        [input.title, category, summary, input.content, tags, source, now, input.id]
+      );
+      const refreshed = await db.select<KnowledgeArticleRow[]>(
+        `SELECT * FROM knowledge_articles WHERE id = $1`,
+        [input.id]
+      );
+      return mapKnowledgeRow(refreshed[0] as KnowledgeArticleRow);
+    }
+
+    const id = uuid();
+    await db.execute(
+      `INSERT INTO knowledge_articles
+         (id, title, category, summary, content, tags, source, is_system, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)`,
+      [id, input.title, category, summary, input.content, tags, source, now]
+    );
+    const rows = await db.select<KnowledgeArticleRow[]>(
+      `SELECT * FROM knowledge_articles WHERE id = $1`,
+      [id]
+    );
+    return mapKnowledgeRow(rows[0] as KnowledgeArticleRow);
+  });
+}
+
+export async function deleteKnowledgeArticle(id: string): Promise<void> {
+  await ensureKnowledgeBaseSeeded();
+  await withInit(async (db) => {
+    const rows = await db.select<{ is_system: number }[]>(
+      `SELECT is_system FROM knowledge_articles WHERE id = $1`,
+      [id]
+    );
+    const isSystem = rows[0]?.is_system ?? 0;
+    if (isSystem === 1) {
+      throw new Error("System knowledge base articles cannot be deleted");
+    }
+    await db.execute(`DELETE FROM knowledge_articles WHERE id = $1`, [id]);
   });
 }
 
@@ -1311,13 +1594,16 @@ export async function clearAllData(): Promise<void> {
     await db.execute("DELETE FROM file_fts");
     await db.execute("DELETE FROM chapter_fts");
     await db.execute("DELETE FROM entity_fts");
+    await db.execute("DELETE FROM knowledge_fts");
     await db.execute("DELETE FROM notes");
     await db.execute("DELETE FROM files");
     await db.execute("DELETE FROM recaps");
     await db.execute("DELETE FROM next_actions");
     await db.execute("DELETE FROM entities");
+    await db.execute("DELETE FROM knowledge_articles");
     await db.execute("DELETE FROM jumps");
   });
+  knowledgeSeedInitialized = false;
 }
 
 export async function listRecaps(): Promise<RecapRecord[]> {

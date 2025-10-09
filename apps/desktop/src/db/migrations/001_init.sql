@@ -44,6 +44,22 @@ CREATE TABLE IF NOT EXISTS entities (
     search_terms TEXT DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_articles (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT,
+    summary TEXT,
+    content TEXT NOT NULL,
+    tags TEXT,
+    source TEXT,
+    is_system INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_articles (category, title COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge_articles (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
     jump_id TEXT REFERENCES jumps(id) ON DELETE CASCADE,
@@ -200,6 +216,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(content, note_id UNINDEXE
 CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(content, file_id UNINDEXED);
 CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(name, search_terms, entity_id UNINDEXED);
 CREATE VIRTUAL TABLE IF NOT EXISTS chapter_fts USING fts5(content, chapter_id UNINDEXED);
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(title, summary, content, tags, category, article_id UNINDEXED);
 
 -- triggers keep FTS in sync
 CREATE TRIGGER IF NOT EXISTS note_ai AFTER INSERT ON notes BEGIN
@@ -247,6 +264,23 @@ END;
 CREATE TRIGGER IF NOT EXISTS entity_ad AFTER DELETE ON entities BEGIN
     INSERT INTO entity_fts(entity_fts, rowid, name, search_terms, entity_id)
     VALUES('delete', old.rowid, old.name, COALESCE(old.search_terms, ''), old.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge_articles BEGIN
+    INSERT INTO knowledge_fts(rowid, title, summary, content, tags, category, article_id)
+    VALUES (new.rowid, new.title, COALESCE(new.summary, ''), new.content, COALESCE(new.tags, ''), COALESCE(new.category, ''), new.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge_articles BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, title, summary, content, tags, category, article_id)
+    VALUES('delete', old.rowid, old.title, COALESCE(old.summary, ''), old.content, COALESCE(old.tags, ''), COALESCE(old.category, ''), old.id);
+    INSERT INTO knowledge_fts(rowid, title, summary, content, tags, category, article_id)
+    VALUES (new.rowid, new.title, COALESCE(new.summary, ''), new.content, COALESCE(new.tags, ''), COALESCE(new.category, ''), new.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge_articles BEGIN
+    INSERT INTO knowledge_fts(knowledge_fts, rowid, title, summary, content, tags, category, article_id)
+    VALUES('delete', old.rowid, old.title, COALESCE(old.summary, ''), old.content, COALESCE(old.tags, ''), COALESCE(old.category, ''), old.id);
 END;
 
 CREATE TRIGGER IF NOT EXISTS chapter_text_ai AFTER INSERT ON chapter_text BEGIN
