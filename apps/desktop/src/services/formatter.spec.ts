@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { formatBudget, formatInputText } from "./formatter";
 
 describe("formatInputText", () => {
-  it("removes single line breaks but keeps doubles by default", () => {
-    const input = "First line\r\nSecond line\r\n\r\nThird line";
+  it("@smoke trims, normalizes, and respects newline strategy", () => {
+    const input = "First line\r\n Second line\r\n\r\nThird   line";
     const result = formatInputText(input, {
       removeAllLineBreaks: false,
       leaveDoubleLineBreaks: false,
@@ -41,6 +41,16 @@ describe("formatInputText", () => {
     });
     expect(result).toBe("SafeText");
   });
+
+  it("allows preserving raw control characters when xmlSafe is false", () => {
+    const input = `Chunk${String.fromCharCode(0)}Data`;
+    const result = formatInputText(input, {
+      removeAllLineBreaks: true,
+      leaveDoubleLineBreaks: false,
+      xmlSafe: false,
+    });
+    expect(result).toBe(`Chunk${String.fromCharCode(0)}Data`);
+  });
 });
 
 describe("formatBudget", () => {
@@ -58,5 +68,10 @@ describe("formatBudget", () => {
 
   it("keeps negative values", () => {
     expect(formatBudget(-4200, "period")).toBe("-4.200");
+  });
+
+  it("coerces non-finite values to zero", () => {
+    expect(formatBudget(Number.POSITIVE_INFINITY, "comma")).toBe("0");
+    expect(formatBudget(Number.NaN, "comma")).toBe("0");
   });
 });
