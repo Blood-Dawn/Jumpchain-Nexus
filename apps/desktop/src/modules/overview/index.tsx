@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createJump,
   deleteJump,
@@ -33,6 +33,7 @@ import {
   type JumpRecord,
   type JumpBudgetSummary,
   loadFormatterSettings,
+  loadJumpDefaults,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
@@ -187,9 +188,25 @@ const JumpchainOverview: React.FC = () => {
     queryKey: ["app-settings", "formatter"],
     queryFn: loadFormatterSettings,
   });
+  const jumpDefaultsQuery = useQuery({ queryKey: ["jump-defaults"], queryFn: loadJumpDefaults });
   const [formState, setFormState] = useState<JumpFormState>(DEFAULT_FORM);
   const [formOpen, setFormOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const defaultFormState = useMemo<JumpFormState>(() => {
+    return {
+      title: "",
+      world: "",
+      cpBudget: jumpDefaultsQuery.data?.standardBudget ?? DEFAULT_FORM.cpBudget,
+    };
+  }, [jumpDefaultsQuery.data?.standardBudget]);
+
+  useEffect(() => {
+    if (formOpen) {
+      return;
+    }
+    setFormState(defaultFormState);
+  }, [defaultFormState, formOpen]);
 
   const thousandsSeparator = formatterSettingsQuery.data?.thousandsSeparator ?? "none";
   const formatBudgetValue = useCallback(
@@ -237,7 +254,7 @@ const JumpchainOverview: React.FC = () => {
   cp_budget: Number.isFinite(formState.cpBudget) ? Math.max(formState.cpBudget, 0) : 0,
       start_date: new Date().toISOString(),
     });
-    setFormState(DEFAULT_FORM);
+    setFormState(defaultFormState);
     setFormOpen(false);
   };
 
@@ -262,7 +279,17 @@ const JumpchainOverview: React.FC = () => {
           <h1>Jump Hub</h1>
           <p>Manage every jump, budget, and quick action across your chain.</p>
         </div>
-        <button type="button" className="jump-hub__cta" onClick={() => setFormOpen((open) => !open)}>
+        <button
+          type="button"
+          className="jump-hub__cta"
+          onClick={() =>
+            setFormOpen((open) => {
+              const next = !open;
+              setFormState(defaultFormState);
+              return next;
+            })
+          }
+        >
           {formOpen ? "Cancel" : "New Jump"}
         </button>
       </header>

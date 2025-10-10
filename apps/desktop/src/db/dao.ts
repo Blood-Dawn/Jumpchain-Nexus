@@ -267,6 +267,34 @@ export interface FormatterSettings {
   thousandsSeparator: ThousandsSeparatorOption;
 }
 
+export interface JumpDefaultsSettings {
+  standardBudget: number;
+  gauntletBudget: number;
+  companionStipend: number;
+}
+
+export interface SupplementToggleSettings {
+  enableDrawbackSupplement: boolean;
+  enableUniversalDrawbacks: boolean;
+  enableEssentialBodyMod: boolean;
+  allowCompanionBodyMod: boolean;
+}
+
+export type WarehouseModeOption = "generic" | "personal-reality";
+
+export interface WarehouseModeSettings {
+  mode: WarehouseModeOption;
+}
+
+export interface CategoryPresetSettings {
+  perkCategories: string[];
+  itemCategories: string[];
+}
+
+export interface ExportPreferenceSettings {
+  defaultPresetId: string | null;
+}
+
 export interface ExportPresetRecord {
   id: string;
   name: string;
@@ -2215,6 +2243,38 @@ const FORMATTER_REMOVE_ALL_KEY = "formatter.deleteAllLineBreaks";
 const FORMATTER_LEAVE_DOUBLE_KEY = "formatter.leaveDoubleLineBreaks";
 const FORMATTER_SEPARATOR_KEY = "formatter.thousandsSeparator";
 
+export const JUMP_DEFAULTS_SETTING_KEY = "options.jumpDefaults";
+export const SUPPLEMENT_SETTING_KEY = "options.supplements";
+export const WAREHOUSE_MODE_SETTING_KEY = "options.warehouseMode";
+export const CATEGORY_PRESETS_SETTING_KEY = "options.categoryPresets";
+export const EXPORT_PREFERENCES_SETTING_KEY = "options.exportPreferences";
+
+export const DEFAULT_JUMP_DEFAULTS: JumpDefaultsSettings = {
+  standardBudget: 1000,
+  gauntletBudget: 1500,
+  companionStipend: 0,
+};
+
+export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
+  enableDrawbackSupplement: true,
+  enableUniversalDrawbacks: false,
+  enableEssentialBodyMod: true,
+  allowCompanionBodyMod: true,
+};
+
+export const DEFAULT_WAREHOUSE_MODE: WarehouseModeSettings = {
+  mode: "generic",
+};
+
+export const DEFAULT_CATEGORY_PRESETS: CategoryPresetSettings = {
+  perkCategories: [],
+  itemCategories: [],
+};
+
+export const DEFAULT_EXPORT_PREFERENCES: ExportPreferenceSettings = {
+  defaultPresetId: null,
+};
+
 const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   removeAllLineBreaks: false,
   leaveDoubleLineBreaks: false,
@@ -2264,6 +2324,197 @@ function parseSeparatorSetting(
   }
 
   return fallback;
+}
+
+function parseJsonValue(record: AppSettingRecord | null): unknown {
+  if (!record?.value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(record.value);
+  } catch {
+    return null;
+  }
+}
+
+function coerceNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+  return fallback;
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : String(entry ?? "").trim()))
+      .filter((entry) => entry.length > 0);
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => (typeof entry === "string" ? entry.trim() : String(entry ?? "").trim()))
+          .filter((entry) => entry.length > 0);
+      }
+    } catch {
+      return value
+        .split(/[,;\n]+/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    }
+  }
+
+  return [];
+}
+
+export function parseJumpDefaults(record: AppSettingRecord | null): JumpDefaultsSettings {
+  const raw = parseJsonValue(record);
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_JUMP_DEFAULTS;
+  }
+
+  const value = raw as Partial<JumpDefaultsSettings>;
+  return {
+    standardBudget: Math.max(0, coerceNumber(value.standardBudget, DEFAULT_JUMP_DEFAULTS.standardBudget)),
+    gauntletBudget: Math.max(0, coerceNumber(value.gauntletBudget, DEFAULT_JUMP_DEFAULTS.gauntletBudget)),
+    companionStipend: Math.max(0, coerceNumber(value.companionStipend, DEFAULT_JUMP_DEFAULTS.companionStipend)),
+  };
+}
+
+export function parseSupplementSettings(record: AppSettingRecord | null): SupplementToggleSettings {
+  const raw = parseJsonValue(record);
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_SUPPLEMENT_SETTINGS;
+  }
+
+  const value = raw as Partial<SupplementToggleSettings>;
+  return {
+    enableDrawbackSupplement: coerceBoolean(
+      value.enableDrawbackSupplement,
+      DEFAULT_SUPPLEMENT_SETTINGS.enableDrawbackSupplement
+    ),
+    enableUniversalDrawbacks: coerceBoolean(
+      value.enableUniversalDrawbacks,
+      DEFAULT_SUPPLEMENT_SETTINGS.enableUniversalDrawbacks
+    ),
+    enableEssentialBodyMod: coerceBoolean(
+      value.enableEssentialBodyMod,
+      DEFAULT_SUPPLEMENT_SETTINGS.enableEssentialBodyMod
+    ),
+    allowCompanionBodyMod: coerceBoolean(
+      value.allowCompanionBodyMod,
+      DEFAULT_SUPPLEMENT_SETTINGS.allowCompanionBodyMod
+    ),
+  };
+}
+
+export function parseWarehouseMode(record: AppSettingRecord | null): WarehouseModeSettings {
+  const raw = parseJsonValue(record);
+  if (typeof raw === "string") {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "personal-reality") {
+      return { mode: "personal-reality" };
+    }
+    if (normalized === "generic") {
+      return { mode: "generic" };
+    }
+  }
+
+  if (raw && typeof raw === "object" && "mode" in raw) {
+    const modeValue = String((raw as { mode?: unknown }).mode ?? "generic").trim().toLowerCase();
+    if (modeValue === "personal-reality") {
+      return { mode: "personal-reality" };
+    }
+  }
+
+  return DEFAULT_WAREHOUSE_MODE;
+}
+
+export function parseCategoryPresets(record: AppSettingRecord | null): CategoryPresetSettings {
+  const raw = parseJsonValue(record);
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_CATEGORY_PRESETS;
+  }
+
+  const value = raw as Partial<CategoryPresetSettings>;
+  const perkCategories = coerceStringArray(value.perkCategories);
+  const itemCategories = coerceStringArray(value.itemCategories);
+
+  const unique = (entries: string[]) =>
+    Array.from(new Set(entries.map((entry) => entry.trim()))).filter((entry) => entry.length > 0);
+
+  return {
+    perkCategories: unique(perkCategories).sort((a, b) => a.localeCompare(b)),
+    itemCategories: unique(itemCategories).sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+export function parseExportPreferences(record: AppSettingRecord | null): ExportPreferenceSettings {
+  const raw = parseJsonValue(record);
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_EXPORT_PREFERENCES;
+  }
+
+  const value = raw as Partial<ExportPreferenceSettings> & { defaultPresetId?: unknown };
+  const defaultPresetId = typeof value.defaultPresetId === "string" ? value.defaultPresetId : null;
+  return {
+    defaultPresetId,
+  };
+}
+
+export async function loadJumpDefaults(): Promise<JumpDefaultsSettings> {
+  const record = await getAppSetting(JUMP_DEFAULTS_SETTING_KEY);
+  return parseJumpDefaults(record);
+}
+
+export async function loadSupplementSettings(): Promise<SupplementToggleSettings> {
+  const record = await getAppSetting(SUPPLEMENT_SETTING_KEY);
+  return parseSupplementSettings(record);
+}
+
+export async function loadWarehouseModeSetting(): Promise<WarehouseModeSettings> {
+  const record = await getAppSetting(WAREHOUSE_MODE_SETTING_KEY);
+  return parseWarehouseMode(record);
+}
+
+export async function loadCategoryPresets(): Promise<CategoryPresetSettings> {
+  const record = await getAppSetting(CATEGORY_PRESETS_SETTING_KEY);
+  return parseCategoryPresets(record);
+}
+
+export async function loadExportPreferences(): Promise<ExportPreferenceSettings> {
+  const record = await getAppSetting(EXPORT_PREFERENCES_SETTING_KEY);
+  return parseExportPreferences(record);
 }
 
 export async function loadFormatterSettings(): Promise<FormatterSettings> {
