@@ -30,6 +30,7 @@ import { GlobalSearch } from "./GlobalSearch";
 import { Timeline } from "./Timeline";
 import { NextActionsPanel } from "./NextActionsPanel";
 import { PageLayoutRightPane } from "../../components/PageLayout";
+import { AssetWorkbench } from "./AssetWorkbench";
 
 const NotesEditor = lazy(async () => import("./NotesEditor"));
 const HelpPane = lazy(async () => import("./HelpPane"));
@@ -47,6 +48,8 @@ export const JumpMemoryHub: React.FC = () => {
   const setHelpPaneOpen = useJmhStore((state) => state.setHelpPaneOpen);
   const onboardingOpen = useJmhStore((state) => state.onboardingOpen);
   const setOnboardingOpen = useJmhStore((state) => state.setOnboardingOpen);
+  const selectedJumpId = useJmhStore((state) => state.selectedJumpId);
+  const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
 
   const snapshotQuery = useQuery({
     queryKey: ["jmh-snapshot"],
@@ -69,7 +72,20 @@ export const JumpMemoryHub: React.FC = () => {
     if (hasExistingData) {
       setOnboardingComplete(true);
     }
-  }, [snapshotQuery.data, setEntities, setJumps, setNextActions, setNotes, setOnboardingComplete, setRecaps]);
+    if (!selectedJumpId && jumps.length > 0) {
+      setSelectedJump(jumps[0].id);
+    }
+  }, [
+    snapshotQuery.data,
+    selectedJumpId,
+    setEntities,
+    setJumps,
+    setNextActions,
+    setNotes,
+    setOnboardingComplete,
+    setRecaps,
+    setSelectedJump,
+  ]);
 
   const showWizard = onboardingOpen;
 
@@ -106,6 +122,7 @@ export const JumpMemoryHub: React.FC = () => {
           </button>
         </div>
       </header>
+      <AssetWorkbench />
       <section className="hub-grid">
         <div className="hub-grid__timeline">
           <Timeline />

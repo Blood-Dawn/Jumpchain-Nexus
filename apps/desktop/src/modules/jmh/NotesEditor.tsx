@@ -45,6 +45,8 @@ const typeAliases: Record<string, EntityRecord["type"]> = {
   ite: "item",
   companion: "companion",
   comp: "companion",
+  origin: "origin",
+  ori: "origin",
 };
 
 function parseMentionQuery(raw: string): { kind: EntityRecord["type"] | null; term: string } {

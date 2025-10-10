@@ -32,6 +32,7 @@ export type EntityKind =
   | "item"
   | "companion"
   | "drawback"
+  | "origin"
   | "location"
   | "faction";
 
@@ -718,6 +719,10 @@ export async function listEntities(kind?: EntityKind): Promise<EntityRecord[]> {
     );
     return rows as EntityRecord[];
   });
+}
+
+export async function deleteEntity(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM entities WHERE id = $1`, [id]));
 }
 
 function mapKnowledgeRow(row: KnowledgeArticleRow): KnowledgeArticleRecord {
