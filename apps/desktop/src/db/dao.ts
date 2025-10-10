@@ -24,7 +24,8 @@ SOFTWARE.
 
 import Database from "@tauri-apps/plugin-sql";
 import type { ThousandsSeparatorOption } from "../services/formatter";
-import schema from "./migrations/001_init.sql?raw";
+import baseSchema from "./migrations/001_init.sql?raw";
+import randomizerSchema from "./migrations/002_randomizer_pools.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
 
 export type EntityKind =
@@ -224,6 +225,30 @@ export interface UpdateInventoryItemInput {
   tags?: string[] | string | null;
   jump_id?: string | null;
   metadata?: Record<string, unknown> | string | null;
+  sort_order?: number;
+}
+
+export interface RandomizerPoolRecord {
+  id: string;
+  name: string;
+  weight: number;
+  link: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateRandomizerPoolInput {
+  name?: string;
+  weight?: number;
+  link?: string | null;
+  sort_order?: number;
+}
+
+export interface UpdateRandomizerPoolInput {
+  name?: string;
+  weight?: number;
+  link?: string | null;
   sort_order?: number;
 }
 
@@ -429,9 +454,12 @@ export async function ensureInitialized(): Promise<void> {
     return;
   }
   const db = await getDb();
-  const statements = splitStatements(schema);
-  for (const statement of statements) {
-    await db.execute(statement);
+  const schemas = [baseSchema, randomizerSchema];
+  for (const source of schemas) {
+    const statements = splitStatements(source);
+    for (const statement of statements) {
+      await db.execute(statement);
+    }
   }
   await ensureLegacyColumns(db);
   schemaApplied = true;
@@ -475,6 +503,13 @@ function toNullableText(value: string | null | undefined): string | null {
 
 function boolToInt(value: boolean | undefined): 0 | 1 {
   return value ? 1 : 0;
+}
+
+function normalizeWeight(value: number | null | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value) || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.round(value));
 }
 
 function serializeTags(value: string[] | string | null | undefined): string | null {
@@ -2100,6 +2135,104 @@ export async function moveInventoryItem(
       [scope, typeof sortOrder === "number" ? sortOrder : newOrder + 1, new Date().toISOString(), id]
     );
   });
+}
+
+export async function listRandomizerPools(): Promise<RandomizerPoolRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<RandomizerPoolRecord[]>(
+      `SELECT * FROM randomizer_pools ORDER BY sort_order ASC, created_at ASC`
+    );
+    return rows as RandomizerPoolRecord[];
+  });
+}
+
+export async function createRandomizerPool(
+  input: CreateRandomizerPoolInput = {}
+): Promise<RandomizerPoolRecord> {
+  return withInit(async (db) => {
+    const id = uuid();
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM randomizer_pools`
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
+    const name = toNullableText(input.name ?? null) ?? "New Entry";
+    const weight = normalizeWeight(input.weight ?? 1);
+    const link = toNullableText(input.link ?? null);
+    await db.execute(
+      `INSERT INTO randomizer_pools (id, name, weight, link, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      [id, name, weight, link, sortOrder, now]
+    );
+    const rows = await db.select<RandomizerPoolRecord[]>(
+      `SELECT * FROM randomizer_pools WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as RandomizerPoolRecord;
+  });
+}
+
+export async function updateRandomizerPool(
+  id: string,
+  updates: UpdateRandomizerPoolInput
+): Promise<RandomizerPoolRecord> {
+  return withInit(async (db) => {
+    const existingRows = await db.select<RandomizerPoolRecord[]>(
+      `SELECT * FROM randomizer_pools WHERE id = $1`,
+      [id]
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      throw new Error(`Randomizer pool ${id} not found`);
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (updates.name !== undefined) {
+      const name = toNullableText(updates.name) ?? existing.name;
+      sets.push(`name = $${index++}`);
+      values.push(name);
+    }
+    if (updates.weight !== undefined) {
+      sets.push(`weight = $${index++}`);
+      values.push(normalizeWeight(updates.weight));
+    }
+    if (updates.link !== undefined) {
+      sets.push(`link = $${index++}`);
+      values.push(toNullableText(updates.link));
+    }
+    if (updates.sort_order !== undefined) {
+      sets.push(`sort_order = $${index++}`);
+      values.push(updates.sort_order ?? existing.sort_order);
+    }
+
+    if (!sets.length) {
+      return existing;
+    }
+
+    sets.push(`updated_at = $${index++}`);
+    const now = new Date().toISOString();
+    values.push(now);
+    values.push(id);
+
+    await db.execute(
+      `UPDATE randomizer_pools SET ${sets.join(", ")} WHERE id = $${index}`,
+      values
+    );
+
+    const rows = await db.select<RandomizerPoolRecord[]>(
+      `SELECT * FROM randomizer_pools WHERE id = $1`,
+      [id]
+    );
+    return rows[0] as RandomizerPoolRecord;
+  });
+}
+
+export async function deleteRandomizerPool(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM randomizer_pools WHERE id = $1`, [id]));
 }
 
 export async function listCharacterProfiles(): Promise<CharacterProfileRecord[]> {
