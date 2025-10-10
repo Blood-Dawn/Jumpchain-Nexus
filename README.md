@@ -2,12 +2,16 @@
 ## A new way to build, manage, and narrate your Jumpchain.
 
 ## Overview
-Jumpchain Nexus (formerly the Jumpchain Character Builder) is a full lifecycle toolkit for running a Jumpchain: planning Jumps, budgeting and tracking purchases, managing companions, modeling supplements (Body Mod, Warehouse, Drawback systems), exporting builds, analyzing statistics, randomizing future Jumps, and now outlining the evolving story of your chain. Beyond structured data entry, the project’s modern (Tauri + React) desktop rewrite introduces note & narrative scaffolding (onboarding prompts, markdown notes, perk mention indexing) so you can progressively develop a cohesive in?universe chronicle while you build. The classic WPF application automates repetitive bookkeeping (discounts, freebies, stipends, point banking, investment ratios, incremental supplement gains) so you can focus on creative and strategic decisions instead of manual recalculation.
+Jumpchain Nexus (formerly the Jumpchain Character Builder) is a full lifecycle toolkit for running a Jumpchain: planning Jumps, budgeting and tracking purchases, managing companions, modeling supplements (Body Mod, Warehouse, Drawback systems), exporting builds, analyzing statistics, randomizing future Jumps, and now outlining the evolving story of your chain. Beyond structured data entry, the project's modern (Tauri + React) desktop rewrite introduces note & narrative scaffolding (onboarding prompts, markdown notes, perk mention indexing) so you can progressively develop a cohesive in-universe chronicle while you build. The classic WPF application automates repetitive bookkeeping (discounts, freebies, stipends, point banking, investment ratios, incremental supplement gains) so you can focus on creative and strategic decisions instead of manual recalculation.
 
-The goal remains: minimize friction, surface insight, and preserve flexibility. If something does not fit your workflow, feel free to open feedback—no guarantee of adoption, but all signals are noted.
+The goal remains: minimize friction, surface insight, and preserve flexibility. If something does not fit your workflow, feel free to open feedbackâ€”no guarantee of adoption, but all signals are noted.
+
+Jumpchain Nexus is now maintained by the Jumpchain Nexus maintainers (2025-present), continuing the lineage established by Age-Of-Ages.
 
 ## Credits & Attribution
 Jumpchain Nexus is a continuation and adaptation of the original Jumpchain Character Builder by Age-Of-Ages. Core ideas, early data structures, and foundational workflows were inspired by (and in some cases ported from) that codebase.
+
+- Maintained by the Jumpchain Nexus maintainers (2025-present).
 
 Original repository: https://github.com/Age-Of-Ages/JumpchainCharacterBuilder
 
@@ -87,6 +91,9 @@ See `apps/desktop/README.md` (if present) for module details, schema evolution, 
 Navigate to Releases and download the latest `JumpchainNexus.zip` (name may still appear as legacy until release naming is fully migrated). Extract and run the WPF executable (e.g., `JumpchainNexus.exe`). If Windows SmartScreen warns, choose "More Info" then "Run Anyway" or unblock via File Properties.
 
 ### Running Source (WPF)
+> [!NOTE]
+> The WPF project is considered legacy/reference-only. It remains in the repository for historical parity and migration support, but active development is focused on the modern Tauri desktop client.
+
 Prerequisites: .NET 8 SDK (Windows). From repo root:
 ```powershell
 dotnet restore
@@ -116,7 +123,7 @@ Run DB migrations (idempotent):
 Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are maintained in `Backups/` (`(1)` oldest ? rotated). Use "Save As" for branching timelines.
 
 ### Randomizer Lists
-`JumpList.txt` regenerates with a template if missing. Edit via UI where possible—manual edits must preserve `JumpName | Weight | Link` format under `[Section]` tags.
+`JumpList.txt` regenerates with a template if missing. Edit via UI where possibleâ€”manual edits must preserve `JumpName | Weight | Link` format under `[Section]` tags.
 
 ## Technology Stack
 ### Legacy / Classic App (WPF)

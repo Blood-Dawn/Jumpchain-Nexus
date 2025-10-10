@@ -1,19 +1,25 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Suggest an improvement for Jumpchain Nexus
 title: "[REQUEST]"
 labels: enhancement
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+**Summary**
+What improvement or new capability would you like to see in Jumpchain Nexus?
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+**Motivation / problem statement**
+Describe the workflow pain point or narrative gap this would address. If this is about the legacy WPF app, note that it is maintained for reference only and major changes will target the modern desktop client.
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+**Proposed solution**
+Outline the behaviour, UI, or data changes you are envisioning. Mock-ups and example exports are welcome.
+
+**Alternatives you've considered**
+List any workarounds or alternate approaches you tried.
+
+**Affected build / version**
+Which app release or commit are you using today?
 
 **Additional context**
-Add any other context or screenshots about the feature request here.
+Anything else we should know to scope the request? The Jumpchain Nexus maintainers review this queue and prioritise based on overall impact.
