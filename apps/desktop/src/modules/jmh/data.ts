@@ -26,15 +26,18 @@ import {
   ensureInitialized,
   listAllNotes,
   listEntities,
+  listJumpAssets,
   listJumps,
   listNextActions,
   listRecaps,
   type EntityRecord,
+  type JumpAssetRecord,
   type JumpRecord,
   type NextActionRecord,
   type NoteRecord,
   type RecapRecord,
 } from "../../db/dao";
+import { mergeEntitiesWithAssets } from "./assetUtils";
 
 export interface JmhSnapshot {
   jumps: JumpRecord[];
@@ -46,12 +49,21 @@ export interface JmhSnapshot {
 
 export async function loadSnapshot(): Promise<JmhSnapshot> {
   await ensureInitialized();
-  const [jumps, entities, notes, recaps, nextActions] = await Promise.all([
+  const [jumps, baseEntities, notes, recaps, nextActions] = await Promise.all([
     listJumps(),
     listEntities(),
     listAllNotes(),
     listRecaps(),
     listNextActions(),
   ]);
+
+  let jumpAssets: JumpAssetRecord[] = [];
+  if (jumps.length > 0) {
+    const assetGroups = await Promise.all(jumps.map((jump) => listJumpAssets(jump.id)));
+    jumpAssets = assetGroups.flat();
+  }
+
+  const entities = mergeEntitiesWithAssets(baseEntities, jumpAssets);
+
   return { jumps, entities, notes, recaps, nextActions };
 }
