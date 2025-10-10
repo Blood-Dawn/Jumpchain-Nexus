@@ -22,12 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   computeBudget,
   deleteExportPreset,
   loadExportSnapshot,
+  loadExportPreferences,
   listExportPresets,
   upsertExportPreset,
   type CharacterProfileRecord,
@@ -504,10 +505,15 @@ const ExportCenter: React.FC = () => {
   const queryClient = useQueryClient();
   const presetsQuery = useQuery({ queryKey: ["export-presets"], queryFn: listExportPresets });
   const snapshotQuery = useQuery({ queryKey: ["export-snapshot"], queryFn: loadExportSnapshot });
+  const exportPreferencesQuery = useQuery({
+    queryKey: ["export-preferences"],
+    queryFn: loadExportPreferences,
+  });
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [formState, setFormState] = useState<PresetFormState | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const defaultAppliedRef = useRef<string | null>(null);
 
   const selectedPreset = useMemo(() => {
     if (!presetsQuery.data) {
@@ -517,10 +523,41 @@ const ExportCenter: React.FC = () => {
   }, [presetsQuery.data, selectedPresetId]);
 
   useEffect(() => {
-    if (presetsQuery.data?.length && !selectedPresetId) {
-      setSelectedPresetId(presetsQuery.data[0].id);
+    const presets = presetsQuery.data ?? [];
+    const defaultPresetId = exportPreferencesQuery.data?.defaultPresetId ?? null;
+    const hasPresets = presets.length > 0;
+
+    if (!hasPresets) {
+      if (selectedPresetId !== null) {
+        setSelectedPresetId(null);
+      }
+      defaultAppliedRef.current = null;
+      return;
     }
-  }, [presetsQuery.data, selectedPresetId]);
+
+    const presetExists = selectedPresetId
+      ? presets.some((preset) => preset.id === selectedPresetId)
+      : false;
+    const defaultExists = defaultPresetId
+      ? presets.some((preset) => preset.id === defaultPresetId)
+      : false;
+
+    if (!presetExists) {
+      if (defaultExists) {
+        setSelectedPresetId(defaultPresetId);
+        defaultAppliedRef.current = defaultPresetId;
+      } else {
+        setSelectedPresetId(presets[0].id);
+        defaultAppliedRef.current = null;
+      }
+      return;
+    }
+
+    if (defaultExists && defaultAppliedRef.current !== defaultPresetId) {
+      setSelectedPresetId(defaultPresetId);
+      defaultAppliedRef.current = defaultPresetId;
+    }
+  }, [exportPreferencesQuery.data?.defaultPresetId, presetsQuery.data, selectedPresetId]);
 
   useEffect(() => {
     if (!selectedPreset) {

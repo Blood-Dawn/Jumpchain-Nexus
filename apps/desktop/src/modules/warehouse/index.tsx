@@ -32,6 +32,8 @@ import {
   updateInventoryItem,
   type InventoryScope,
   type JumpRecord,
+  loadWarehouseModeSetting,
+  loadCategoryPresets,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -76,6 +78,13 @@ const CosmicWarehouse: React.FC = () => {
     queryFn: () => listInventoryItems("warehouse"),
   });
   const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
+  const warehouseModeQuery = useQuery({ queryKey: ["warehouse-mode"], queryFn: loadWarehouseModeSetting });
+  const categoryPresetsQuery = useQuery({ queryKey: ["category-presets"], queryFn: loadCategoryPresets });
+
+  const warehouseModeLabel = useMemo(() => {
+    const mode = warehouseModeQuery.data?.mode ?? "generic";
+    return mode === "personal-reality" ? "Personal Reality mode" : "Generic mode";
+  }, [warehouseModeQuery.data?.mode]);
 
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -131,13 +140,18 @@ const CosmicWarehouse: React.FC = () => {
 
   const categories = useMemo(() => {
     const all = new Set<string>();
+    (categoryPresetsQuery.data?.itemCategories ?? []).forEach((category) => {
+      if (category) {
+        all.add(category);
+      }
+    });
     itemsQuery.data?.forEach((item) => {
       if (item.category) {
         all.add(item.category);
       }
     });
     return Array.from(all).sort((a, b) => a.localeCompare(b));
-  }, [itemsQuery.data]);
+  }, [categoryPresetsQuery.data, itemsQuery.data]);
 
   const filteredItems = useMemo(() => {
     const base = itemsQuery.data ?? [];
@@ -209,7 +223,10 @@ const CosmicWarehouse: React.FC = () => {
       <header className="warehouse__header">
         <div>
           <h1>Cosmic Warehouse</h1>
-          <p>Organize storage presets, addons, and staging items across your chain.</p>
+          <p>
+            Organize storage presets, addons, and staging items across your chain.
+            <span className="warehouse__mode-badge">{warehouseModeLabel}</span>
+          </p>
         </div>
         <div className="warehouse__actions">
           <button type="button" onClick={() => setActiveCategory(null)} disabled={!activeCategory}>
