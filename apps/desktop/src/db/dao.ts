@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 import Database from "@tauri-apps/plugin-sql";
+import type { ThousandsSeparatorOption } from "../services/formatter";
 import schema from "./migrations/001_init.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
 
@@ -260,6 +261,12 @@ export interface AppSettingRecord {
   updated_at: string;
 }
 
+export interface FormatterSettings {
+  removeAllLineBreaks: boolean;
+  leaveDoubleLineBreaks: boolean;
+  thousandsSeparator: ThousandsSeparatorOption;
+}
+
 export interface ExportPresetRecord {
   id: string;
   name: string;
@@ -393,6 +400,30 @@ function splitStatements(sql: string): string[] {
   return statements;
 }
 
+async function getTableColumns(db: Database, table: string): Promise<Set<string>> {
+  const rows = await db.select<{ name: string }[]>(`PRAGMA table_info('${table}')`);
+  return new Set(rows.map((row) => row.name));
+}
+
+async function ensureColumn(
+  db: Database,
+  table: string,
+  column: string,
+  definition: string
+): Promise<void> {
+  const columns = await getTableColumns(db, table);
+  if (!columns.has(column)) {
+    await db.execute(`ALTER TABLE ${table} ADD COLUMN ${definition};`);
+  }
+}
+
+async function ensureLegacyColumns(db: Database): Promise<void> {
+  await ensureColumn(db, "jumps", "sort_order", "sort_order INTEGER DEFAULT 0");
+  await ensureColumn(db, "jumps", "cp_budget", "cp_budget INTEGER DEFAULT 0");
+  await ensureColumn(db, "jumps", "cp_spent", "cp_spent INTEGER DEFAULT 0");
+  await ensureColumn(db, "jumps", "cp_income", "cp_income INTEGER DEFAULT 0");
+}
+
 export async function ensureInitialized(): Promise<void> {
   if (schemaApplied) {
     return;
@@ -402,6 +433,7 @@ export async function ensureInitialized(): Promise<void> {
   for (const statement of statements) {
     await db.execute(statement);
   }
+  await ensureLegacyColumns(db);
   schemaApplied = true;
 }
 
@@ -2177,6 +2209,96 @@ export async function setAppSetting(
 
 export async function deleteAppSetting(key: string): Promise<void> {
   await withInit((db) => db.execute(`DELETE FROM app_settings WHERE key = $1`, [key]));
+}
+
+const FORMATTER_REMOVE_ALL_KEY = "formatter.deleteAllLineBreaks";
+const FORMATTER_LEAVE_DOUBLE_KEY = "formatter.leaveDoubleLineBreaks";
+const FORMATTER_SEPARATOR_KEY = "formatter.thousandsSeparator";
+
+const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
+  removeAllLineBreaks: false,
+  leaveDoubleLineBreaks: false,
+  thousandsSeparator: "none",
+};
+
+function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
+  if (!record || record.value === null) {
+    return fallback;
+  }
+
+  const normalized = record.value.trim().toLowerCase();
+
+  if (normalized === "true" || normalized === "false") {
+    return normalized === "true";
+  }
+
+  if (normalized === "1" || normalized === "0") {
+    return normalized === "1";
+  }
+
+  try {
+    const parsed = JSON.parse(record.value);
+    if (typeof parsed === "boolean") {
+      return parsed;
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return fallback;
+}
+
+function parseSeparatorSetting(
+  record: AppSettingRecord | null,
+  fallback: ThousandsSeparatorOption
+): ThousandsSeparatorOption {
+  if (!record || record.value === null) {
+    return fallback;
+  }
+
+  const normalized = record.value.trim().toLowerCase();
+  const allowed: ThousandsSeparatorOption[] = ["none", "comma", "period", "space"];
+
+  if (allowed.includes(normalized as ThousandsSeparatorOption)) {
+    return normalized as ThousandsSeparatorOption;
+  }
+
+  return fallback;
+}
+
+export async function loadFormatterSettings(): Promise<FormatterSettings> {
+  const [removeAllRecord, leaveDoubleRecord, separatorRecord] = await Promise.all([
+    getAppSetting(FORMATTER_REMOVE_ALL_KEY),
+    getAppSetting(FORMATTER_LEAVE_DOUBLE_KEY),
+    getAppSetting(FORMATTER_SEPARATOR_KEY),
+  ]);
+
+  return {
+    removeAllLineBreaks: parseBooleanSetting(removeAllRecord, DEFAULT_FORMATTER_SETTINGS.removeAllLineBreaks),
+    leaveDoubleLineBreaks: parseBooleanSetting(leaveDoubleRecord, DEFAULT_FORMATTER_SETTINGS.leaveDoubleLineBreaks),
+    thousandsSeparator: parseSeparatorSetting(
+      separatorRecord,
+      DEFAULT_FORMATTER_SETTINGS.thousandsSeparator
+    ),
+  };
+}
+
+export async function updateFormatterSettings(
+  overrides: Partial<FormatterSettings>
+): Promise<FormatterSettings> {
+  const current = await loadFormatterSettings();
+  const next: FormatterSettings = {
+    ...current,
+    ...overrides,
+  };
+
+  await Promise.all([
+    setAppSetting(FORMATTER_REMOVE_ALL_KEY, next.removeAllLineBreaks),
+    setAppSetting(FORMATTER_LEAVE_DOUBLE_KEY, next.leaveDoubleLineBreaks),
+    setAppSetting(FORMATTER_SEPARATOR_KEY, next.thousandsSeparator),
+  ]);
+
+  return next;
 }
 
 export async function listExportPresets(): Promise<ExportPresetRecord[]> {

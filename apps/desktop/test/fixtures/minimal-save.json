@@ -1,0 +1,41 @@
+{
+  "jumps": [
+    {
+      "id": "jump-1",
+      "title": "Spark of Adventure",
+      "world": "Generic Fantasy",
+      "status": "planning",
+      "sort_order": 1,
+      "cp_budget": 800,
+      "cp_spent": 200,
+      "cp_income": 0
+    }
+  ],
+  "profiles": [
+    {
+      "id": "profile-1",
+      "name": "Traveler One",
+      "alias": "The Spark",
+      "species": "Human",
+      "homeland": "Earth",
+      "biography": "Curious explorer",
+      "notes": "Always ready."
+    }
+  ],
+  "inventory": [
+    {
+      "id": "item-1",
+      "scope": "warehouse",
+      "name": "Utility Belt",
+      "category": "Gear"
+    }
+  ],
+  "drawbacks": [
+    {
+      "id": "drawback-1",
+      "jump_id": "jump-1",
+      "name": "Narrative Pressure",
+      "cost": -100
+    }
+  ]
+}

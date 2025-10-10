@@ -51,6 +51,7 @@ import { createEntityMentionExtensions } from "./mentionExtension";
 import { checkGrammar, createGrammarDebouncer, type GrammarSuggestion } from "../../services/grammar";
 import { syncChapterMetadata } from "./indexer";
 import { exportChapter, exportStory, type StoryExportFormat } from "./exporters";
+import { confirmDialog } from "../../services/dialogService";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -586,9 +587,15 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
             <button
               type="button"
               key={snapshot.id}
-              onClick={() => {
+              onClick={async () => {
                 if (!editor) return;
-                const restore = window.confirm(`Restore snapshot #${index + 1}? Unsaved changes will be lost.`);
+                const restore = await confirmDialog({
+                  message: `Restore snapshot #${index + 1}? Unsaved changes will be lost.`,
+                  title: "Restore snapshot",
+                  kind: "warning",
+                  okLabel: "Restore",
+                  cancelLabel: "Cancel",
+                });
                 if (!restore) return;
                 try {
                   editor.commands.setContent(JSON.parse(snapshot.json), false);

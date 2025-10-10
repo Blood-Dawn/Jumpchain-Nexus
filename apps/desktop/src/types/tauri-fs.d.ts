@@ -23,15 +23,32 @@ SOFTWARE.
 */
 
 declare module "@tauri-apps/plugin-fs" {
-  export interface WriteFileOptions {
-    path: string;
-    contents: Uint8Array | ArrayBuffer | string;
+  export interface ReadFileOptions {
+    baseDir?: import("@tauri-apps/api/path").BaseDirectory;
   }
 
-  export function readBinaryFile(path: string): Promise<Uint8Array>;
-  export function readTextFile(path: string): Promise<string>;
-  export function writeBinaryFile(options: WriteFileOptions): Promise<void>;
-  export function writeTextFile(options: WriteFileOptions): Promise<void>;
-  export function exists(path: string): Promise<boolean>;
-  export function createDir(path: string, options?: { recursive?: boolean }): Promise<void>;
+  export interface WriteFileOptions {
+    append?: boolean;
+    create?: boolean;
+    createNew?: boolean;
+    mode?: number;
+    baseDir?: import("@tauri-apps/api/path").BaseDirectory;
+  }
+
+  export interface MkdirOptions {
+    recursive?: boolean;
+    mode?: number;
+    baseDir?: import("@tauri-apps/api/path").BaseDirectory;
+  }
+
+  export function readFile(path: string, options?: ReadFileOptions): Promise<Uint8Array>;
+  export function readTextFile(path: string, options?: ReadFileOptions): Promise<string>;
+  export function writeFile(
+    path: string,
+    data: Uint8Array | ReadableStream<Uint8Array>,
+    options?: WriteFileOptions
+  ): Promise<void>;
+  export function writeTextFile(path: string, data: string, options?: WriteFileOptions): Promise<void>;
+  export function exists(path: string, options?: ReadFileOptions): Promise<boolean>;
+  export function mkdir(path: string, options?: MkdirOptions): Promise<void>;
 }

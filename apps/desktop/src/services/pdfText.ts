@@ -23,16 +23,17 @@ SOFTWARE.
 */
 
 import { readFile } from "@tauri-apps/plugin-fs";
-import type { PdfIndexComplete, PdfIndexProgress } from "./types";
-import type { PdfWorkerOutbound } from "./types";
-import { indexFileText } from "../db/dao";
+import type { PdfIndexComplete, PdfIndexProgress, PdfWorkerOutbound } from "../pdf/types";
 
-export interface PdfIndexOptions {
-  fileId: string;
-  fileName: string;
-  filePath: string;
-  jumpId?: string | null;
+export interface ReadPdfTextOptions {
   onProgress?: (progress: PdfIndexProgress) => void;
+}
+
+function randomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2);
 }
 
 function toArrayBuffer(view: Uint8Array): ArrayBuffer {
@@ -42,54 +43,55 @@ function toArrayBuffer(view: Uint8Array): ArrayBuffer {
   return view.slice().buffer as ArrayBuffer;
 }
 
-export async function indexPdf(options: PdfIndexOptions): Promise<PdfIndexComplete> {
-  const data = await readFile(options.filePath);
-  const worker = new Worker(new URL("./pdf-worker.ts", import.meta.url), { type: "module" });
+export async function readPdfText(
+  filePath: string,
+  options: ReadPdfTextOptions = {}
+): Promise<PdfIndexComplete> {
+  const data = await readFile(filePath);
+  const worker = new Worker(new URL("../pdf/pdf-worker.ts", import.meta.url), { type: "module" });
+  const fileId = randomId();
+  const fileName = filePath.split(/[/\\]/).pop() ?? filePath;
 
   return new Promise((resolve, reject) => {
-    const handleMessage = async (event: MessageEvent<PdfWorkerOutbound>) => {
+    const cleanup = () => {
+      worker.removeEventListener("message", handleMessage);
+      worker.removeEventListener("error", handleError);
+      worker.terminate();
+    };
+
+    const handleError = (event: ErrorEvent) => {
+      cleanup();
+      reject(event.error ?? new Error("Unexpected PDF worker error"));
+    };
+
+    const handleMessage = (event: MessageEvent<PdfWorkerOutbound>) => {
       const payload = event.data;
+
       if (payload.type === "progress") {
         options.onProgress?.(payload);
         return;
       }
 
       if (payload.type === "error") {
-        worker.removeEventListener("message", handleMessage);
-        worker.terminate();
+        cleanup();
         reject(new Error(payload.message));
         return;
       }
 
-      if (payload.type === "complete") {
-        try {
-          await indexFileText(options.fileId, payload.text);
-        } catch (error) {
-          worker.removeEventListener("message", handleMessage);
-          worker.terminate();
-          reject(error);
-          return;
-        }
-        worker.removeEventListener("message", handleMessage);
-        worker.terminate();
-        resolve(payload);
-      }
+      cleanup();
+      resolve(payload);
     };
 
     worker.addEventListener("message", handleMessage);
-    worker.addEventListener("error", (event) => {
-      worker.removeEventListener("message", handleMessage);
-      worker.terminate();
-      reject(event.error ?? new Error("Unexpected PDF worker error"));
-    });
+    worker.addEventListener("error", handleError);
 
     const arrayBuffer = toArrayBuffer(data);
     worker.postMessage(
       {
         type: "index",
-        fileId: options.fileId,
-        fileName: options.fileName,
-        jumpId: options.jumpId ?? null,
+        fileId,
+        fileName,
+        jumpId: null,
         arrayBuffer,
       },
       [arrayBuffer]

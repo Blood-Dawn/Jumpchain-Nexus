@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   createJump,
   deleteJump,
@@ -32,8 +32,10 @@ import {
   summarizeJumpBudget,
   type JumpRecord,
   type JumpBudgetSummary,
+  loadFormatterSettings,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatBudget } from "../../services/formatter";
 
 interface JumpFormState {
   title: string;
@@ -60,7 +62,11 @@ const formatDate = (value: string | null): string => {
   }
 };
 
-const JumpBudget: React.FC<{ jumpId: string; expanded: boolean }> = ({ jumpId, expanded }) => {
+const JumpBudget: React.FC<{
+  jumpId: string;
+  expanded: boolean;
+  formatBudgetValue: (value: number) => string;
+}> = ({ jumpId, expanded, formatBudgetValue }) => {
   const budgetQuery = useQuery({
     queryKey: ["jump-budget", jumpId],
     queryFn: () => summarizeJumpBudget(jumpId),
@@ -84,19 +90,19 @@ const JumpBudget: React.FC<{ jumpId: string; expanded: boolean }> = ({ jumpId, e
   return (
     <div className="jump-hub__summary">
       <div>
-        <strong>Spent:</strong> {summary.netCost}
+        <strong>Spent:</strong> {formatBudgetValue(summary.netCost)}
       </div>
       <div>
-        <strong>Discounted:</strong> {summary.discounted}
+        <strong>Discounted:</strong> {formatBudgetValue(summary.discounted)}
       </div>
       <div>
-        <strong>Freebies:</strong> {summary.freebies}
+        <strong>Freebies:</strong> {formatBudgetValue(summary.freebies)}
       </div>
       <div>
-        <strong>Drawback Credit:</strong> {summary.drawbackCredit}
+        <strong>Drawback Credit:</strong> {formatBudgetValue(summary.drawbackCredit)}
       </div>
       <div>
-        <strong>Balance:</strong> {summary.balance}
+        <strong>Balance:</strong> {formatBudgetValue(summary.balance)}
       </div>
     </div>
   );
@@ -111,7 +117,8 @@ const JumpRow: React.FC<{
   onMove: (id: string, direction: -1 | 1) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
-}> = ({ jump, index, total, expanded, onToggle, onMove, onDuplicate, onDelete }) => {
+  formatBudgetValue: (value: number) => string;
+}> = ({ jump, index, total, expanded, onToggle, onMove, onDuplicate, onDelete, formatBudgetValue }) => {
   const remaining = jump.cp_budget + jump.cp_income - jump.cp_spent;
   return (
     <article className={`jump-hub__card${expanded ? " jump-hub__card--expanded" : ""}`}>
@@ -124,19 +131,21 @@ const JumpRow: React.FC<{
           <dl className="jump-hub__metrics">
             <div>
               <dt>Budget</dt>
-              <dd>{jump.cp_budget}</dd>
+              <dd>{formatBudgetValue(jump.cp_budget)}</dd>
             </div>
             <div>
               <dt>Spent</dt>
-              <dd>{jump.cp_spent}</dd>
+              <dd>{formatBudgetValue(jump.cp_spent)}</dd>
             </div>
             <div>
               <dt>Drawbacks</dt>
-              <dd>{jump.cp_income}</dd>
+              <dd>{formatBudgetValue(jump.cp_income)}</dd>
             </div>
             <div>
               <dt>Remaining</dt>
-              <dd className={remaining < 0 ? "jump-hub__metric--negative" : undefined}>{remaining}</dd>
+              <dd className={remaining < 0 ? "jump-hub__metric--negative" : undefined}>
+                {formatBudgetValue(remaining)}
+              </dd>
             </div>
           </dl>
         </button>
@@ -166,7 +175,7 @@ const JumpRow: React.FC<{
           <strong>Ends:</strong> {formatDate(jump.end_date)}
         </div>
       </div>
-      <JumpBudget jumpId={jump.id} expanded={expanded} />
+      <JumpBudget jumpId={jump.id} expanded={expanded} formatBudgetValue={formatBudgetValue} />
     </article>
   );
 };
@@ -174,9 +183,19 @@ const JumpRow: React.FC<{
 const JumpchainOverview: React.FC = () => {
   const queryClient = useQueryClient();
   const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
+  const formatterSettingsQuery = useQuery({
+    queryKey: ["app-settings", "formatter"],
+    queryFn: loadFormatterSettings,
+  });
   const [formState, setFormState] = useState<JumpFormState>(DEFAULT_FORM);
   const [formOpen, setFormOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const thousandsSeparator = formatterSettingsQuery.data?.thousandsSeparator ?? "none";
+  const formatBudgetValue = useCallback(
+    (value: number) => formatBudget(value, thousandsSeparator),
+    [thousandsSeparator]
+  );
 
   const createMutation = useMutation({
     mutationFn: createJump,
@@ -303,6 +322,7 @@ const JumpchainOverview: React.FC = () => {
             onMove={handleMove}
             onDuplicate={(id) => duplicateMutation.mutate(id)}
             onDelete={(id) => deleteMutation.mutate(id)}
+            formatBudgetValue={formatBudgetValue}
           />
         ))}
       </div>

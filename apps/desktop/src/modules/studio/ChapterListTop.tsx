@@ -24,6 +24,7 @@ SOFTWARE.
 
 import React from "react";
 import type { StoryWithChapters } from "../../db/dao";
+import { confirmDialog } from "../../services/dialogService";
 
 export interface ChapterListHandlers {
   onCreateStory: () => void;
@@ -135,8 +136,15 @@ export const ChapterListTop: React.FC<ChapterListTopProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm(`Delete chapter "${chapter.title}"?`)) {
+                  onClick={async () => {
+                    const confirmed = await confirmDialog({
+                      message: `Delete chapter "${chapter.title}"?`,
+                      title: "Delete chapter",
+                      kind: "warning",
+                      okLabel: "Delete",
+                      cancelLabel: "Cancel",
+                    });
+                    if (confirmed) {
                       onDeleteChapter(chapter.id);
                     }
                   }}

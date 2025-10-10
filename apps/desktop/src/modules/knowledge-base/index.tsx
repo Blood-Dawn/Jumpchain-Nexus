@@ -36,11 +36,23 @@ import {
   type KnowledgeArticleRecord,
   type UpsertKnowledgeArticleInput,
 } from "../../db/dao";
+import {
+  importKnowledgeBaseArticles,
+  promptKnowledgeBaseImport,
+  type KnowledgeBaseImportError,
+} from "../../services/knowledgeBaseImporter";
+import { confirmDialog } from "../../services/dialogService";
 
 interface EditorState {
   open: boolean;
   draft: UpsertKnowledgeArticleInput;
   editingId?: string;
+}
+
+interface ImportMutationResult {
+  cancelled: boolean;
+  saved: KnowledgeArticleRecord[];
+  errors: KnowledgeBaseImportError[];
 }
 
 const emptyDraft: UpsertKnowledgeArticleInput = {
@@ -86,6 +98,7 @@ const KnowledgeBase = () => {
     draft: { ...emptyDraft },
   });
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [importIssues, setImportIssues] = useState<KnowledgeBaseImportError[] | null>(null);
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -148,6 +161,67 @@ const KnowledgeBase = () => {
       setFeedback(error instanceof Error ? error.message : "Failed to delete article");
     },
   });
+
+  const importArticles = useMutation<ImportMutationResult>({
+    mutationFn: async () => {
+      const selection = await promptKnowledgeBaseImport();
+      if (!selection) {
+        return { cancelled: true, saved: [], errors: [] };
+      }
+
+      const { saved, errors } = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
+
+      return {
+        cancelled: false,
+        saved,
+        errors: [...selection.errors, ...errors],
+      };
+    },
+    onSuccess: async (result) => {
+      if (!result || result.cancelled) {
+        setImportIssues(null);
+        return;
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
+      ]);
+
+      const importedCount = result.saved.length;
+      const skippedCount = result.errors.length;
+
+      const parts: string[] = [];
+      if (importedCount > 0) {
+        parts.push(`Imported ${importedCount} article${importedCount === 1 ? "" : "s"}`);
+      }
+      if (skippedCount > 0) {
+        parts.push(`${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped`);
+        console.warn("Knowledge base import issues", result.errors);
+      }
+      if (parts.length === 0) {
+        parts.push("No articles imported");
+      }
+
+      setFeedback(parts.join(" · "));
+      setImportIssues(result.errors.length ? result.errors : null);
+
+      if (importedCount > 0) {
+        setSelectedId(result.saved[0]?.id ?? null);
+      }
+    },
+    onError: (error) => {
+      console.error("Failed to import articles", error);
+      setFeedback(error instanceof Error ? error.message : "Failed to import articles");
+      setImportIssues(null);
+    },
+  });
+
+  const handleImport = () => {
+    setFeedback(null);
+    setImportIssues(null);
+    importArticles.mutate();
+  };
 
   const articles = articleQuery.data ?? [];
 
@@ -266,11 +340,17 @@ const KnowledgeBase = () => {
     saveArticle.mutate(payload);
   };
 
-  const handleDelete = (article: KnowledgeArticleRecord) => {
+  const handleDelete = async (article: KnowledgeArticleRecord) => {
     if (article.is_system) {
       return;
     }
-    const confirmed = window.confirm(`Delete “${article.title}”? This cannot be undone.`);
+    const confirmed = await confirmDialog({
+      message: `Delete “${article.title}”? This cannot be undone.`,
+      title: "Remove article",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!confirmed) {
       return;
     }
@@ -439,6 +519,9 @@ const KnowledgeBase = () => {
           <button type="button" onClick={openCreate}>
             Add article
           </button>
+          <button type="button" onClick={handleImport} disabled={importArticles.isPending}>
+            {importArticles.isPending ? "Importing…" : "Import from file"}
+          </button>
         </div>
 
         <div className="knowledge-base__list">
@@ -471,6 +554,27 @@ const KnowledgeBase = () => {
 
       <section className="knowledge-base__stage">
         {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
+        {importIssues && (
+          <div className="knowledge-base__import-issues" role="status" aria-live="polite">
+            <header>
+              <h3>Skipped files</h3>
+              <p>We couldn't import the following resources. Resolve the issues and try again.</p>
+            </header>
+            <ul>
+              {importIssues.map((issue) => (
+                <li key={issue.path}>
+                  <code title={issue.path}>{issue.path}</code>
+                  <span>{issue.reason}</span>
+                </li>
+              ))}
+            </ul>
+            <footer>
+              <button type="button" className="ghost" onClick={() => setImportIssues(null)}>
+                Dismiss
+              </button>
+            </footer>
+          </div>
+        )}
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
         {!articleQuery.isLoading && renderArticle(activeArticle)}
       </section>

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "seed-1",
+    "title": "Starter Primer",
+    "category": "Core Systems",
+    "summary": "Quick orientation for new users.",
+    "content": "This knowledge entry mirrors the legacy quickstart guide.",
+    "tags": ["overview", "starter"],
+    "source": "Fixture"
+  }
+]

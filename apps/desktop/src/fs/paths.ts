@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 import { appConfigDir, join } from "@tauri-apps/api/path";
-import { createDir, exists } from "@tauri-apps/plugin-fs";
+import { mkdir, exists } from "@tauri-apps/plugin-fs";
 
 let cachedConfigDir: string | null = null;
 
@@ -35,7 +35,7 @@ export async function ensureConfigDir(): Promise<string> {
   const target = await join(base, "jumpchain-nexus");
   const present = await exists(target);
   if (!present) {
-    await createDir(target, { recursive: true });
+    await mkdir(target, { recursive: true });
   }
   cachedConfigDir = target;
   return target;

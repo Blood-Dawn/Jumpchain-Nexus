@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { readBinaryFile } from "@tauri-apps/plugin-fs";
+import { readFile } from "@tauri-apps/plugin-fs";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?worker&module";
 import {
   getDocument,
@@ -90,7 +90,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       setError(null);
       setRenderState(null);
       try {
-        const data = await readBinaryFile(filePath);
+  const data = await readFile(filePath);
         const task = getDocument({ data });
         const doc = await task.promise;
         activeDoc = doc;

@@ -1,6 +1,6 @@
 # Feature Parity Matrix
 
-_Last updated: 2025-10-09_
+_Last updated: 2025-10-09 (Dialog service shared across knowledge base, studio, export)_
 
 ## Scope & Method
 - Legacy reference: `apps/desktop/legacy/old-wpf/JumpchainCharacterBuilder/` (WPF net8.0 MVVM).
@@ -21,6 +21,7 @@ _Last updated: 2025-10-09_
 | Statistics (`Views/StatisticsView.xaml`, `ViewModel/StatisticsViewModel.cs`) | Aggregate point totals, purchase metrics, companion stats, attribute rankings. | `src/routes/statistics`. | 🚧 | Implement full metrics pipeline, including booster/attribute calculations. |
 | Jumpchain Options (`Views/JumpchainOptionsView.xaml`, `ViewModel/JumpchainOptionsViewModel.cs`) | Global defaults, supplement settings, export options, point bank policies. | `src/routes/options`. | ⚠️ | Pending: body mod toggle wiring, export option groups, default presets import, validation on point-bank limits. |
 | Story Studio (`Views/StoryStudioView.xaml`, `ViewModel/StoryStudioViewModel.cs`) | Narrative editor with section templates, markdown export, clipboard helpers. | `src/routes/story-studio`. | 🚧 | Needs isolation per requirement, template parity, clipboard integration, auto-save. |
+| Input Formatter (`Views/InputFormatterView.xaml`, `ViewModel/InputFormatterViewModel.cs`) | Clean pasted text, configurable line-break handling, XML-safe output, budget previews. | `src/routes/formatter`. | ⚠️ | Preferences persist via SQLite; clipboard helpers live. TODO: spellcheck toggle parity and expose formatter hooks in other editors/options UI once ported. |
 
 ## Cross-Cutting Services & Systems
 
@@ -28,8 +29,8 @@ _Last updated: 2025-10-09_
 | --- | --- | --- | --- |
 | `SaveFileLoader`, `SaveMigration` | Load/save XML, migrate older versions (<1.1, <1.3, <1.4). | DAO layer `src/data/sqlite/*`, JSON schemas. | Recreate migration steps in SQLite migrations; ensure triggers align with legacy field defaults. Map `saveVersion` to schema version table. |
 | `RandomizeListAccess` & `RandomizeServices` | Provide random jump/drawback/companion selection with filters. | Randomizer route placeholder. | Port randomizer logic; ensure seed/history tracking; hook into Zustand store. |
-| `FormatHelper` | Clean imported text, budget formatting (thousand separators, custom enclosures). | Minimal `formatText` utils. | Implement full formatter (linebreak scrub, bullet normalization, budget formatting). |
-| `DialogService` | Prompts for confirmation, file dialogs (open/save). | Using Tauri dialog API ad hoc. | Wrap Tauri dialog calls in shared service; mimic message patterns (e.g., safe-delete confirmations). |
+| `FormatHelper` | Clean imported text, budget formatting (thousand separators, custom enclosures). | Formatter service + React module (`src/services/formatter.ts`, `src/routes/formatter`). | Integrate cleanup shortcuts into jump editors/export flows; add bullet normalization presets once those UIs land. |
+| `DialogService` | Prompts for confirmation, file dialogs (open/save). | `src/services/dialogService.ts` centralises confirm/open/save helpers, wired into Knowledge Base, Story Studio, Export modules. | Expand coverage to remaining routes, add message/ask helpers, and integrate save dialogs for export/download flows. |
 | `WeakReferenceMessenger` messages (`Messages/`) | Decoupled notifications (save/load, settings, randomizer). | Partial custom events. | Establish event bus (React context or Zustand slices) with parity message payloads. |
 | `TxtAccess`/`XmlAccess`/`FileAccess` | Export writing, config handling, backups. | Tauri fs setup with SQLite exports. | Recreate backup rotation, ensure hashed filenames, implement export directory chooser. |
 | `AttributeCalculationClass` | Rank-based numeric conversions for stats. | Not ported. | Port rank table, integrate with stats + booster calculators. |
@@ -45,21 +46,21 @@ _Last updated: 2025-10-09_
 | `Character` | ✅ | ⚠️ | Alt forms, boosters, EBMEssence partial. Ensure biography string fields accept large text with formatting. |
 | Supplements (`GenericWarehouse`, `PersonalReality`, `EssentialBodyMod`, `UUSupplement`, etc.) | ✅ | 🚧 | Create dedicated tables, UI slices, export integration. |
 | `Options` + `ExportOptions` | ✅ | ⚠️ | Persisted defaults not wired into all UIs; export toggle arrays incomplete. |
-| `KnowledgeBase` (legacy `KnowledgeBaseViewModel.cs`) | ✅ | ❌ | Feature absent; implement searchable KB with categories + PDF ingestion plan. |
+| `KnowledgeBase` (legacy `KnowledgeBaseViewModel.cs`) | ✅ | ⚠️ | React module online with seeded articles, category/tag filters, CRUD + FTS search. PDF/text import pipeline lands here. Remaining: bulk import UI, rich-text formatting parity, advanced tagging. |
 
 ## High-Priority Parity Gaps
 
 1. **Knowledge Base module**
 	- Legacy: `ViewModel/KnowledgeBaseViewModel.cs` provides searchable entries sourced from XML.
-	- To-do: Implement `src/routes/knowledge-base`, seed initial dataset, add PDF/text ingestion, surface in navigation.
+	- To-do: Extend knowledge base with bulk import batches, PDF attachment previews, and rich-text editing.
 
 2. **Randomizer parity**
 	- Port filters (origin, cost ceiling, gauntlet flag) and ensure deterministic seed support.
 	- Add history list + undo, mimic `RandomizeListAccess` weighting rules.
 
-3. **Formatter utilities**
-	- Recreate `FormatHelper` functions: whitespace normalization, bullet/quote cleanup, budget display helpers.
-	- Expose via UI "Paste Cleanup" action in relevant editors.
+3. **Formatter utilities** — ✅ React formatter now mirrors `FormatHelper`
+	- Line-break controls, XML sanitisation, and thousands-separator previews ship in `src/routes/formatter`.
+	- Follow-up: surface formatter shortcuts inside Jump Overview editors and export composer once those surfaces are rebuilt.
 
 4. **Options & Export**
 	- Migrate export toggle matrices, spoiler formatting, per-format output writer.
@@ -83,12 +84,12 @@ _Last updated: 2025-10-09_
 - Migration regression tests to validate upgrade from legacy XML import to SQLite schema.
 
 ## Next Implementation Targets
-1. Stand up Knowledge Base route + DAO (seed from legacy XML if available).
-2. Implement budget/formatter utilities and retrofit Jump Overview UI.
-3. Build migration scripts (`src-tauri/migrations/`) for supplement tables + triggers; fix existing syntax issues.
-4. Flesh out Story Studio with template parity and separate persistence.
-5. Port Randomizer filters and history UX.
-6. Expand export options and formatting toggles.
+1. Build migration scripts (`src-tauri/migrations/`) for supplement tables + triggers; fix existing syntax issues.
+2. Flesh out Story Studio with template parity and separate persistence.
+3. Port Randomizer filters and history UX.
+4. Expand export options and formatting toggles.
+5. Extend Knowledge Base with PDF ingestion + bulk import tooling.
+6. Wire formatter presets into Jump Overview/Options forms once those UIs ship.
 
 ---
 _This matrix should be updated after each module reaches ✅ parity or when new gaps emerge._

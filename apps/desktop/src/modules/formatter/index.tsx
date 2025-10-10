@@ -22,19 +22,270 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  loadFormatterSettings,
+  updateFormatterSettings,
+  type FormatterSettings,
+} from "../../db/dao";
+import {
+  formatBudget,
+  formatInputText,
+  THOUSANDS_SEPARATOR_CHOICES,
+  type ThousandsSeparatorOption,
+} from "../../services/formatter";
+import "./formatter.css";
+
+const SAMPLE_BUDGETS = [1000, 12500, 250000, -4250];
 
 const InputFormatter: React.FC = () => {
+  const queryClient = useQueryClient();
+  const [inputText, setInputText] = useState("");
+  const [removeAllLineBreaks, setRemoveAllLineBreaks] = useState(false);
+  const [leaveDoubleLineBreaks, setLeaveDoubleLineBreaks] = useState(false);
+  const [separator, setSeparator] = useState<ThousandsSeparatorOption>("none");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const settingsQuery = useQuery({
+    queryKey: ["app-settings", "formatter"],
+    queryFn: loadFormatterSettings,
+  });
+
+  useEffect(() => {
+    if (!settingsQuery.data) {
+      return;
+    }
+
+    setRemoveAllLineBreaks(settingsQuery.data.removeAllLineBreaks);
+    setLeaveDoubleLineBreaks(settingsQuery.data.leaveDoubleLineBreaks);
+    setSeparator(settingsQuery.data.thousandsSeparator);
+  }, [settingsQuery.data]);
+
+  const formattingOptions = useMemo(
+    () => ({
+      removeAllLineBreaks,
+      leaveDoubleLineBreaks,
+      xmlSafe: true,
+    }),
+    [removeAllLineBreaks, leaveDoubleLineBreaks]
+  );
+
+  const outputText = useMemo(
+    () => formatInputText(inputText, formattingOptions),
+    [inputText, formattingOptions]
+  );
+
+  const metrics = useMemo(() => {
+    const inputCharacters = inputText.length;
+    const outputCharacters = outputText.length;
+    const outputWords = outputText.trim().length ? outputText.trim().split(/\s+/).length : 0;
+    const compression = inputCharacters === 0 ? 0 : 1 - outputCharacters / inputCharacters;
+
+    return {
+      inputCharacters,
+      outputCharacters,
+      outputWords,
+      compression: Number.isFinite(compression) ? Math.max(Math.min(compression, 1), -1) : 0,
+    };
+  }, [inputText.length, outputText]);
+
+  const preferencesMutation = useMutation({
+    mutationFn: (overrides: Partial<FormatterSettings>) => updateFormatterSettings(overrides),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["app-settings", "formatter"], next);
+      setStatusMessage("Preferences saved");
+    },
+    onError: (error) => {
+      console.error("Failed to update formatter settings", error);
+      setStatusMessage("Failed to save preferences. See console for details.");
+    },
+  });
+
+  useEffect(() => {
+    if (!statusMessage) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setStatusMessage(null), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [statusMessage]);
+
+  const updatePreferences = (overrides: Partial<FormatterSettings>) => {
+    preferencesMutation.mutate(overrides);
+  };
+
+  const handleToggleRemoveAll = () => {
+    const nextRemoveAll = !removeAllLineBreaks;
+    const nextLeaveDouble = nextRemoveAll ? false : leaveDoubleLineBreaks;
+    setRemoveAllLineBreaks(nextRemoveAll);
+    setLeaveDoubleLineBreaks(nextLeaveDouble);
+    updatePreferences({
+      removeAllLineBreaks: nextRemoveAll,
+      leaveDoubleLineBreaks: nextLeaveDouble,
+    });
+  };
+
+  const handleToggleLeaveDouble = () => {
+    const nextLeaveDouble = !leaveDoubleLineBreaks;
+    const nextRemoveAll = nextLeaveDouble ? false : removeAllLineBreaks;
+    setLeaveDoubleLineBreaks(nextLeaveDouble);
+    setRemoveAllLineBreaks(nextRemoveAll);
+    updatePreferences({
+      leaveDoubleLineBreaks: nextLeaveDouble,
+      removeAllLineBreaks: nextRemoveAll,
+    });
+  };
+
+  const handleSeparatorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value as ThousandsSeparatorOption;
+    setSeparator(value);
+    updatePreferences({ thousandsSeparator: value });
+  };
+
+  const clipboardAvailable = typeof navigator !== "undefined" && Boolean(navigator.clipboard);
+
+  const handlePaste = async () => {
+    if (!clipboardAvailable) {
+      setStatusMessage("Clipboard is unavailable in this environment.");
+      return;
+    }
+    try {
+      const pasted = await navigator.clipboard.readText();
+      if (pasted) {
+        setInputText(pasted);
+      }
+    } catch (error) {
+      console.error("Failed to read from clipboard", error);
+      setStatusMessage("Could not read from clipboard.");
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!clipboardAvailable) {
+      setStatusMessage("Clipboard is unavailable in this environment.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(outputText);
+      setStatusMessage("Formatted text copied to clipboard");
+    } catch (error) {
+      console.error("Failed to copy to clipboard", error);
+      setStatusMessage("Could not copy to clipboard.");
+    }
+  };
+
   return (
-    <section className="module-placeholder">
-      <header>
-        <h1>Input Formatter</h1>
-        <p>Clean pasted PDF text and fix stubborn line breaks.</p>
+    <section className="formatter">
+      <header className="formatter__header">
+        <div>
+          <h1>Input Formatter</h1>
+          <p>Clean pasted PDF text, repair spacing, and standardise jump budgets.</p>
+        </div>
+        {statusMessage ? <span className="formatter__status">{statusMessage}</span> : null}
       </header>
-      <p>
-        The formatter tool will return shortly with updated algorithms for smart spacing and anomaly
-        detection. Stay tuned.
-      </p>
+
+      <div className="formatter__preferences">
+        <label>
+          <input
+            type="checkbox"
+            checked={removeAllLineBreaks}
+            onChange={handleToggleRemoveAll}
+            disabled={preferencesMutation.isPending}
+          />
+          Delete every line break
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={leaveDoubleLineBreaks}
+            onChange={handleToggleLeaveDouble}
+            disabled={preferencesMutation.isPending}
+          />
+          Keep paragraph breaks (double line breaks)
+        </label>
+        <label className="formatter__separator">
+          Thousands separator
+          <select
+            value={separator}
+            onChange={handleSeparatorChange}
+            disabled={preferencesMutation.isPending}
+          >
+            {THOUSANDS_SEPARATOR_CHOICES.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="formatter__layout">
+        <section className="formatter__pane formatter__pane--input">
+          <header>
+            <h2>Raw input</h2>
+            <div className="formatter__actions">
+              <button type="button" className="ghost" onClick={() => setInputText("")}>
+                Clear
+              </button>
+              <button type="button" onClick={handlePaste} disabled={!clipboardAvailable}>
+                Paste from clipboard
+              </button>
+            </div>
+          </header>
+          <textarea
+            value={inputText}
+            onChange={(event) => setInputText(event.target.value)}
+            placeholder="Paste perk text, drawback descriptions, or PDF extractions here."
+            rows={18}
+          />
+          <footer>
+            <span>{metrics.inputCharacters} characters</span>
+          </footer>
+        </section>
+
+        <section className="formatter__pane formatter__pane--output">
+          <header>
+            <h2>Formatted result</h2>
+            <div className="formatter__actions">
+              <button type="button" onClick={handleCopy} disabled={!clipboardAvailable || !outputText}>
+                Copy formatted text
+              </button>
+            </div>
+          </header>
+          {settingsQuery.isLoading ? (
+            <div className="formatter__loading">Loading preferences…</div>
+          ) : settingsQuery.isError ? (
+            <div className="formatter__loading formatter__loading--error">
+              Failed to load formatter preferences.
+            </div>
+          ) : (
+            <textarea value={outputText} readOnly rows={18} />
+          )}
+          <footer>
+            <span>{metrics.outputCharacters} characters</span>
+            <span>{metrics.outputWords} words</span>
+            <span>{Math.round(metrics.compression * 100)}% compression</span>
+          </footer>
+        </section>
+      </div>
+
+      <section className="formatter__preview">
+        <header>
+          <h2>Budget preview</h2>
+          <p>
+            Formatting honours your thousands separator selection. These samples update whenever you
+            change preferences.
+          </p>
+        </header>
+        <ul>
+          {SAMPLE_BUDGETS.map((value) => (
+            <li key={value}>
+              <code>{value}</code>
+              <span>{formatBudget(value, separator)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </section>
   );
 };

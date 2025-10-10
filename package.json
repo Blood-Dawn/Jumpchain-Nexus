@@ -12,5 +12,18 @@
     "tauri:dev": "npm run tauri:dev --prefix apps/desktop",
     "tauri:build": "npm run tauri:build --prefix apps/desktop",
     "migrate": "npm run migrate --prefix apps/desktop"
+  },
+  "overrides": {
+    "@wdio/mocha-framework@9.20.0": {
+      "mocha": "11.7.4"
+    },
+    "mocha": "11.7.4",
+    "glob": "10.4.5",
+    "minimatch": "9.0.5",
+    "node-domexception": "file:apps/desktop/tools/node-domexception"
+  },
+  "devDependencies": {
+    "@types/jest-axe": "^3.5.9",
+    "jest-axe": "^10.0.0"
   }
 }

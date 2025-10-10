@@ -1,0 +1,196 @@
+.formatter {
+  --formatter-surface: rgba(13, 19, 33, 0.94);
+  --formatter-surface-raised: rgba(24, 34, 52, 0.88);
+  --formatter-border: rgba(122, 203, 255, 0.2);
+  --formatter-border-strong: rgba(122, 203, 255, 0.35);
+  --formatter-accent: #7acbff;
+  --formatter-text-muted: rgba(182, 205, 240, 0.72);
+  display: grid;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  height: 100%;
+  overflow: auto;
+}
+
+.formatter__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.formatter__header h1 {
+  margin: 0;
+}
+
+.formatter__header p {
+  margin: 0.35rem 0 0;
+  color: var(--formatter-text-muted);
+}
+
+.formatter__status {
+  align-self: flex-start;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--formatter-border-strong);
+  background: color-mix(in srgb, var(--formatter-accent) 25%, transparent);
+  color: #041423;
+  font-size: 0.85rem;
+}
+
+.formatter__preferences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--formatter-border);
+  background: color-mix(in srgb, var(--formatter-surface) 96%, var(--formatter-surface-raised));
+}
+
+.formatter__preferences label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.formatter__separator {
+  margin-left: auto;
+}
+
+.formatter__separator select {
+  border-radius: 0.5rem;
+  border: 1px solid var(--formatter-border);
+  background: rgba(5, 8, 15, 0.7);
+  color: inherit;
+  padding: 0.35rem 0.65rem;
+}
+
+.formatter__layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.formatter__pane {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.85rem;
+  padding: 1.25rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--formatter-border);
+  background: color-mix(in srgb, var(--formatter-surface) 98%, rgb(6, 10, 18) 30%);
+}
+
+.formatter__pane header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.formatter__pane h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.formatter__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.formatter__pane textarea {
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border-radius: 0.65rem;
+  border: 1px solid var(--formatter-border);
+  background: rgba(5, 8, 15, 0.65);
+  color: inherit;
+  padding: 0.75rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.formatter__pane textarea:focus {
+  outline: none;
+  border-color: var(--formatter-border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--formatter-accent) 20%, transparent);
+}
+
+.formatter__pane footer {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--formatter-text-muted);
+}
+
+.formatter__loading {
+  display: grid;
+  place-content: center;
+  min-height: 12rem;
+  color: var(--formatter-text-muted);
+}
+
+.formatter__loading--error {
+  color: #ff8f8f;
+}
+
+.formatter__preview {
+  padding: 1.25rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--formatter-border);
+  background: color-mix(in srgb, var(--formatter-surface) 97%, rgb(6, 10, 18) 24%);
+  display: grid;
+  gap: 0.85rem;
+}
+
+.formatter__preview header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.formatter__preview h2 {
+  margin: 0;
+}
+
+.formatter__preview p {
+  margin: 0;
+  color: var(--formatter-text-muted);
+}
+
+.formatter__preview ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.formatter__preview li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--formatter-border);
+  background: rgba(5, 8, 15, 0.55);
+  font-size: 0.95rem;
+}
+
+.formatter__preview code {
+  font-size: 0.85rem;
+  color: var(--formatter-text-muted);
+}
+
+@media (max-width: 1100px) {
+  .formatter__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .formatter__separator {
+    margin-left: 0;
+  }
+}

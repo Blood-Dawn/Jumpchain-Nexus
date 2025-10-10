@@ -40,6 +40,7 @@ import {
   type NoteRecord,
   type RecapRecord,
 } from "../../db/dao";
+import { confirmDialog } from "../../services/dialogService";
 
 type ExportFormat = "markdown" | "bbcode" | "text";
 
@@ -584,7 +585,14 @@ const ExportCenter: React.FC = () => {
 
   const handleDeletePreset = async () => {
     if (!selectedPreset) return;
-    if (!window.confirm(`Delete preset "${selectedPreset.name}"?`)) {
+    const confirmed = await confirmDialog({
+      message: `Delete preset "${selectedPreset.name}"?`,
+      title: "Delete export preset",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) {
       return;
     }
     await deleteMutation.mutateAsync(selectedPreset.id);
