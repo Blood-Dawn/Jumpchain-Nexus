@@ -11,7 +11,11 @@
     "build": "npm run build --prefix apps/desktop",
     "tauri:dev": "npm run tauri:dev --prefix apps/desktop",
     "tauri:build": "npm run tauri:build --prefix apps/desktop",
-    "migrate": "npm run migrate --prefix apps/desktop"
+    "migrate": "npm run migrate --prefix apps/desktop",
+    "test": "npm run test --prefix apps/desktop",
+    "test:smoke": "npm run test:smoke --prefix apps/desktop",
+    "test:full": "npm run test:full --prefix apps/desktop",
+    "tests:full": "npm run test:full --prefix apps/desktop"
   },
   "overrides": {
     "@wdio/mocha-framework@9.20.0": {

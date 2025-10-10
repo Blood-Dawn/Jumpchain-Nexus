@@ -23,6 +23,9 @@ SOFTWARE.
 */
 
 import type { Options } from "@wdio/types";
+import ChromedriverService from "./test/wdio/chromedriver-service";
+
+const chromedriverPort = Number.parseInt(process.env.CHROMEDRIVER_PORT ?? "9515", 10);
 
 export const config: Options.Testrunner = {
   runner: "local",
@@ -34,6 +37,9 @@ export const config: Options.Testrunner = {
   waitforTimeout: 10000,
   connectionRetryTimeout: 120000,
   connectionRetryCount: 1,
+  hostname: "127.0.0.1",
+  port: chromedriverPort,
+  path: "/wd/hub",
   framework: "mocha",
   reporters: ["spec"],
   autoCompileOpts: {
@@ -43,7 +49,7 @@ export const config: Options.Testrunner = {
       project: "./tsconfig.json",
     },
   },
-  services: ["chromedriver"],
+  services: [[ChromedriverService, { port: chromedriverPort }]],
   capabilities: [
     {
       browserName: "chrome",

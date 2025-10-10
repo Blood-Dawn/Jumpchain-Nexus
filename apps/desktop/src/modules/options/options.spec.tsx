@@ -22,16 +22,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 
 import JumpchainOptions from "./index";
 
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity,
+      },
+    },
+  });
+}
+
 describe("JumpchainOptions", () => {
   it("@smoke highlights the planned configuration surface", () => {
-    render(<JumpchainOptions />);
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(["app-settings"], []);
+    queryClient.setQueryData(["export-presets"], []);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
     expect(screen.getByRole("heading", { level: 1, name: /jumpchain options/i })).toBeInTheDocument();
-    expect(
-      screen.getByText(/configuration presets will live here/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/set defaults, supplements, and custom categories/i)).toBeInTheDocument();
+    queryClient.clear();
   });
 });

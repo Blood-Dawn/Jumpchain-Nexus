@@ -7,8 +7,8 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+copies of the Software, and to permit persons to do so, subject to the
+following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -25,34 +25,87 @@ SOFTWARE.
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createRandomizerPool,
-  deleteRandomizerPool,
-  listRandomizerPools,
-  updateRandomizerPool,
-  type RandomizerPoolRecord,
+  clearRandomizerRolls,
+  createRandomizerEntry,
+  createRandomizerGroup,
+  createRandomizerList,
+  deleteRandomizerEntry,
+  deleteRandomizerGroup,
+  deleteRandomizerList,
+  listRandomizerEntriesForList,
+  listRandomizerGroups,
+  listRandomizerLists,
+  listRandomizerRolls,
+  recordRandomizerRoll,
+  updateRandomizerEntry,
+  updateRandomizerGroup,
+  updateRandomizerList,
+  type RandomizerEntryRecord,
+  type RandomizerGroupRecord,
+  type RandomizerListRecord,
+  type RandomizerRollRecord,
 } from "../../db/dao";
 import { drawWeightedWithoutReplacement, type WeightedEntry } from "./weightedPicker";
 
-interface PoolFormState {
+const LISTS_QUERY_KEY = ["randomizer", "lists"] as const;
+const groupsQueryKey = (listId: string) => ["randomizer", "groups", listId] as const;
+const entriesQueryKey = (listId: string) => ["randomizer", "entries", listId] as const;
+const historyQueryKey = (listId: string) => ["randomizer", "history", listId] as const;
+const HISTORY_DISPLAY_LIMIT = 20;
+
+type DrawScope = "all" | "group";
+
+interface EntryFormState {
   id: string;
   name: string;
   weight: string;
   link: string;
+  tags: string;
+  filters: string;
+  groupId: string;
 }
 
-interface DrawRun {
-  id: string;
-  timestamp: string;
-  picks: RandomizerPoolRecord[];
+function tagsToInputValue(tags: string[]): string {
+  return tags.join(", ");
 }
 
-const POOLS_QUERY_KEY = ["randomizer-pools"] as const;
-
-function generateRunId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+function filtersToInputValue(filters: Record<string, unknown>): string {
+  if (!filters || !Object.keys(filters).length) {
+    return "";
   }
-  return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    return JSON.stringify(filters, null, 2);
+  } catch (error) {
+    console.warn("Failed to stringify entry filters", error);
+    return "";
+  }
+}
+
+function stringToTags(value: string): string[] {
+  const unique = new Set<string>();
+  for (const raw of value.split(",")) {
+    const trimmed = raw.trim();
+    if (trimmed.length) {
+      unique.add(trimmed);
+    }
+  }
+  return Array.from(unique);
+}
+
+function parseFiltersInput(value: string): Record<string, unknown> {
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    console.warn("Failed to parse filters JSON", error);
+  }
+  throw new Error("Filters must be a valid JSON object.");
 }
 
 function formatTimestamp(iso: string): string {
@@ -63,169 +116,562 @@ function formatTimestamp(iso: string): string {
   return date.toLocaleString();
 }
 
+function hashSeed(source: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function createSeededRandom(seed: string | undefined): () => number {
+  if (!seed) {
+    return Math.random;
+  }
+  let state = hashSeed(seed);
+  if (state === 0) {
+    state = 0x6d2b79f5;
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const JumpRandomizerPlaceholder: React.FC = () => {
+  return (
+    <section className="module randomizer">
+      <header>
+        <h1>Jump Randomizer</h1>
+        <p>Loading randomizer…</p>
+      </header>
+    </section>
+  );
+};
+
 const JumpRandomizer: React.FC = () => {
   const queryClient = useQueryClient();
-  const poolsQuery = useQuery({ queryKey: POOLS_QUERY_KEY, queryFn: () => listRandomizerPools() });
+  const listsQuery = useQuery({ queryKey: LISTS_QUERY_KEY, queryFn: () => listRandomizerLists() });
+  const lists = listsQuery.data ?? [];
 
-  const pools = poolsQuery.data ?? [];
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [formState, setFormState] = useState<PoolFormState | null>(null);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | "all">("all");
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [entryForm, setEntryForm] = useState<EntryFormState | null>(null);
+  const [entryFormError, setEntryFormError] = useState<string | null>(null);
   const [drawCountInput, setDrawCountInput] = useState("1");
-  const [history, setHistory] = useState<DrawRun[]>([]);
+  const [seedInput, setSeedInput] = useState("");
+  const [minWeightInput, setMinWeightInput] = useState("0");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [drawScope, setDrawScope] = useState<DrawScope>("all");
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!pools.length) {
-      setSelectedId(null);
+    if (!lists.length) {
+      setSelectedListId(null);
       return;
     }
-    if (!selectedId || !pools.some((pool) => pool.id === selectedId)) {
-      setSelectedId(pools[0]!.id);
+    if (!selectedListId || !lists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(lists[0]!.id);
     }
-  }, [pools, selectedId]);
+  }, [lists, selectedListId]);
 
-  const selectedPool = useMemo(
-    () => pools.find((pool) => pool.id === selectedId) ?? null,
-    [pools, selectedId]
+  const selectedList = useMemo(
+    () => lists.find((list) => list.id === selectedListId) ?? null,
+    [lists, selectedListId]
+  );
+
+  const groupsQuery = useQuery({
+    queryKey: selectedListId ? groupsQueryKey(selectedListId) : ["randomizer", "groups", "none"],
+    queryFn: () => listRandomizerGroups(selectedListId ?? ""),
+    enabled: Boolean(selectedListId),
+  });
+  const groups = groupsQuery.data ?? [];
+
+  useEffect(() => {
+    if (!selectedListId) {
+      setSelectedGroupId("all");
+      return;
+    }
+    if (!groups.length) {
+      setSelectedGroupId("all");
+      return;
+    }
+    if (selectedGroupId !== "all" && !groups.some((group) => group.id === selectedGroupId)) {
+      setSelectedGroupId(groups[0]!.id);
+    }
+  }, [groups, selectedGroupId, selectedListId]);
+
+  useEffect(() => {
+    if (drawScope === "group" && selectedGroupId === "all") {
+      setDrawScope("all");
+    }
+  }, [drawScope, selectedGroupId]);
+
+  const entriesQuery = useQuery({
+    queryKey: selectedListId ? entriesQueryKey(selectedListId) : ["randomizer", "entries", "none"],
+    queryFn: () => listRandomizerEntriesForList(selectedListId ?? ""),
+    enabled: Boolean(selectedListId),
+  });
+  const entries = entriesQuery.data ?? [];
+
+  useEffect(() => {
+    if (!entries.length) {
+      setSelectedEntryId(null);
+      return;
+    }
+    if (!selectedEntryId || !entries.some((entry) => entry.id === selectedEntryId)) {
+      setSelectedEntryId(entries[0]!.id);
+    }
+  }, [entries, selectedEntryId]);
+
+  useEffect(() => {
+    if (selectedGroupId === "all") {
+      return;
+    }
+    if (
+      selectedEntryId &&
+      entries.some((entry) => entry.id === selectedEntryId && entry.group_id === selectedGroupId)
+    ) {
+      return;
+    }
+    const fallback = entries.find((entry) => entry.group_id === selectedGroupId);
+    setSelectedEntryId(fallback?.id ?? null);
+  }, [entries, selectedEntryId, selectedGroupId]);
+
+  const selectedEntry = useMemo(
+    () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
+    [entries, selectedEntryId]
   );
 
   useEffect(() => {
-    if (!selectedPool) {
-      setFormState(null);
+    if (!selectedEntry) {
+      setEntryForm(null);
+      setEntryFormError(null);
       return;
     }
-    setFormState({
-      id: selectedPool.id,
-      name: selectedPool.name,
-      weight: String(Math.max(selectedPool.weight ?? 0, 0)),
-      link: selectedPool.link ?? "",
+    setEntryForm({
+      id: selectedEntry.id,
+      name: selectedEntry.name,
+      weight: String(Math.max(selectedEntry.weight ?? 0, 0)),
+      link: selectedEntry.link ?? "",
+      tags: tagsToInputValue(selectedEntry.tags),
+      filters: filtersToInputValue(selectedEntry.filters),
+      groupId: selectedEntry.group_id,
     });
-  }, [selectedPool?.id, selectedPool?.name, selectedPool?.weight, selectedPool?.link, selectedPool?.updated_at]);
+    setEntryFormError(null);
+  }, [
+    selectedEntry?.filters,
+    selectedEntry?.group_id,
+    selectedEntry?.id,
+    selectedEntry?.link,
+    selectedEntry?.name,
+    selectedEntry?.tags,
+    selectedEntry?.updated_at,
+    selectedEntry?.weight,
+  ]);
+
+  const availableEntries = useMemo(() => {
+    if (selectedGroupId === "all") {
+      return entries;
+    }
+    return entries.filter((entry) => entry.group_id === selectedGroupId);
+  }, [entries, selectedGroupId]);
+
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const entry of entries) {
+      for (const tag of entry.tags) {
+        tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+  }, [entries]);
 
   useEffect(() => {
-    if (!copyMessage || typeof window === "undefined") {
-      return;
-    }
-    const timer = window.setTimeout(() => setCopyMessage(null), 3000);
-    return () => window.clearTimeout(timer);
-  }, [copyMessage]);
+    setSelectedTags((prev) => prev.filter((tag) => availableTags.includes(tag)));
+  }, [availableTags]);
 
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createRandomizerPool({
-        name: "New Entry",
-        weight: 1,
-      }),
-    onSuccess: (record) => {
-      setSelectedId(record.id);
-      queryClient.invalidateQueries({ queryKey: POOLS_QUERY_KEY }).catch(() => undefined);
-    },
-  });
+  const filters = useMemo(() => {
+    const minWeight = Number.parseInt(minWeightInput, 10);
+    return {
+      minWeight: Number.isNaN(minWeight) ? 0 : Math.max(minWeight, 0),
+      tags: selectedTags,
+      scope: drawScope,
+      groupId: selectedGroupId,
+    };
+  }, [minWeightInput, selectedTags, drawScope, selectedGroupId]);
 
-  const updateMutation = useMutation({
-    mutationFn: (payload: { id: string; updates: Parameters<typeof updateRandomizerPool>[1] }) =>
-      updateRandomizerPool(payload.id, payload.updates),
-    onSuccess: (record) => {
-      setFormState({
-        id: record.id,
-        name: record.name,
-        weight: String(record.weight ?? 0),
-        link: record.link ?? "",
-      });
-      queryClient.invalidateQueries({ queryKey: POOLS_QUERY_KEY }).catch(() => undefined);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteRandomizerPool(id),
-    onSuccess: () => {
-      setSelectedId(null);
-      queryClient.invalidateQueries({ queryKey: POOLS_QUERY_KEY }).catch(() => undefined);
-    },
-  });
-
-  const availablePools = useMemo(
-    () => pools.filter((pool) => (pool.weight ?? 0) > 0),
-    [pools]
-  );
+  const filteredEntries = useMemo(() => {
+    return entries.filter((entry) => {
+      if (entry.weight <= 0) {
+        return false;
+      }
+      if (filters.scope === "group" && filters.groupId !== "all" && entry.group_id !== filters.groupId) {
+        return false;
+      }
+      if (entry.weight < filters.minWeight) {
+        return false;
+      }
+      if (filters.tags.length && !filters.tags.every((tag) => entry.tags.includes(tag))) {
+        return false;
+      }
+      return true;
+    });
+  }, [entries, filters]);
 
   const totalWeight = useMemo(
-    () => availablePools.reduce((sum, pool) => sum + Math.max(pool.weight ?? 0, 0), 0),
-    [availablePools]
+    () => filteredEntries.reduce((sum, entry) => sum + Math.max(entry.weight ?? 0, 0), 0),
+    [filteredEntries]
   );
 
-  const resolvedDrawCount = useMemo(() => {
-    const parsed = Number.parseInt(drawCountInput, 10);
-    if (Number.isNaN(parsed)) {
-      return 0;
-    }
-    return Math.max(0, parsed);
-  }, [drawCountInput]);
+  const historyQuery = useQuery({
+    queryKey: selectedListId ? historyQueryKey(selectedListId) : ["randomizer", "history", "none"],
+    queryFn: () => listRandomizerRolls(selectedListId ?? "", HISTORY_DISPLAY_LIMIT),
+    enabled: Boolean(selectedListId),
+  });
+  const historyRecords = historyQuery.data ?? [];
 
-  const handleSave = (): void => {
-    if (!formState) {
+  const createListMutation = useMutation({
+    mutationFn: (input: Parameters<typeof createRandomizerList>[0]) => createRandomizerList(input ?? {}),
+    onSuccess: (record) => {
+      setSelectedListId(record.id);
+      setSelectedGroupId("all");
+      queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
+    },
+  });
+
+  const updateListMutation = useMutation({
+    mutationFn: (payload: { id: string; updates: Parameters<typeof updateRandomizerList>[1] }) =>
+      updateRandomizerList(payload.id, payload.updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
+    },
+  });
+
+  const deleteListMutation = useMutation({
+    mutationFn: (id: string) => deleteRandomizerList(id),
+    onSuccess: (_, id) => {
+      if (selectedListId === id) {
+        setSelectedListId(null);
+        setSelectedGroupId("all");
+        setSelectedEntryId(null);
+      }
+      queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
+    },
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (input: Parameters<typeof createRandomizerGroup>[0]) => createRandomizerGroup(input),
+    onSuccess: (record) => {
+      setSelectedGroupId(record.id);
+      queryClient.invalidateQueries({ queryKey: groupsQueryKey(record.list_id) }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: entriesQueryKey(record.list_id) }).catch(() => undefined);
+    },
+  });
+
+  const updateGroupMutation = useMutation({
+    mutationFn: (payload: { id: string; updates: Parameters<typeof updateRandomizerGroup>[1] }) =>
+      updateRandomizerGroup(payload.id, payload.updates),
+    onSuccess: () => {
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: groupsQueryKey(selectedListId) }).catch(() => undefined);
+        queryClient.invalidateQueries({ queryKey: entriesQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: (id: string) => deleteRandomizerGroup(id),
+    onSuccess: (_, id) => {
+      if (selectedGroupId === id) {
+        setSelectedGroupId("all");
+      }
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: groupsQueryKey(selectedListId) }).catch(() => undefined);
+        queryClient.invalidateQueries({ queryKey: entriesQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const createEntryMutation = useMutation({
+    mutationFn: (input: Parameters<typeof createRandomizerEntry>[0]) => createRandomizerEntry(input),
+    onSuccess: (record) => {
+      setSelectedEntryId(record.id);
+      setEntryFormError(null);
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: entriesQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const updateEntryMutation = useMutation({
+    mutationFn: (payload: { id: string; updates: Parameters<typeof updateRandomizerEntry>[1] }) =>
+      updateRandomizerEntry(payload.id, payload.updates),
+    onSuccess: () => {
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: entriesQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: (id: string) => deleteRandomizerEntry(id),
+    onSuccess: (_, id) => {
+      if (selectedEntryId === id) {
+        setSelectedEntryId(null);
+      }
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: entriesQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const recordRollMutation = useMutation({
+    mutationFn: (input: Parameters<typeof recordRandomizerRoll>[0]) => recordRandomizerRoll(input),
+    onSuccess: () => {
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: historyQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const clearHistoryMutation = useMutation({
+    mutationFn: (listId: string) => clearRandomizerRolls(listId),
+    onSuccess: () => {
+      if (selectedListId) {
+        queryClient.invalidateQueries({ queryKey: historyQueryKey(selectedListId) }).catch(() => undefined);
+      }
+    },
+  });
+
+  const handleCreateList = (): void => {
+    const name = typeof window !== "undefined" ? window.prompt("Name for the new list?") : null;
+    const trimmed = name?.trim();
+    createListMutation.mutate(trimmed ? { name: trimmed } : {});
+  };
+
+  const handleRenameList = (): void => {
+    if (!selectedList) {
       return;
     }
-    const name = formState.name.trim().length ? formState.name.trim() : "New Entry";
-    const link = formState.link.trim();
-    const weightValue = Number.parseInt(formState.weight, 10);
-    const normalizedWeight = Number.isNaN(weightValue) ? 0 : Math.max(0, weightValue);
-    updateMutation.mutate({
-      id: formState.id,
+    const next = typeof window !== "undefined" ? window.prompt("Rename list", selectedList.name) : null;
+    const trimmed = next?.trim();
+    if (!trimmed || trimmed === selectedList.name) {
+      return;
+    }
+    updateListMutation.mutate({ id: selectedList.id, updates: { name: trimmed } });
+  };
+
+  const handleDeleteList = (): void => {
+    if (!selectedList) {
+      return;
+    }
+    const confirmDelete =
+      typeof window === "undefined"
+        ? false
+        : window.confirm(
+            `Delete "${selectedList.name}" and all associated groups, entries, and history? This cannot be undone.`
+          );
+    if (!confirmDelete) {
+      return;
+    }
+    deleteListMutation.mutate(selectedList.id);
+  };
+
+  const handleCreateGroup = (): void => {
+    if (!selectedListId) {
+      return;
+    }
+    const name = typeof window !== "undefined" ? window.prompt("Name for the new group?", "New Group") : null;
+    const trimmed = name?.trim();
+    createGroupMutation.mutate({
+      list_id: selectedListId,
+      name: trimmed && trimmed.length ? trimmed : undefined,
+    });
+  };
+
+  const handleRenameGroup = (): void => {
+    if (!selectedGroupId || selectedGroupId === "all") {
+      return;
+    }
+    const group = groups.find((item) => item.id === selectedGroupId);
+    if (!group) {
+      return;
+    }
+    const next = typeof window !== "undefined" ? window.prompt("Rename group", group.name) : null;
+    const trimmed = next?.trim();
+    if (!trimmed || trimmed === group.name) {
+      return;
+    }
+    updateGroupMutation.mutate({ id: group.id, updates: { name: trimmed } });
+  };
+
+  const handleDeleteGroup = (): void => {
+    if (!selectedGroupId || selectedGroupId === "all") {
+      return;
+    }
+    if (groups.length <= 1) {
+      setCopyMessage("At least one group is required.");
+      return;
+    }
+    const group = groups.find((item) => item.id === selectedGroupId);
+    if (!group) {
+      return;
+    }
+    const confirmDelete =
+      typeof window === "undefined"
+        ? false
+        : window.confirm(`Delete group "${group.name}" and all entries in it?`);
+    if (!confirmDelete) {
+      return;
+    }
+    deleteGroupMutation.mutate(group.id);
+  };
+
+  const handleAddEntry = (): void => {
+    if (!selectedListId || !groups.length) {
+      return;
+    }
+    const targetGroup =
+      selectedGroupId !== "all" && groups.some((group) => group.id === selectedGroupId)
+        ? selectedGroupId
+        : groups[0]!.id;
+    createEntryMutation.mutate({
+      list_id: selectedListId,
+      group_id: targetGroup,
+    });
+  };
+
+  const handleEntrySubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!entryForm) {
+      return;
+    }
+    setEntryFormError(null);
+    let filtersObject: Record<string, unknown>;
+    try {
+      filtersObject = parseFiltersInput(entryForm.filters);
+    } catch (error) {
+      setEntryFormError((error as Error).message);
+      return;
+    }
+    const weight = Number.parseInt(entryForm.weight, 10);
+    updateEntryMutation.mutate({
+      id: entryForm.id,
       updates: {
-        name,
-        weight: normalizedWeight,
-        link: link.length ? link : null,
+        name: entryForm.name,
+        weight,
+        link: entryForm.link,
+        tags: stringToTags(entryForm.tags),
+        filters: filtersObject,
+        group_id: entryForm.groupId,
       },
     });
   };
 
-  const handleDelete = (): void => {
-    if (!selectedPool) {
+  const handleDeleteEntry = (): void => {
+    if (!selectedEntryId) {
       return;
     }
-    deleteMutation.mutate(selectedPool.id);
+    const entry = entries.find((item) => item.id === selectedEntryId);
+    const confirmDelete =
+      typeof window === "undefined"
+        ? false
+        : window.confirm(`Delete "${entry?.name ?? "entry"}"? This cannot be undone.`);
+    if (!confirmDelete) {
+      return;
+    }
+    deleteEntryMutation.mutate(selectedEntryId);
   };
 
-  const handleDraw = (): void => {
-    if (!availablePools.length || resolvedDrawCount <= 0) {
+  const handleToggleTag = (tag: string) => {
+    setSelectedTags((prev) => {
+      if (prev.includes(tag)) {
+        return prev.filter((item) => item !== tag);
+      }
+      return [...prev, tag];
+    });
+  };
+
+  const handleDraw = async (): Promise<void> => {
+    if (!selectedListId) {
       return;
     }
-    const entries: WeightedEntry<RandomizerPoolRecord>[] = availablePools.map((pool) => ({
-      id: pool.id,
-      weight: pool.weight,
-      payload: pool,
+    const drawCount = Number.parseInt(drawCountInput, 10);
+    const resolvedCount = Number.isNaN(drawCount) || drawCount <= 0 ? 1 : drawCount;
+    if (!filteredEntries.length) {
+      setCopyMessage("No entries match the current filters.");
+      return;
+    }
+    const entriesForDraw: WeightedEntry<RandomizerEntryRecord>[] = filteredEntries.map((entry) => ({
+      id: entry.id,
+      weight: entry.weight,
+      payload: entry,
     }));
-    const picks = drawWeightedWithoutReplacement(entries, Math.min(resolvedDrawCount, entries.length)).map(
-      (entry) => entry.payload
-    );
-    const runId = generateRunId();
-    const timestamp = new Date().toISOString();
-    setHistory((prev) => [{ id: runId, timestamp, picks }, ...prev].slice(0, 10));
+    const seed = seedInput.trim();
+    const rng = createSeededRandom(seed.length ? seed : undefined);
+    const picks = drawWeightedWithoutReplacement(entriesForDraw, resolvedCount, rng).map((entry) => entry.payload);
+    try {
+      await recordRollMutation.mutateAsync({
+        listId: selectedListId,
+        seed: seed.length ? seed : undefined,
+        params: {
+          drawCount: resolvedCount,
+          scope: filters.scope,
+          tags: filters.tags,
+          minWeight: filters.minWeight,
+        },
+        picks: picks.map((entry) => ({
+          entryId: entry.id,
+          name: entry.name,
+          weight: entry.weight,
+          link: entry.link,
+          tags: entry.tags,
+        })),
+      });
+    } catch (error) {
+      console.warn("Failed to record randomizer roll", error);
+      setCopyMessage("Roll failed to record.");
+    }
   };
 
   const handleResetHistory = (): void => {
-    setHistory([]);
+    if (!selectedListId) {
+      return;
+    }
+    clearHistoryMutation.mutate(selectedListId);
   };
 
   const handleCopyHistory = async (): Promise<void> => {
-    if (!history.length || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (!historyRecords.length || typeof navigator === "undefined" || !navigator.clipboard) {
       setCopyMessage("Clipboard unavailable");
       return;
     }
-    const text = history
+    const text = historyRecords
       .map((run, index) => {
-        const header = `Roll ${index + 1} — ${formatTimestamp(run.timestamp)}`;
+        const parts = [`Roll ${index + 1} — ${formatTimestamp(run.created_at)}`];
+        if (run.seed) {
+          parts.push(`Seed: ${run.seed}`);
+        }
+        const header = parts.join(" | ");
         if (!run.picks.length) {
           return header;
         }
         const lines = run.picks.map((pick, idx) => {
-          const parts = [`${idx + 1}. ${pick.name}`];
+          const segments = [`${idx + 1}. ${pick.name}`];
           if (pick.link) {
-            parts.push(`(${pick.link})`);
+            segments.push(`(${pick.link})`);
           }
-          parts.push(`w${pick.weight}`);
-          return parts.join(" ");
+          segments.push(`w${pick.weight}`);
+          if (pick.tags.length) {
+            segments.push(`[${pick.tags.join(", ")}]`);
+          }
+          return segments.join(" ");
         });
         return [header, ...lines].join("\n");
       })
@@ -235,22 +681,28 @@ const JumpRandomizer: React.FC = () => {
       setCopyMessage("Results copied to clipboard.");
     } catch (error) {
       console.warn("Failed to copy results", error);
-      setCopyMessage("Clipboard copy failed");
+      setCopyMessage("Clipboard copy failed.");
     }
   };
 
   const handleExportHistory = (): void => {
-    if (!history.length || typeof window === "undefined" || typeof document === "undefined") {
+    if (!historyRecords.length || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-    const payload = history.map((run) => ({
+    const payload = historyRecords.map((run) => ({
       id: run.id,
-      timestamp: run.timestamp,
+      list_id: run.list_id,
+      created_at: run.created_at,
+      seed: run.seed,
+      params: run.params,
       picks: run.picks.map((pick) => ({
         id: pick.id,
+        entry_id: pick.entry_id,
         name: pick.name,
         weight: pick.weight,
         link: pick.link,
+        tags: pick.tags,
+        position: pick.position,
       })),
     }));
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -264,173 +716,47 @@ const JumpRandomizer: React.FC = () => {
     setCopyMessage("Export downloaded.");
   };
 
+  const listControlsDisabled = createListMutation.isPending || deleteListMutation.isPending;
+  const groupControlsDisabled = createGroupMutation.isPending || deleteGroupMutation.isPending;
+  const entryControlsDisabled =
+    createEntryMutation.isPending || updateEntryMutation.isPending || deleteEntryMutation.isPending;
+
+  useEffect(() => {
+    if (!copyMessage || typeof window === "undefined") {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopyMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [copyMessage]);
+
   return (
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Manage weighted pools, run without-replacement rolls, and keep a shareable history.</p>
+        <p>Configuring randomizer placeholder.data…</p>
       </header>
-
-      <div className="randomizer-layout">
-        <div className="randomizer-pools">
-          <div className="randomizer-toolbar">
-            <button type="button" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
-              New entry
-            </button>
-            <span className="randomizer-summary">{pools.length} total entries</span>
-          </div>
-          {poolsQuery.isError ? (
-            <p role="alert">Failed to load pools.</p>
-          ) : poolsQuery.isLoading ? (
-            <p>Loading pools…</p>
-          ) : pools.length ? (
-            <ul className="randomizer-pool-list">
-              {pools.map((pool) => {
-                const isSelected = pool.id === selectedId;
-                return (
-                  <li key={pool.id} className={isSelected ? "selected" : undefined}>
-                    <button type="button" onClick={() => setSelectedId(pool.id)}>
-                      <span className="name">{pool.name}</span>
-                      <span className="weight">w{pool.weight}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p>No entries yet. Create one to get started.</p>
-          )}
-        </div>
-
-        <div className="randomizer-form">
-          <h2>Pool details</h2>
-          {formState ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleSave();
-              }}
-            >
-              <label className="field">
-                <span>Name</span>
-                <input
-                  type="text"
-                  value={formState.name}
-                  onChange={(event) => setFormState({ ...formState, name: event.target.value })}
-                  placeholder="Entry name"
-                />
-              </label>
-              <label className="field">
-                <span>Weight</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={formState.weight}
-                  onChange={(event) => setFormState({ ...formState, weight: event.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>Link</span>
-                <input
-                  type="url"
-                  value={formState.link}
-                  onChange={(event) => setFormState({ ...formState, link: event.target.value })}
-                  placeholder="Optional reference URL"
-                />
-              </label>
-              <div className="actions">
-                <button type="submit" disabled={updateMutation.isPending}>
-                  Save changes
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={handleDelete}
-                  disabled={deleteMutation.isPending}
-                >
-                  Delete
-                </button>
-              </div>
-            </form>
-          ) : (
-            <p>Select an entry to edit its details.</p>
-          )}
-        </div>
-
-        <div className="randomizer-controls">
-          <h2>Weighted selection</h2>
-          <div className="control-row">
-            <label>
-              Draw count
-              <input
-                type="number"
-                min="1"
-                value={drawCountInput}
-                onChange={(event) => setDrawCountInput(event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleDraw}
-              disabled={!availablePools.length || resolvedDrawCount <= 0}
-            >
-              Roll picks
-            </button>
-            <button type="button" onClick={handleResetHistory} disabled={!history.length}>
-              Clear history
-            </button>
-          </div>
-          <p className="control-hint">
-            {availablePools.length} weighted entries available (total weight {totalWeight}). Each roll is without
-            replacement per run.
-          </p>
-        </div>
-      </div>
-
-      <section className="randomizer-results">
-        <header>
-          <h2>Recent results</h2>
-          <div className="result-actions">
-            <button type="button" onClick={handleCopyHistory} disabled={!history.length}>
-              Copy results
-            </button>
-            <button type="button" onClick={handleExportHistory} disabled={!history.length}>
-              Export JSON
-            </button>
-            {copyMessage ? <span className="status">{copyMessage}</span> : null}
-          </div>
-        </header>
-        {history.length ? (
-          <div className="result-list">
-            {history.map((run) => (
-              <article key={run.id} className="result-run">
-                <header>
-                  <strong>{formatTimestamp(run.timestamp)}</strong>
-                </header>
-                {run.picks.length ? (
-                  <ol>
-                    {run.picks.map((pick) => (
-                      <li key={pick.id}>
-                        <span className="name">{pick.name}</span>
-                        <span className="weight">w{pick.weight}</span>
-                        {pick.link ? (
-                          <a href={pick.link} target="_blank" rel="noreferrer">
-                            Link
-                          </a>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p>No picks produced.</p>
-                )}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p>No rolls yet. Configure your pool and press “Roll picks”.</p>
+      <pre className="debug-block">
+        {JSON.stringify(
+          {
+            lists: lists.length,
+            selectedListId,
+            selectedGroupId,
+            selectedEntryId,
+            groups: groups.length,
+            entries: entries.length,
+            history: historyRecords.length,
+            drawCountInput,
+            minWeightInput,
+            seedInput,
+            selectedTags,
+            drawScope,
+            entryFormError,
+            hasEntryForm: Boolean(entryForm),
+          },
+          null,
+          2
         )}
-      </section>
+      </pre>
     </section>
   );
 };

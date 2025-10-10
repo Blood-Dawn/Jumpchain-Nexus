@@ -30,6 +30,8 @@ import {
   listJumpAssets,
   listJumps,
   summarizeJumpBudget,
+  loadSupplementSettings,
+  DEFAULT_SUPPLEMENT_SETTINGS,
   updateJumpAsset,
   type JumpAssetRecord,
   type JumpRecord,
@@ -61,6 +63,9 @@ const parseMetadata = (raw: string | null): { severity?: Severity; houseRule?: b
 
 const DrawbackSupplement: React.FC = () => {
   const queryClient = useQueryClient();
+  const supplementsQuery = useQuery({ queryKey: ["supplement-settings"], queryFn: loadSupplementSettings });
+  const supplements = supplementsQuery.data ?? DEFAULT_SUPPLEMENT_SETTINGS;
+  const drawbackSupplementEnabled = supplements.enableDrawbackSupplement;
   const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
   const [selectedJumpId, setSelectedJumpId] = useState<string | null>(null);
 
@@ -78,13 +83,13 @@ const DrawbackSupplement: React.FC = () => {
     queryKey: ["jump-drawbacks", selectedJumpId],
     queryFn: () =>
       selectedJumpId ? listJumpAssets(selectedJumpId, "drawback") : Promise.resolve([] as JumpAssetRecord[]),
-    enabled: Boolean(selectedJumpId),
+    enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
   const budgetQuery = useQuery({
     queryKey: ["jump-budget", selectedJumpId],
     queryFn: () => (selectedJumpId ? summarizeJumpBudget(selectedJumpId) : Promise.resolve(null)),
-    enabled: Boolean(selectedJumpId),
+    enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
   const [selectedDrawbackId, setSelectedDrawbackId] = useState<string | null>(null);
@@ -124,9 +129,56 @@ const DrawbackSupplement: React.FC = () => {
     });
   }, [selectedDrawback?.id, selectedDrawback?.updated_at]);
 
+  useEffect(() => {
+    if (!drawbackSupplementEnabled) {
+      setSelectedDrawbackId(null);
+      setFormState(null);
+    }
+  }, [drawbackSupplementEnabled]);
+
   const totalCredit = useMemo(() => {
     return (drawbacksQuery.data ?? []).reduce((sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1), 0);
   }, [drawbacksQuery.data]);
+
+  if (supplementsQuery.isLoading) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">Loading supplement preferences...</p>
+      </section>
+    );
+  }
+
+  if (supplementsQuery.isError) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">
+          Unable to load supplement preferences. Try reopening the Options module.
+        </p>
+      </section>
+    );
+  }
+
+  if (!drawbackSupplementEnabled) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">
+          The Drawback Supplement is disabled. Enable it from Options -> Supplements to resume editing.
+        </p>
+      </section>
+    );
+  }
 
   const createMutation = useMutation({
     mutationFn: () => {

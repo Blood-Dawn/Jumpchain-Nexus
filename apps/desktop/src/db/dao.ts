@@ -25,7 +25,9 @@ SOFTWARE.
 import Database from "@tauri-apps/plugin-sql";
 import type { ThousandsSeparatorOption } from "../services/formatter";
 import baseSchema from "./migrations/001_init.sql?raw";
-import randomizerSchema from "./migrations/002_randomizer_pools.sql?raw";
+import randomizerPoolsSchema from "./migrations/002_randomizer_pools.sql?raw";
+import randomizerListsSchema from "./migrations/003_randomizer_lists.sql?raw";
+import supplementsSchema from "./migrations/004_supplements.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
 
 export type EntityKind =
@@ -229,28 +231,119 @@ export interface UpdateInventoryItemInput {
   sort_order?: number;
 }
 
-export interface RandomizerPoolRecord {
+export interface RandomizerListRecord {
   id: string;
   name: string;
-  weight: number;
-  link: string | null;
+  description: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
 }
 
-export interface CreateRandomizerPoolInput {
+export interface CreateRandomizerListInput {
   name?: string;
-  weight?: number;
-  link?: string | null;
+  description?: string | null;
   sort_order?: number;
 }
 
-export interface UpdateRandomizerPoolInput {
+export interface UpdateRandomizerListInput {
+  name?: string;
+  description?: string | null;
+  sort_order?: number;
+}
+
+export interface RandomizerGroupRecord {
+  id: string;
+  list_id: string;
+  name: string;
+  sort_order: number;
+  filters: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateRandomizerGroupInput {
+  list_id: string;
+  name?: string;
+  sort_order?: number;
+  filters?: Record<string, unknown>;
+}
+
+export interface UpdateRandomizerGroupInput {
+  name?: string;
+  sort_order?: number;
+  filters?: Record<string, unknown>;
+}
+
+export interface RandomizerEntryRecord {
+  id: string;
+  list_id: string;
+  group_id: string;
+  group_name: string | null;
+  name: string;
+  weight: number;
+  link: string | null;
+  tags: string[];
+  filters: Record<string, unknown>;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateRandomizerEntryInput {
+  list_id: string;
+  group_id: string;
   name?: string;
   weight?: number;
   link?: string | null;
   sort_order?: number;
+  tags?: string[];
+  filters?: Record<string, unknown>;
+}
+
+export interface UpdateRandomizerEntryInput {
+  name?: string;
+  weight?: number;
+  link?: string | null;
+  sort_order?: number;
+  tags?: string[];
+  filters?: Record<string, unknown>;
+  group_id?: string;
+}
+
+export interface RandomizerRollPickRecord {
+  id: string;
+  roll_id: string;
+  entry_id: string | null;
+  position: number;
+  name: string;
+  weight: number;
+  link: string | null;
+  tags: string[];
+}
+
+export interface RandomizerRollRecord {
+  id: string;
+  list_id: string;
+  seed: string | null;
+  params: Record<string, unknown>;
+  created_at: string;
+  picks: RandomizerRollPickRecord[];
+}
+
+export interface RandomizerRollPickInput {
+  entryId: string | null;
+  name: string;
+  weight: number;
+  link?: string | null;
+  tags?: string[];
+}
+
+export interface RecordRandomizerRollInput {
+  listId: string;
+  seed?: string | null;
+  params?: Record<string, unknown>;
+  picks: RandomizerRollPickInput[];
 }
 
 export interface CharacterProfileRecord {
@@ -304,6 +397,81 @@ export interface SupplementToggleSettings {
   enableUniversalDrawbacks: boolean;
   enableEssentialBodyMod: boolean;
   allowCompanionBodyMod: boolean;
+}
+
+export type EssentialStartingMode = "hardcore" | "standard" | "heroic";
+export type EssentialEssenceMode = "none" | "single" | "dual" | "multi";
+export type EssentialAdvancementMode = "standard" | "meteoric" | "heroic" | "questing";
+export type EssentialEpAccessMode = "none" | "lesser" | "standard";
+export type EssentialEpAccessModifier = "none" | "cumulative" | "retro-cumulative";
+export type EssentialUnbalancedMode = "none" | "harmonized" | "very-harmonized" | "perfectly-harmonized";
+export type EssentialLimiter =
+  | "none"
+  | "everyday-hero"
+  | "street-level"
+  | "mid-level"
+  | "body-mod"
+  | "scaling-i"
+  | "scaling-ii"
+  | "vanishing";
+
+export interface EssentialBodyModSettings {
+  budget: number;
+  startingMode: EssentialStartingMode;
+  essenceMode: EssentialEssenceMode;
+  advancementMode: EssentialAdvancementMode;
+  epAccessMode: EssentialEpAccessMode;
+  epAccessModifier: EssentialEpAccessModifier;
+  unlockableEssence: boolean;
+  limitInvestment: boolean;
+  investmentAllowed: boolean;
+  investmentRatio: number;
+  incrementalBudget: number;
+  incrementalInterval: number;
+  trainingAllowance: boolean;
+  temperedBySuffering: boolean;
+  unbalancedMode: EssentialUnbalancedMode;
+  unbalancedDescription: string | null;
+  limiter: EssentialLimiter;
+  limiterDescription: string | null;
+}
+
+export interface EssentialBodyModSettingsRecord extends EssentialBodyModSettings {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EssentialBodyModEssenceRecord {
+  id: string;
+  setting_id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertEssentialBodyModEssenceInput {
+  id?: string;
+  name: string;
+  description?: string | null;
+  sort_order?: number;
+}
+
+export interface UniversalDrawbackSettings {
+  totalCP: number;
+  companionCP: number;
+  itemCP: number;
+  warehouseWP: number;
+  allowGauntlet: boolean;
+  gauntletHalved: boolean;
+}
+
+export interface UniversalDrawbackSettingsRecord extends UniversalDrawbackSettings {
+  id: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export type WarehouseModeOption = "generic" | "personal-reality";
@@ -393,6 +561,7 @@ const DB_FILENAME = "app.db";
 let dbPromise: Promise<Database> | null = null;
 let schemaApplied = false;
 let knowledgeSeedInitialized = false;
+const RANDOMIZER_HISTORY_LIMIT = 50;
 
 async function getDb(): Promise<Database> {
   if (!dbPromise) {
@@ -483,7 +652,7 @@ export async function ensureInitialized(): Promise<void> {
     return;
   }
   const db = await getDb();
-  const schemas = [baseSchema, randomizerSchema];
+  const schemas = [baseSchema, randomizerPoolsSchema, randomizerListsSchema, supplementsSchema];
   for (const source of schemas) {
     const statements = splitStatements(source);
     for (const statement of statements) {
@@ -539,6 +708,88 @@ function normalizeWeight(value: number | null | undefined): number {
     return 0;
   }
   return Math.max(0, Math.round(value));
+}
+
+function coerceOrder(value: number | null | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+  return 0;
+}
+
+function sanitizeStringArray(value: string[] | null | undefined): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const result = value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+  return result.length ? Array.from(new Set(result)) : null;
+}
+
+function encodeStringArray(value: string[] | null | undefined): string | null {
+  const sanitized = sanitizeStringArray(value);
+  if (!sanitized) {
+    return null;
+  }
+  try {
+    return JSON.stringify(sanitized);
+  } catch (error) {
+    console.warn("Failed to encode string array", error);
+    return null;
+  }
+}
+
+function parseStringArray(value: string | null | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item.length > 0);
+    }
+  } catch (error) {
+    console.warn("Failed to parse string array", error);
+  }
+  return [];
+}
+
+function encodeFilters(value: Record<string, unknown> | null | undefined): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const entries = Object.entries(value).filter(([key]) => typeof key === "string" && key.trim().length > 0);
+  if (!entries.length) {
+    return null;
+  }
+  const normalized: Record<string, unknown> = {};
+  for (const [key, item] of entries) {
+    normalized[key.trim()] = item;
+  }
+  try {
+    return JSON.stringify(normalized);
+  } catch (error) {
+    console.warn("Failed to encode filters record", error);
+    return null;
+  }
+}
+
+function parseFilters(value: string | null | undefined): Record<string, unknown> {
+  if (!value) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch (error) {
+    console.warn("Failed to parse filters record", error);
+  }
+  return {};
 }
 
 function serializeTags(value: string[] | string | null | undefined): string | null {
@@ -2170,60 +2421,513 @@ export async function moveInventoryItem(
   });
 }
 
-export async function listRandomizerPools(): Promise<RandomizerPoolRecord[]> {
+interface RandomizerListRow {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RandomizerGroupRow {
+  id: string;
+  list_id: string;
+  name: string;
+  sort_order: number | null;
+  filters_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RandomizerEntryRow {
+  id: string;
+  group_id: string;
+  name: string;
+  weight: number | null;
+  link: string | null;
+  tags_json: string | null;
+  filters_json: string | null;
+  sort_order: number | null;
+  created_at: string;
+  updated_at: string;
+  list_id: string;
+  group_name: string | null;
+}
+
+interface RandomizerRollRow {
+  id: string;
+  list_id: string;
+  seed: string | null;
+  params_json: string | null;
+  created_at: string;
+}
+
+interface RandomizerRollResultRow {
+  id: string;
+  roll_id: string;
+  entry_id: string | null;
+  position: number | null;
+  snapshot_json: string;
+}
+
+function mapRandomizerListRow(row: RandomizerListRow): RandomizerListRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    sort_order: coerceOrder(row.sort_order),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function mapRandomizerGroupRow(row: RandomizerGroupRow): RandomizerGroupRecord {
+  return {
+    id: row.id,
+    list_id: row.list_id,
+    name: row.name,
+    sort_order: coerceOrder(row.sort_order),
+    filters: parseFilters(row.filters_json),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function mapRandomizerEntryRow(row: RandomizerEntryRow): RandomizerEntryRecord {
+  const baseWeight =
+    typeof row.weight === "number" && Number.isFinite(row.weight) ? Math.max(0, row.weight) : 0;
+  return {
+    id: row.id,
+    list_id: row.list_id,
+    group_id: row.group_id,
+    group_name: row.group_name ?? null,
+    name: row.name,
+    weight: Math.round(baseWeight),
+    link: row.link ?? null,
+    tags: parseStringArray(row.tags_json),
+    filters: parseFilters(row.filters_json),
+    sort_order: coerceOrder(row.sort_order),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function parseRollSnapshot(
+  snapshotJson: string
+): { name: string; weight: number; link: string | null; tags: string[] } {
+  try {
+    const parsed = JSON.parse(snapshotJson);
+    const name =
+      typeof parsed?.name === "string" && parsed.name.trim().length
+        ? parsed.name
+        : "Unknown entry";
+    const weight =
+      typeof parsed?.weight === "number" && Number.isFinite(parsed.weight)
+        ? Math.max(0, Math.round(parsed.weight))
+        : 0;
+    const link =
+      typeof parsed?.link === "string" && parsed.link.trim().length ? parsed.link : null;
+    const tags = Array.isArray(parsed?.tags)
+      ? parsed.tags
+          .map((tag: unknown) => (typeof tag === "string" ? tag.trim() : ""))
+          .filter((tag: string) => tag.length > 0)
+      : [];
+    return { name, weight, link, tags };
+  } catch (error) {
+    console.warn("Failed to parse roll snapshot", error);
+    return { name: "Unknown entry", weight: 0, link: null, tags: [] };
+  }
+}
+
+function mapRandomizerRollResultRow(row: RandomizerRollResultRow): RandomizerRollPickRecord {
+  const snapshot = parseRollSnapshot(row.snapshot_json);
+  const position =
+    typeof row.position === "number" && Number.isFinite(row.position)
+      ? Math.max(1, Math.round(row.position))
+      : 1;
+  return {
+    id: row.id,
+    roll_id: row.roll_id,
+    entry_id: row.entry_id,
+    position,
+    name: snapshot.name,
+    weight: snapshot.weight,
+    link: snapshot.link,
+    tags: snapshot.tags,
+  };
+}
+
+async function fetchRandomizerListRow(
+  db: Database,
+  listId: string
+): Promise<RandomizerListRow | null> {
+  const rows = await db.select<RandomizerListRow[]>(
+    `SELECT * FROM randomizer_lists WHERE id = $1`,
+    [listId]
+  );
+  return (rows as RandomizerListRow[])[0] ?? null;
+}
+
+async function fetchRandomizerGroupRow(
+  db: Database,
+  groupId: string
+): Promise<RandomizerGroupRow | null> {
+  const rows = await db.select<RandomizerGroupRow[]>(
+    `SELECT * FROM randomizer_groups WHERE id = $1`,
+    [groupId]
+  );
+  return (rows as RandomizerGroupRow[])[0] ?? null;
+}
+
+async function fetchRandomizerEntryRow(
+  db: Database,
+  entryId: string
+): Promise<RandomizerEntryRow | null> {
+  const rows = await db.select<RandomizerEntryRow[]>(
+    `SELECT e.id,
+            e.group_id,
+            e.name,
+            e.weight,
+            e.link,
+            e.tags_json,
+            e.filters_json,
+            e.sort_order,
+            e.created_at,
+            e.updated_at,
+            g.list_id,
+            g.name AS group_name
+       FROM randomizer_entries e
+       INNER JOIN randomizer_groups g ON g.id = e.group_id
+      WHERE e.id = $1`,
+    [entryId]
+  );
+  return (rows as RandomizerEntryRow[])[0] ?? null;
+}
+
+export async function listRandomizerLists(): Promise<RandomizerListRecord[]> {
   return withInit(async (db) => {
-    const rows = await db.select<RandomizerPoolRecord[]>(
-      `SELECT * FROM randomizer_pools ORDER BY sort_order ASC, created_at ASC`
+    const rows = await db.select<RandomizerListRow[]>(
+      `SELECT * FROM randomizer_lists ORDER BY sort_order ASC, created_at ASC`
     );
-    return rows as RandomizerPoolRecord[];
+    return (rows as RandomizerListRow[]).map(mapRandomizerListRow);
   });
 }
 
-export async function createRandomizerPool(
-  input: CreateRandomizerPoolInput = {}
-): Promise<RandomizerPoolRecord> {
+export async function createRandomizerList(
+  input: CreateRandomizerListInput = {}
+): Promise<RandomizerListRecord> {
   return withInit(async (db) => {
     const id = uuid();
     const now = new Date().toISOString();
     const [row] = (await db.select<{ max_order: number }[]>(
-      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM randomizer_pools`
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order FROM randomizer_lists`
     )) as { max_order: number }[];
     const sortOrder =
       typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
-    const name = toNullableText(input.name ?? null) ?? "New Entry";
-    const weight = normalizeWeight(input.weight ?? 1);
-    const link = toNullableText(input.link ?? null);
+    const name = toNullableText(input.name ?? null) ?? "New List";
+    const description = toNullableText(input.description ?? null);
     await db.execute(
-      `INSERT INTO randomizer_pools (id, name, weight, link, sort_order, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-      [id, name, weight, link, sortOrder, now]
+      `INSERT INTO randomizer_lists (id, name, description, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5)`,
+      [id, name, description, sortOrder, now]
     );
-    const rows = await db.select<RandomizerPoolRecord[]>(
-      `SELECT * FROM randomizer_pools WHERE id = $1`,
+    const rows = await db.select<RandomizerListRow[]>(
+      `SELECT * FROM randomizer_lists WHERE id = $1`,
       [id]
     );
-    return rows[0] as RandomizerPoolRecord;
+    return mapRandomizerListRow((rows as RandomizerListRow[])[0]!);
   });
 }
 
-export async function updateRandomizerPool(
+export async function updateRandomizerList(
   id: string,
-  updates: UpdateRandomizerPoolInput
-): Promise<RandomizerPoolRecord> {
+  updates: UpdateRandomizerListInput
+): Promise<RandomizerListRecord> {
   return withInit(async (db) => {
-    const existingRows = await db.select<RandomizerPoolRecord[]>(
-      `SELECT * FROM randomizer_pools WHERE id = $1`,
-      [id]
-    );
-    const existing = existingRows[0];
+    const existing = await fetchRandomizerListRow(db, id);
     if (!existing) {
-      throw new Error(`Randomizer pool ${id} not found`);
+      throw new Error(`Randomizer list ${id} not found`);
     }
 
     const sets: string[] = [];
     const values: unknown[] = [];
     let index = 1;
 
+    if (updates.name !== undefined) {
+      const name = toNullableText(updates.name) ?? existing.name;
+      sets.push(`name = $${index++}`);
+      values.push(name);
+    }
+    if (updates.description !== undefined) {
+      sets.push(`description = $${index++}`);
+      values.push(toNullableText(updates.description));
+    }
+    if (updates.sort_order !== undefined) {
+      sets.push(`sort_order = $${index++}`);
+      values.push(
+        typeof updates.sort_order === "number" ? Math.round(updates.sort_order) : existing.sort_order
+      );
+    }
+
+    if (!sets.length) {
+      return mapRandomizerListRow(existing);
+    }
+
+    const now = new Date().toISOString();
+    sets.push(`updated_at = $${index++}`);
+    values.push(now);
+    const whereIndex = index;
+    values.push(id);
+
+    await db.execute(
+      `UPDATE randomizer_lists SET ${sets.join(", ")} WHERE id = $${whereIndex}`,
+      values
+    );
+
+    const rows = await db.select<RandomizerListRow[]>(
+      `SELECT * FROM randomizer_lists WHERE id = $1`,
+      [id]
+    );
+    return mapRandomizerListRow((rows as RandomizerListRow[])[0]!);
+  });
+}
+
+export async function deleteRandomizerList(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM randomizer_lists WHERE id = $1`, [id]));
+}
+
+export async function listRandomizerGroups(listId: string): Promise<RandomizerGroupRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<RandomizerGroupRow[]>(
+      `SELECT * FROM randomizer_groups
+        WHERE list_id = $1
+        ORDER BY sort_order ASC, created_at ASC`,
+      [listId]
+    );
+    return (rows as RandomizerGroupRow[]).map(mapRandomizerGroupRow);
+  });
+}
+
+export async function createRandomizerGroup(
+  input: CreateRandomizerGroupInput
+): Promise<RandomizerGroupRecord> {
+  if (!input?.list_id) {
+    throw new Error("Randomizer group requires a list_id");
+  }
+  return withInit(async (db) => {
+    const list = await fetchRandomizerListRow(db, input.list_id);
+    if (!list) {
+      throw new Error(`Randomizer list ${input.list_id} not found`);
+    }
+    const id = uuid();
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+         FROM randomizer_groups
+        WHERE list_id = $1`,
+      [input.list_id]
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
+    const name = toNullableText(input.name ?? null) ?? "New Group";
+    const filtersJson = encodeFilters(input.filters ?? null);
+    await db.execute(
+      `INSERT INTO randomizer_groups (id, list_id, name, sort_order, filters_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      [id, input.list_id, name, sortOrder, filtersJson, now]
+    );
+    const rows = await db.select<RandomizerGroupRow[]>(
+      `SELECT * FROM randomizer_groups WHERE id = $1`,
+      [id]
+    );
+    return mapRandomizerGroupRow((rows as RandomizerGroupRow[])[0]!);
+  });
+}
+
+export async function updateRandomizerGroup(
+  id: string,
+  updates: UpdateRandomizerGroupInput
+): Promise<RandomizerGroupRecord> {
+  return withInit(async (db) => {
+    const existing = await fetchRandomizerGroupRow(db, id);
+    if (!existing) {
+      throw new Error(`Randomizer group ${id} not found`);
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (updates.name !== undefined) {
+      const name = toNullableText(updates.name) ?? existing.name;
+      sets.push(`name = $${index++}`);
+      values.push(name);
+    }
+    if (updates.sort_order !== undefined) {
+      sets.push(`sort_order = $${index++}`);
+      values.push(
+        typeof updates.sort_order === "number" ? Math.round(updates.sort_order) : existing.sort_order
+      );
+    }
+    if (updates.filters !== undefined) {
+      sets.push(`filters_json = $${index++}`);
+      values.push(encodeFilters(updates.filters));
+    }
+
+    if (!sets.length) {
+      return mapRandomizerGroupRow(existing);
+    }
+
+    const now = new Date().toISOString();
+    sets.push(`updated_at = $${index++}`);
+    values.push(now);
+    const whereIndex = index;
+    values.push(id);
+
+    await db.execute(
+      `UPDATE randomizer_groups SET ${sets.join(", ")} WHERE id = $${whereIndex}`,
+      values
+    );
+
+    const rows = await db.select<RandomizerGroupRow[]>(
+      `SELECT * FROM randomizer_groups WHERE id = $1`,
+      [id]
+    );
+    return mapRandomizerGroupRow((rows as RandomizerGroupRow[])[0]!);
+  });
+}
+
+export async function deleteRandomizerGroup(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM randomizer_groups WHERE id = $1`, [id]));
+}
+
+export async function listRandomizerEntriesForList(
+  listId: string
+): Promise<RandomizerEntryRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<RandomizerEntryRow[]>(
+      `SELECT e.id,
+              e.group_id,
+              e.name,
+              e.weight,
+              e.link,
+              e.tags_json,
+              e.filters_json,
+              e.sort_order,
+              e.created_at,
+              e.updated_at,
+              g.list_id,
+              g.name AS group_name
+         FROM randomizer_entries e
+         INNER JOIN randomizer_groups g ON g.id = e.group_id
+        WHERE g.list_id = $1
+        ORDER BY g.sort_order ASC,
+                 g.created_at ASC,
+                 e.sort_order ASC,
+                 e.created_at ASC`,
+      [listId]
+    );
+    return (rows as RandomizerEntryRow[]).map(mapRandomizerEntryRow);
+  });
+}
+
+export async function createRandomizerEntry(
+  input: CreateRandomizerEntryInput
+): Promise<RandomizerEntryRecord> {
+  if (!input?.list_id || !input?.group_id) {
+    throw new Error("Randomizer entry requires list_id and group_id");
+  }
+  return withInit(async (db) => {
+    const group = await fetchRandomizerGroupRow(db, input.group_id);
+    if (!group) {
+      throw new Error(`Randomizer group ${input.group_id} not found`);
+    }
+    if (group.list_id !== input.list_id) {
+      throw new Error(`Randomizer group ${input.group_id} does not belong to list ${input.list_id}`);
+    }
+    const id = uuid();
+    const now = new Date().toISOString();
+    const [row] = (await db.select<{ max_order: number }[]>(
+      `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+         FROM randomizer_entries
+        WHERE group_id = $1`,
+      [input.group_id]
+    )) as { max_order: number }[];
+    const sortOrder =
+      typeof input.sort_order === "number" ? input.sort_order : (row?.max_order ?? -1) + 1;
+    const name = toNullableText(input.name ?? null) ?? "New Entry";
+    const weight = normalizeWeight(input.weight ?? 1);
+    const link = toNullableText(input.link ?? null);
+    const tagsJson = encodeStringArray(input.tags ?? null);
+    const filtersJson = encodeFilters(input.filters ?? null);
+    await db.execute(
+      `INSERT INTO randomizer_entries (
+         id,
+         group_id,
+         name,
+         weight,
+         link,
+         tags_json,
+         filters_json,
+         sort_order,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+      [id, input.group_id, name, weight, link, tagsJson, filtersJson, sortOrder, now]
+    );
+    const rows = await db.select<RandomizerEntryRow[]>(
+      `SELECT e.id,
+              e.group_id,
+              e.name,
+              e.weight,
+              e.link,
+              e.tags_json,
+              e.filters_json,
+              e.sort_order,
+              e.created_at,
+              e.updated_at,
+              g.list_id,
+              g.name AS group_name
+         FROM randomizer_entries e
+         INNER JOIN randomizer_groups g ON g.id = e.group_id
+        WHERE e.id = $1`,
+      [id]
+    );
+    return mapRandomizerEntryRow((rows as RandomizerEntryRow[])[0]!);
+  });
+}
+
+export async function updateRandomizerEntry(
+  id: string,
+  updates: UpdateRandomizerEntryInput
+): Promise<RandomizerEntryRecord> {
+  return withInit(async (db) => {
+    const existing = await fetchRandomizerEntryRow(db, id);
+    if (!existing) {
+      throw new Error(`Randomizer entry ${id} not found`);
+    }
+
+    let targetGroupId = existing.group_id;
+    if (updates.group_id !== undefined && updates.group_id !== existing.group_id) {
+      const nextGroup = await fetchRandomizerGroupRow(db, updates.group_id);
+      if (!nextGroup) {
+        throw new Error(`Randomizer group ${updates.group_id} not found`);
+      }
+      if (nextGroup.list_id !== existing.list_id) {
+        throw new Error("Cannot move entry to a group on a different list");
+      }
+      targetGroupId = updates.group_id;
+    }
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (targetGroupId !== existing.group_id) {
+      sets.push(`group_id = $${index++}`);
+      values.push(targetGroupId);
+    }
     if (updates.name !== undefined) {
       const name = toNullableText(updates.name) ?? existing.name;
       sets.push(`name = $${index++}`);
@@ -2237,35 +2941,202 @@ export async function updateRandomizerPool(
       sets.push(`link = $${index++}`);
       values.push(toNullableText(updates.link));
     }
+    if (updates.tags !== undefined) {
+      sets.push(`tags_json = $${index++}`);
+      values.push(encodeStringArray(updates.tags));
+    }
+    if (updates.filters !== undefined) {
+      sets.push(`filters_json = $${index++}`);
+      values.push(encodeFilters(updates.filters));
+    }
     if (updates.sort_order !== undefined) {
       sets.push(`sort_order = $${index++}`);
-      values.push(updates.sort_order ?? existing.sort_order);
+      values.push(
+        typeof updates.sort_order === "number"
+          ? Math.round(updates.sort_order)
+          : existing.sort_order
+      );
     }
 
     if (!sets.length) {
-      return existing;
+      return mapRandomizerEntryRow(existing);
     }
 
-    sets.push(`updated_at = $${index++}`);
     const now = new Date().toISOString();
+    sets.push(`updated_at = $${index++}`);
     values.push(now);
+    const whereIndex = index;
     values.push(id);
 
     await db.execute(
-      `UPDATE randomizer_pools SET ${sets.join(", ")} WHERE id = $${index}`,
+      `UPDATE randomizer_entries SET ${sets.join(", ")} WHERE id = $${whereIndex}`,
       values
     );
 
-    const rows = await db.select<RandomizerPoolRecord[]>(
-      `SELECT * FROM randomizer_pools WHERE id = $1`,
+    const rows = await db.select<RandomizerEntryRow[]>(
+      `SELECT e.id,
+              e.group_id,
+              e.name,
+              e.weight,
+              e.link,
+              e.tags_json,
+              e.filters_json,
+              e.sort_order,
+              e.created_at,
+              e.updated_at,
+              g.list_id,
+              g.name AS group_name
+         FROM randomizer_entries e
+         INNER JOIN randomizer_groups g ON g.id = e.group_id
+        WHERE e.id = $1`,
       [id]
     );
-    return rows[0] as RandomizerPoolRecord;
+    return mapRandomizerEntryRow((rows as RandomizerEntryRow[])[0]!);
   });
 }
 
-export async function deleteRandomizerPool(id: string): Promise<void> {
-  await withInit((db) => db.execute(`DELETE FROM randomizer_pools WHERE id = $1`, [id]));
+export async function deleteRandomizerEntry(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM randomizer_entries WHERE id = $1`, [id]));
+}
+
+export async function recordRandomizerRoll(
+  input: RecordRandomizerRollInput
+): Promise<RandomizerRollRecord> {
+  if (!input?.listId) {
+    throw new Error("Randomizer roll requires a listId");
+  }
+  if (!Array.isArray(input.picks)) {
+    throw new Error("Randomizer roll requires a picks array");
+  }
+  return withInit(async (db) => {
+    const rollId = uuid();
+    const now = new Date().toISOString();
+    const normalizedSeed = toNullableText(input.seed ?? null);
+    const paramsJson = toJsonString(input.params ?? null);
+    const picks: RandomizerRollPickRecord[] = [];
+
+    await db.execute("BEGIN TRANSACTION");
+    try {
+      await db.execute(
+        `INSERT INTO randomizer_rolls (id, list_id, seed, params_json, created_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [rollId, input.listId, normalizedSeed, paramsJson, now]
+      );
+
+      for (let index = 0; index < input.picks.length; index += 1) {
+        const pick = input.picks[index]!;
+        const pickId = uuid();
+        const position = index + 1;
+        const name = toNullableText(pick.name) ?? "Unknown entry";
+        const weight = normalizeWeight(pick.weight);
+        const link = toNullableText(pick.link ?? null);
+        const tags = sanitizeStringArray(pick.tags ?? null) ?? [];
+        const snapshotJson = JSON.stringify({
+          name,
+          weight,
+          link,
+          tags,
+        });
+
+        await db.execute(
+          `INSERT INTO randomizer_roll_results (id, roll_id, entry_id, position, snapshot_json)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [pickId, rollId, pick.entryId ?? null, position, snapshotJson]
+        );
+
+        picks.push({
+          id: pickId,
+          roll_id: rollId,
+          entry_id: pick.entryId ?? null,
+          position,
+          name,
+          weight,
+          link,
+          tags,
+        });
+      }
+
+      await db.execute(
+        `DELETE FROM randomizer_rolls
+         WHERE id IN (
+           SELECT id FROM randomizer_rolls
+            WHERE list_id = $1
+            ORDER BY created_at DESC
+            LIMIT -1 OFFSET $2
+         )`,
+        [input.listId, RANDOMIZER_HISTORY_LIMIT]
+      );
+
+      await db.execute("COMMIT");
+
+      return {
+        id: rollId,
+        list_id: input.listId,
+        seed: normalizedSeed,
+        params: input.params && typeof input.params === "object" ? input.params : {},
+        created_at: now,
+        picks,
+      };
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function listRandomizerRolls(
+  listId: string,
+  limit = 20
+): Promise<RandomizerRollRecord[]> {
+  return withInit(async (db) => {
+    const safeLimit = Math.min(Math.max(limit, 1), RANDOMIZER_HISTORY_LIMIT);
+    const rollRows = (await db.select<RandomizerRollRow[]>(
+      `SELECT * FROM randomizer_rolls
+        WHERE list_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [listId, safeLimit]
+    )) as RandomizerRollRow[];
+
+    if (!rollRows.length) {
+      return [];
+    }
+
+    const rollIds = rollRows.map((row) => row.id);
+    const placeholders = rollIds.map((_, idx) => `$${idx + 1}`).join(", ");
+    const resultRows = (await db.select<RandomizerRollResultRow[]>(
+      `SELECT * FROM randomizer_roll_results
+        WHERE roll_id IN (${placeholders})
+        ORDER BY roll_id ASC, position ASC`,
+      rollIds
+    )) as RandomizerRollResultRow[];
+
+    const grouped = new Map<string, RandomizerRollPickRecord[]>();
+    for (const result of resultRows) {
+      const list = grouped.get(result.roll_id) ?? [];
+      list.push(mapRandomizerRollResultRow(result));
+      grouped.set(result.roll_id, list);
+    }
+
+    return rollRows.map((row) => ({
+      id: row.id,
+      list_id: row.list_id,
+      seed: row.seed ?? null,
+      params: parseFilters(row.params_json),
+      created_at: row.created_at,
+      picks: grouped.get(row.id) ?? [],
+    }));
+  });
+}
+
+export async function clearRandomizerRolls(listId?: string): Promise<void> {
+  await withInit(async (db) => {
+    if (listId) {
+      await db.execute(`DELETE FROM randomizer_rolls WHERE list_id = $1`, [listId]);
+    } else {
+      await db.execute(`DELETE FROM randomizer_rolls`);
+    }
+  });
 }
 
 export async function listCharacterProfiles(): Promise<CharacterProfileRecord[]> {
@@ -2400,6 +3271,39 @@ export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
   allowCompanionBodyMod: true,
 };
 
+export const ESSENTIAL_BODY_MOD_SETTING_ID = "essential-default";
+export const UNIVERSAL_DRAWBACK_SETTING_ID = "universal-default";
+
+export const DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS: EssentialBodyModSettings = {
+  budget: 1000,
+  startingMode: "standard",
+  essenceMode: "none",
+  advancementMode: "standard",
+  epAccessMode: "none",
+  epAccessModifier: "none",
+  unlockableEssence: false,
+  limitInvestment: false,
+  investmentAllowed: false,
+  investmentRatio: 1,
+  incrementalBudget: 0,
+  incrementalInterval: 1,
+  trainingAllowance: false,
+  temperedBySuffering: false,
+  unbalancedMode: "none",
+  unbalancedDescription: null,
+  limiter: "none",
+  limiterDescription: null,
+};
+
+export const DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS: UniversalDrawbackSettings = {
+  totalCP: 0,
+  companionCP: 0,
+  itemCP: 0,
+  warehouseWP: 0,
+  allowGauntlet: false,
+  gauntletHalved: false,
+};
+
 export const DEFAULT_WAREHOUSE_MODE: WarehouseModeSettings = {
   mode: "generic",
 };
@@ -2493,6 +3397,9 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") {
     return value;
   }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value !== 0;
+  }
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (normalized === "true" || normalized === "1") {
@@ -2576,6 +3483,179 @@ export function parseSupplementSettings(record: AppSettingRecord | null): Supple
   };
 }
 
+const ESSENTIAL_STARTING_MODE_VALUES: readonly EssentialStartingMode[] = ["hardcore", "standard", "heroic"];
+const ESSENTIAL_ESSENCE_MODE_VALUES: readonly EssentialEssenceMode[] = ["none", "single", "dual", "multi"];
+const ESSENTIAL_ADVANCEMENT_MODE_VALUES: readonly EssentialAdvancementMode[] = [
+  "standard",
+  "meteoric",
+  "heroic",
+  "questing",
+];
+const ESSENTIAL_EP_ACCESS_MODE_VALUES: readonly EssentialEpAccessMode[] = ["none", "lesser", "standard"];
+const ESSENTIAL_EP_ACCESS_MODIFIER_VALUES: readonly EssentialEpAccessModifier[] = [
+  "none",
+  "cumulative",
+  "retro-cumulative",
+];
+const ESSENTIAL_UNBALANCED_MODE_VALUES: readonly EssentialUnbalancedMode[] = [
+  "none",
+  "harmonized",
+  "very-harmonized",
+  "perfectly-harmonized",
+];
+const ESSENTIAL_LIMITER_VALUES: readonly EssentialLimiter[] = [
+  "none",
+  "everyday-hero",
+  "street-level",
+  "mid-level",
+  "body-mod",
+  "scaling-i",
+  "scaling-ii",
+  "vanishing",
+];
+
+interface EssentialBodyModSettingsRow {
+  id: string;
+  budget: number | null;
+  starting_mode: string | null;
+  essence_mode: string | null;
+  advancement_mode: string | null;
+  ep_access_mode: string | null;
+  ep_access_modifier: string | null;
+  unlockable_essence: number | null;
+  limit_investment: number | null;
+  investment_allowed: number | null;
+  investment_ratio: number | null;
+  incremental_budget: number | null;
+  incremental_interval: number | null;
+  training_allowance: number | null;
+  tempered_by_suffering: number | null;
+  unbalanced_mode: string | null;
+  unbalanced_description: string | null;
+  limiter: string | null;
+  limiter_description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UniversalDrawbackSettingsRow {
+  id: string;
+  total_cp: number | null;
+  companion_cp: number | null;
+  item_cp: number | null;
+  warehouse_wp: number | null;
+  allow_gauntlet: number | null;
+  gauntlet_halved: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function normalizeEnumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase() as T;
+    if (allowed.includes(normalized)) {
+      return normalized;
+    }
+  }
+  return fallback;
+}
+
+function normalizeNonNegative(value: unknown, fallback: number, minimum = 0): number {
+  const coerced = coerceNumber(value, fallback);
+  if (!Number.isFinite(coerced)) {
+    return fallback;
+  }
+  return Math.max(minimum, Math.round(coerced));
+}
+
+function normalizeOptionalTextInput(value: unknown, fallback: string | null): string | null {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value === null) {
+    return null;
+  }
+  return toNullableText(String(value));
+}
+
+function mapEssentialSettings(row: EssentialBodyModSettingsRow | undefined): EssentialBodyModSettings {
+  if (!row) {
+    return DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS;
+  }
+  return {
+    budget: normalizeNonNegative(row.budget, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.budget),
+    startingMode: normalizeEnumValue(
+      row.starting_mode,
+      ESSENTIAL_STARTING_MODE_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.startingMode
+    ),
+    essenceMode: normalizeEnumValue(
+      row.essence_mode,
+      ESSENTIAL_ESSENCE_MODE_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.essenceMode
+    ),
+    advancementMode: normalizeEnumValue(
+      row.advancement_mode,
+      ESSENTIAL_ADVANCEMENT_MODE_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.advancementMode
+    ),
+    epAccessMode: normalizeEnumValue(
+      row.ep_access_mode,
+      ESSENTIAL_EP_ACCESS_MODE_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.epAccessMode
+    ),
+    epAccessModifier: normalizeEnumValue(
+      row.ep_access_modifier,
+      ESSENTIAL_EP_ACCESS_MODIFIER_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.epAccessModifier
+    ),
+    unlockableEssence: coerceBoolean(row.unlockable_essence, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.unlockableEssence),
+    limitInvestment: coerceBoolean(row.limit_investment, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.limitInvestment),
+    investmentAllowed: coerceBoolean(row.investment_allowed, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.investmentAllowed),
+    investmentRatio: normalizeNonNegative(
+      row.investment_ratio,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.investmentRatio,
+      1
+    ),
+    incrementalBudget: normalizeNonNegative(
+      row.incremental_budget,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.incrementalBudget
+    ),
+    incrementalInterval: normalizeNonNegative(
+      row.incremental_interval,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.incrementalInterval,
+      1
+    ),
+    trainingAllowance: coerceBoolean(row.training_allowance, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.trainingAllowance),
+    temperedBySuffering: coerceBoolean(
+      row.tempered_by_suffering,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.temperedBySuffering
+    ),
+    unbalancedMode: normalizeEnumValue(
+      row.unbalanced_mode,
+      ESSENTIAL_UNBALANCED_MODE_VALUES,
+      DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.unbalancedMode
+    ),
+    unbalancedDescription: toNullableText(row.unbalanced_description ?? null),
+    limiter: normalizeEnumValue(row.limiter, ESSENTIAL_LIMITER_VALUES, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS.limiter),
+    limiterDescription: toNullableText(row.limiter_description ?? null),
+  };
+}
+
+function mapUniversalSettings(row: UniversalDrawbackSettingsRow | undefined): UniversalDrawbackSettings {
+  if (!row) {
+    return DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS;
+  }
+  return {
+    totalCP: normalizeNonNegative(row.total_cp, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.totalCP),
+    companionCP: normalizeNonNegative(row.companion_cp, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.companionCP),
+    itemCP: normalizeNonNegative(row.item_cp, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.itemCP),
+    warehouseWP: normalizeNonNegative(row.warehouse_wp, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP),
+    allowGauntlet: coerceBoolean(row.allow_gauntlet, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.allowGauntlet),
+    gauntletHalved: coerceBoolean(row.gauntlet_halved, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.gauntletHalved),
+  };
+}
+
 export function parseWarehouseMode(record: AppSettingRecord | null): WarehouseModeSettings {
   const raw = parseJsonValue(record);
   if (typeof raw === "string") {
@@ -2638,6 +3718,323 @@ export async function loadJumpDefaults(): Promise<JumpDefaultsSettings> {
 export async function loadSupplementSettings(): Promise<SupplementToggleSettings> {
   const record = await getAppSetting(SUPPLEMENT_SETTING_KEY);
   return parseSupplementSettings(record);
+}
+
+export async function loadEssentialBodyModSettings(): Promise<EssentialBodyModSettings> {
+  return withInit(async (db) => {
+    const rows = await db.select<EssentialBodyModSettingsRow[]>(
+      `SELECT * FROM essential_body_mod_settings WHERE id = $1`,
+      [ESSENTIAL_BODY_MOD_SETTING_ID]
+    );
+    return mapEssentialSettings(rows[0]);
+  });
+}
+
+export async function saveEssentialBodyModSettings(
+  overrides: Partial<EssentialBodyModSettings>
+): Promise<EssentialBodyModSettings> {
+  return withInit(async (db) => {
+    const existingRows = await db.select<EssentialBodyModSettingsRow[]>(
+      `SELECT * FROM essential_body_mod_settings WHERE id = $1`,
+      [ESSENTIAL_BODY_MOD_SETTING_ID]
+    );
+    const current = mapEssentialSettings(existingRows[0]);
+    const next: EssentialBodyModSettings = {
+      budget:
+        overrides.budget !== undefined
+          ? normalizeNonNegative(overrides.budget, current.budget)
+          : current.budget,
+      startingMode:
+        overrides.startingMode !== undefined
+          ? normalizeEnumValue(overrides.startingMode, ESSENTIAL_STARTING_MODE_VALUES, current.startingMode)
+          : current.startingMode,
+      essenceMode:
+        overrides.essenceMode !== undefined
+          ? normalizeEnumValue(overrides.essenceMode, ESSENTIAL_ESSENCE_MODE_VALUES, current.essenceMode)
+          : current.essenceMode,
+      advancementMode:
+        overrides.advancementMode !== undefined
+          ? normalizeEnumValue(overrides.advancementMode, ESSENTIAL_ADVANCEMENT_MODE_VALUES, current.advancementMode)
+          : current.advancementMode,
+      epAccessMode:
+        overrides.epAccessMode !== undefined
+          ? normalizeEnumValue(overrides.epAccessMode, ESSENTIAL_EP_ACCESS_MODE_VALUES, current.epAccessMode)
+          : current.epAccessMode,
+      epAccessModifier:
+        overrides.epAccessModifier !== undefined
+          ? normalizeEnumValue(
+              overrides.epAccessModifier,
+              ESSENTIAL_EP_ACCESS_MODIFIER_VALUES,
+              current.epAccessModifier
+            )
+          : current.epAccessModifier,
+      unlockableEssence:
+        overrides.unlockableEssence !== undefined ? overrides.unlockableEssence : current.unlockableEssence,
+      limitInvestment:
+        overrides.limitInvestment !== undefined ? overrides.limitInvestment : current.limitInvestment,
+      investmentAllowed:
+        overrides.investmentAllowed !== undefined ? overrides.investmentAllowed : current.investmentAllowed,
+      investmentRatio:
+        overrides.investmentRatio !== undefined
+          ? normalizeNonNegative(overrides.investmentRatio, current.investmentRatio, 1)
+          : current.investmentRatio,
+      incrementalBudget:
+        overrides.incrementalBudget !== undefined
+          ? normalizeNonNegative(overrides.incrementalBudget, current.incrementalBudget)
+          : current.incrementalBudget,
+      incrementalInterval:
+        overrides.incrementalInterval !== undefined
+          ? normalizeNonNegative(overrides.incrementalInterval, current.incrementalInterval, 1)
+          : current.incrementalInterval,
+      trainingAllowance:
+        overrides.trainingAllowance !== undefined ? overrides.trainingAllowance : current.trainingAllowance,
+      temperedBySuffering:
+        overrides.temperedBySuffering !== undefined ? overrides.temperedBySuffering : current.temperedBySuffering,
+      unbalancedMode:
+        overrides.unbalancedMode !== undefined
+          ? normalizeEnumValue(overrides.unbalancedMode, ESSENTIAL_UNBALANCED_MODE_VALUES, current.unbalancedMode)
+          : current.unbalancedMode,
+      unbalancedDescription: normalizeOptionalTextInput(overrides.unbalancedDescription, current.unbalancedDescription),
+      limiter:
+        overrides.limiter !== undefined
+          ? normalizeEnumValue(overrides.limiter, ESSENTIAL_LIMITER_VALUES, current.limiter)
+          : current.limiter,
+      limiterDescription: normalizeOptionalTextInput(overrides.limiterDescription, current.limiterDescription),
+    };
+
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO essential_body_mod_settings (
+         id,
+         budget,
+         starting_mode,
+         essence_mode,
+         advancement_mode,
+         ep_access_mode,
+         ep_access_modifier,
+         unlockable_essence,
+         limit_investment,
+         investment_allowed,
+         investment_ratio,
+         incremental_budget,
+         incremental_interval,
+         training_allowance,
+         tempered_by_suffering,
+         unbalanced_mode,
+         unbalanced_description,
+         limiter,
+         limiter_description,
+         created_at,
+         updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+       )
+       ON CONFLICT(id) DO UPDATE SET
+         budget = excluded.budget,
+         starting_mode = excluded.starting_mode,
+         essence_mode = excluded.essence_mode,
+         advancement_mode = excluded.advancement_mode,
+         ep_access_mode = excluded.ep_access_mode,
+         ep_access_modifier = excluded.ep_access_modifier,
+         unlockable_essence = excluded.unlockable_essence,
+         limit_investment = excluded.limit_investment,
+         investment_allowed = excluded.investment_allowed,
+         investment_ratio = excluded.investment_ratio,
+         incremental_budget = excluded.incremental_budget,
+         incremental_interval = excluded.incremental_interval,
+         training_allowance = excluded.training_allowance,
+         tempered_by_suffering = excluded.tempered_by_suffering,
+         unbalanced_mode = excluded.unbalanced_mode,
+         unbalanced_description = excluded.unbalanced_description,
+         limiter = excluded.limiter,
+         limiter_description = excluded.limiter_description,
+         updated_at = excluded.updated_at`,
+      [
+        ESSENTIAL_BODY_MOD_SETTING_ID,
+        next.budget,
+        next.startingMode,
+        next.essenceMode,
+        next.advancementMode,
+        next.epAccessMode,
+        next.epAccessModifier,
+        boolToInt(next.unlockableEssence),
+        boolToInt(next.limitInvestment),
+        boolToInt(next.investmentAllowed),
+        next.investmentRatio,
+        next.incrementalBudget,
+        next.incrementalInterval,
+        boolToInt(next.trainingAllowance),
+        boolToInt(next.temperedBySuffering),
+        next.unbalancedMode,
+        toNullableText(next.unbalancedDescription ?? null),
+        next.limiter,
+        toNullableText(next.limiterDescription ?? null),
+        now,
+      ]
+    );
+
+    const rows = await db.select<EssentialBodyModSettingsRow[]>(
+      `SELECT * FROM essential_body_mod_settings WHERE id = $1`,
+      [ESSENTIAL_BODY_MOD_SETTING_ID]
+    );
+    return mapEssentialSettings(rows[0]);
+  });
+}
+
+export async function listEssentialBodyModEssences(): Promise<EssentialBodyModEssenceRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<EssentialBodyModEssenceRecord[]>(
+      `SELECT * FROM essential_body_mod_essences
+       WHERE setting_id = $1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [ESSENTIAL_BODY_MOD_SETTING_ID]
+    );
+    return rows as EssentialBodyModEssenceRecord[];
+  });
+}
+
+export async function upsertEssentialBodyModEssence(
+  input: UpsertEssentialBodyModEssenceInput
+): Promise<EssentialBodyModEssenceRecord> {
+  return withInit(async (db) => {
+    const id = input.id ?? uuid();
+    let sortOrder = input.sort_order;
+    if (typeof sortOrder !== "number" || Number.isNaN(sortOrder)) {
+      const [row] = (await db.select<{ max_order: number }[]>(
+        `SELECT COALESCE(MAX(sort_order), -1) AS max_order
+         FROM essential_body_mod_essences
+         WHERE setting_id = $1`,
+        [ESSENTIAL_BODY_MOD_SETTING_ID]
+      )) as { max_order: number }[];
+      sortOrder = (row?.max_order ?? -1) + 1;
+    }
+
+    const trimmedName = input.name.trim();
+    if (!trimmedName.length) {
+      throw new Error("Essence name is required");
+    }
+
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO essential_body_mod_essences (
+         id,
+         setting_id,
+         name,
+         description,
+         sort_order,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $6)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         sort_order = excluded.sort_order,
+         updated_at = excluded.updated_at`,
+      [
+        id,
+        ESSENTIAL_BODY_MOD_SETTING_ID,
+        trimmedName,
+        toNullableText(input.description ?? null),
+        sortOrder,
+        now,
+      ]
+    );
+
+    const rows = await db.select<EssentialBodyModEssenceRecord[]>(
+      `SELECT * FROM essential_body_mod_essences WHERE id = $1`,
+      [id]
+    );
+    return rows[0];
+  });
+}
+
+export async function deleteEssentialBodyModEssence(id: string): Promise<void> {
+  await withInit((db) =>
+    db.execute(`DELETE FROM essential_body_mod_essences WHERE id = $1`, [id])
+  );
+}
+
+export async function loadUniversalDrawbackSettings(): Promise<UniversalDrawbackSettings> {
+  return withInit(async (db) => {
+    const rows = await db.select<UniversalDrawbackSettingsRow[]>(
+      `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+      [UNIVERSAL_DRAWBACK_SETTING_ID]
+    );
+    return mapUniversalSettings(rows[0]);
+  });
+}
+
+export async function saveUniversalDrawbackSettings(
+  overrides: Partial<UniversalDrawbackSettings>
+): Promise<UniversalDrawbackSettings> {
+  return withInit(async (db) => {
+    const rows = await db.select<UniversalDrawbackSettingsRow[]>(
+      `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+      [UNIVERSAL_DRAWBACK_SETTING_ID]
+    );
+    const current = mapUniversalSettings(rows[0]);
+    const next: UniversalDrawbackSettings = {
+      totalCP:
+        overrides.totalCP !== undefined
+          ? normalizeNonNegative(overrides.totalCP, current.totalCP)
+          : current.totalCP,
+      companionCP:
+        overrides.companionCP !== undefined
+          ? normalizeNonNegative(overrides.companionCP, current.companionCP)
+          : current.companionCP,
+      itemCP:
+        overrides.itemCP !== undefined
+          ? normalizeNonNegative(overrides.itemCP, current.itemCP)
+          : current.itemCP,
+      warehouseWP:
+        overrides.warehouseWP !== undefined
+          ? normalizeNonNegative(overrides.warehouseWP, current.warehouseWP)
+          : current.warehouseWP,
+      allowGauntlet:
+        overrides.allowGauntlet !== undefined ? overrides.allowGauntlet : current.allowGauntlet,
+      gauntletHalved:
+        overrides.gauntletHalved !== undefined ? overrides.gauntletHalved : current.gauntletHalved,
+    };
+
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO universal_drawback_settings (
+         id,
+         total_cp,
+         companion_cp,
+         item_cp,
+         warehouse_wp,
+         allow_gauntlet,
+         gauntlet_halved,
+         created_at,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+       ON CONFLICT(id) DO UPDATE SET
+         total_cp = excluded.total_cp,
+         companion_cp = excluded.companion_cp,
+         item_cp = excluded.item_cp,
+         warehouse_wp = excluded.warehouse_wp,
+         allow_gauntlet = excluded.allow_gauntlet,
+         gauntlet_halved = excluded.gauntlet_halved,
+         updated_at = excluded.updated_at`,
+      [
+        UNIVERSAL_DRAWBACK_SETTING_ID,
+        next.totalCP,
+        next.companionCP,
+        next.itemCP,
+        next.warehouseWP,
+        boolToInt(next.allowGauntlet),
+        boolToInt(next.gauntletHalved),
+        now,
+      ]
+    );
+
+    const updatedRows = await db.select<UniversalDrawbackSettingsRow[]>(
+      `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+      [UNIVERSAL_DRAWBACK_SETTING_ID]
+    );
+    return mapUniversalSettings(updatedRows[0]);
+  });
 }
 
 export async function loadWarehouseModeSetting(): Promise<WarehouseModeSettings> {

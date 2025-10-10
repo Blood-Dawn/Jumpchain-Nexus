@@ -2093,7 +2093,8 @@ a:hover {
 }
 
 .options__field input,
-.options__field select {
+.options__field select,
+.options__field textarea {
   padding: 0.55rem 0.75rem;
   border-radius: 0.65rem;
   border: 1px solid rgba(122, 203, 255, 0.2);
@@ -2104,7 +2105,8 @@ a:hover {
 }
 
 .options__field input:focus,
-.options__field select:focus {
+.options__field select:focus,
+.options__field textarea:focus {
   outline: none;
   border-color: rgba(122, 203, 255, 0.6);
   box-shadow: 0 0 0 3px rgba(122, 203, 255, 0.2);

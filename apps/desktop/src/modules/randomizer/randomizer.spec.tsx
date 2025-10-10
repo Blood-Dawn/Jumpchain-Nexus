@@ -22,14 +22,34 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 
 import JumpRandomizer from "./index";
 
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity,
+      },
+    },
+  });
+}
+
 describe("JumpRandomizer", () => {
-  it("@smoke surfaces roadmap messaging for planners", () => {
-    render(<JumpRandomizer />);
+  it("@smoke renders the randomizer shell for planners", () => {
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(["randomizer-pools"], []);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JumpRandomizer />
+      </QueryClientProvider>
+    );
     expect(screen.getByRole("heading", { level: 1, name: /jump randomizer/i })).toBeInTheDocument();
-    expect(screen.getByText(/randomizer utilities are on the roadmap/i)).toBeInTheDocument();
+    expect(screen.getByText(/manage weighted pools/i)).toBeInTheDocument();
+    queryClient.clear();
   });
 });

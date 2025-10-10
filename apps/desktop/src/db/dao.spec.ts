@@ -417,6 +417,260 @@ describe("formatter settings dao", () => {
   });
 });
 
+describe("supplement settings dao", () => {
+  it("returns defaults when essential body mod settings are missing", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadEssentialBodyModSettings, DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS } = await importDao();
+    await expect(loadEssentialBodyModSettings()).resolves.toEqual(DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS);
+  });
+
+  it("persists essential body mod settings overrides", async () => {
+    const fakeDb = new FakeDb();
+    let selectCount = 0;
+    const now = new Date("2025-03-04T05:06:07.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM essential_body_mod_settings WHERE id = $1"),
+      () => {
+        selectCount += 1;
+        if (selectCount === 1) {
+          return [];
+        }
+        return [
+          {
+            id: "essential-default",
+            budget: 1250,
+            starting_mode: "heroic",
+            essence_mode: "dual",
+            advancement_mode: "meteoric",
+            ep_access_mode: "standard",
+            ep_access_modifier: "retro-cumulative",
+            unlockable_essence: 1,
+            limit_investment: 1,
+            investment_allowed: 1,
+            investment_ratio: 3,
+            incremental_budget: 150,
+            incremental_interval: 2,
+            training_allowance: 1,
+            tempered_by_suffering: 0,
+            unbalanced_mode: "harmonized",
+            unbalanced_description: "Stay balanced",
+            limiter: "body-mod",
+            limiter_description: "Limited by body mod",
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          },
+        ];
+      }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { saveEssentialBodyModSettings } = await importDao();
+    const result = await saveEssentialBodyModSettings({
+      budget: 1250,
+      startingMode: "heroic",
+      essenceMode: "dual",
+      advancementMode: "meteoric",
+      epAccessMode: "standard",
+      epAccessModifier: "retro-cumulative",
+      unlockableEssence: true,
+      limitInvestment: true,
+      investmentAllowed: true,
+      investmentRatio: 3,
+      incrementalBudget: 150,
+      incrementalInterval: 2,
+      trainingAllowance: true,
+      temperedBySuffering: false,
+      unbalancedMode: "harmonized",
+      unbalancedDescription: "Stay balanced",
+      limiter: "body-mod",
+      limiterDescription: "Limited by body mod",
+    });
+
+    expect(result).toEqual({
+      budget: 1250,
+      startingMode: "heroic",
+      essenceMode: "dual",
+      advancementMode: "meteoric",
+      epAccessMode: "standard",
+      epAccessModifier: "retro-cumulative",
+      unlockableEssence: true,
+      limitInvestment: true,
+      investmentAllowed: true,
+      investmentRatio: 3,
+      incrementalBudget: 150,
+      incrementalInterval: 2,
+      trainingAllowance: true,
+      temperedBySuffering: false,
+      unbalancedMode: "harmonized",
+      unbalancedDescription: "Stay balanced",
+      limiter: "body-mod",
+      limiterDescription: "Limited by body mod",
+    });
+
+    const essentialInserts = fakeDb.executeCalls.filter((call) =>
+      call.sql.includes("INSERT INTO essential_body_mod_settings")
+    );
+    const insertCall = essentialInserts[essentialInserts.length - 1];
+    expect(insertCall?.params.slice(0, 10)).toEqual([
+      "essential-default",
+      1250,
+      "heroic",
+      "dual",
+      "meteoric",
+      "standard",
+      "retro-cumulative",
+      1,
+      1,
+      1,
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("manages essential body mod essences", async () => {
+    const fakeDb = new FakeDb();
+    let selectCount = 0;
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM essential_body_mod_essences WHERE id = $1"),
+      () => {
+        selectCount += 1;
+        if (selectCount === 1) {
+          return [
+            {
+              id: "essence-1",
+              setting_id: "essential-default",
+              name: "Regen",
+              description: "Recovery boost",
+              sort_order: 0,
+              created_at: "2025-03-04T05:06:07.000Z",
+              updated_at: "2025-03-04T05:06:07.000Z",
+            },
+          ];
+        }
+        return [
+          {
+            id: "essence-1",
+            setting_id: "essential-default",
+            name: "Regeneration",
+            description: "Recovery boost",
+            sort_order: 0,
+            created_at: "2025-03-04T05:06:07.000Z",
+            updated_at: "2025-03-04T05:06:07.000Z",
+          },
+        ];
+      }
+    );
+    fakeDb.enqueueSelect([
+      {
+        id: "essence-1",
+        setting_id: "essential-default",
+        name: "Regeneration",
+        description: "Recovery boost",
+        sort_order: 0,
+        created_at: "2025-03-04T05:06:07.000Z",
+        updated_at: "2025-03-04T05:06:07.000Z",
+      },
+    ]);
+    loadMock.mockResolvedValue(fakeDb);
+
+    const {
+      upsertEssentialBodyModEssence,
+      listEssentialBodyModEssences,
+      deleteEssentialBodyModEssence,
+    } = await importDao();
+    await upsertEssentialBodyModEssence({
+      id: "essence-1",
+      name: "Regen",
+      description: "Recovery boost",
+      sort_order: 0,
+    });
+    const updateCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("INSERT INTO essential_body_mod_essences")
+    );
+    expect(updateCall?.params[2]).toBe("Regen");
+
+    const essences = await listEssentialBodyModEssences();
+    expect(essences).toHaveLength(1);
+    expect(essences[0]?.name).toBe("Regeneration");
+
+    await deleteEssentialBodyModEssence("essence-1");
+    const deleteCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("DELETE FROM essential_body_mod_essences")
+    );
+    expect(deleteCall?.params).toEqual(["essence-1"]);
+  });
+
+  it("persists universal drawback settings overrides", async () => {
+    const fakeDb = new FakeDb();
+    let selectCount = 0;
+    const now = new Date("2025-03-04T08:09:10.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings WHERE id = $1"),
+      () => {
+        selectCount += 1;
+        if (selectCount === 1) {
+          return [];
+        }
+        return [
+          {
+            id: "universal-default",
+            total_cp: 500,
+            companion_cp: 200,
+            item_cp: 150,
+            warehouse_wp: 50,
+            allow_gauntlet: 1,
+            gauntlet_halved: 0,
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          },
+        ];
+      }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { saveUniversalDrawbackSettings } = await importDao();
+    const record = await saveUniversalDrawbackSettings({
+      totalCP: 500,
+      companionCP: 200,
+      itemCP: 150,
+      warehouseWP: 50,
+      allowGauntlet: true,
+      gauntletHalved: false,
+    });
+
+    expect(record).toEqual({
+      totalCP: 500,
+      companionCP: 200,
+      itemCP: 150,
+      warehouseWP: 50,
+      allowGauntlet: true,
+      gauntletHalved: false,
+    });
+
+    const universalInserts = fakeDb.executeCalls.filter((call) =>
+      call.sql.includes("INSERT INTO universal_drawback_settings")
+    );
+    const insertCall = universalInserts[universalInserts.length - 1];
+    expect(insertCall?.params).toEqual([
+      "universal-default",
+      500,
+      200,
+      150,
+      50,
+      1,
+      0,
+      now.toISOString(),
+    ]);
+    vi.useRealTimers();
+  });
+});
+
 describe("export preset dao", () => {
   it("persists presets with serialized options", async () => {
     const fakeDb = new FakeDb();
