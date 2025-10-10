@@ -23,6 +23,12 @@ SOFTWARE.
 */
 
 import Database from "@tauri-apps/plugin-sql";
+import {
+  parseAssetMetadata,
+  type AssetAltFormMetadata,
+  type AssetAttributeBonus,
+  type StipendMetadata,
+} from "../assetMetadata";
 import type { ThousandsSeparatorOption } from "../services/formatter";
 import baseSchema from "./migrations/001_init.sql?raw";
 import randomizerPoolsSchema from "./migrations/002_randomizer_pools.sql?raw";
@@ -185,6 +191,72 @@ export interface UpdateJumpAssetInput {
   notes?: string | null;
   metadata?: Record<string, unknown> | string | null;
   sort_order?: number;
+}
+
+interface JumpAssetWithJump extends JumpAssetRecord {
+  jump_title: string | null;
+}
+
+export interface PassportDerivedSource {
+  assetId: string;
+  assetName: string;
+  assetType: JumpAssetType;
+  jumpId: string;
+  jumpTitle: string | null;
+}
+
+export interface PassportDerivedTrait {
+  name: string;
+  sources: PassportDerivedSource[];
+}
+
+export interface PassportDerivedAltForm {
+  name: string;
+  summary: string;
+  sources: PassportDerivedSource[];
+}
+
+export interface PassportDerivedAttributeEntry extends PassportDerivedSource {
+  value: string;
+  numericValue: number | null;
+}
+
+export interface PassportDerivedAttribute {
+  key: string;
+  total: number;
+  numericCount: number;
+  entries: PassportDerivedAttributeEntry[];
+}
+
+export interface PassportDerivedAsset {
+  id: string;
+  jumpId: string;
+  jumpTitle: string | null;
+  assetType: JumpAssetType;
+  name: string;
+  category: string | null;
+  subcategory: string | null;
+  notes: string | null;
+  traitTags: string[];
+  attributes: AssetAttributeBonus[];
+  altForms: AssetAltFormMetadata[];
+  stipend: StipendMetadata | null;
+}
+
+export interface PassportDerivedSnapshot {
+  perks: PassportDerivedAsset[];
+  companions: PassportDerivedAsset[];
+  traits: PassportDerivedTrait[];
+  altForms: PassportDerivedAltForm[];
+  attributes: PassportDerivedAttribute[];
+  stipendTotal: number;
+  stipends: Array<
+    PassportDerivedSource & {
+      amount: number;
+      frequency: StipendMetadata["frequency"];
+      notes?: string;
+    }
+  >;
 }
 
 export type InventoryScope = "warehouse" | "locker";
@@ -4135,6 +4207,138 @@ export interface ExportSnapshot {
   profiles: CharacterProfileRecord[];
   settings: AppSettingRecord[];
   presets: ExportPresetRecord[];
+}
+
+export async function loadPassportDerivedSnapshot(): Promise<PassportDerivedSnapshot> {
+  return withInit(async (db) => {
+    const rows = await db.select<JumpAssetWithJump[]>(
+      `SELECT a.*, j.title AS jump_title
+         FROM jump_assets a
+         LEFT JOIN jumps j ON j.id = a.jump_id
+         ORDER BY j.sort_order ASC, a.asset_type ASC, a.sort_order ASC, a.created_at ASC`
+    );
+
+    const perks: PassportDerivedAsset[] = [];
+    const companions: PassportDerivedAsset[] = [];
+    const traitMap = new Map<string, PassportDerivedTrait>();
+    const altFormMap = new Map<string, PassportDerivedAltForm>();
+    const attributeMap = new Map<string, PassportDerivedAttribute>();
+    const stipends: PassportDerivedSnapshot["stipends"] = [];
+    let stipendTotal = 0;
+
+    for (const row of rows) {
+      const metadata = parseAssetMetadata(row.metadata);
+      const source: PassportDerivedSource = {
+        assetId: row.id,
+        assetName: row.name,
+        assetType: row.asset_type,
+        jumpId: row.jump_id,
+        jumpTitle: row.jump_title ?? null,
+      };
+
+      const derivedAsset: PassportDerivedAsset = {
+        id: row.id,
+        jumpId: row.jump_id,
+        jumpTitle: row.jump_title ?? null,
+        assetType: row.asset_type,
+        name: row.name,
+        category: row.category ?? null,
+        subcategory: row.subcategory ?? null,
+        notes: row.notes ?? null,
+        traitTags: metadata.traitTags,
+        attributes: metadata.attributes,
+        altForms: metadata.altForms,
+        stipend: metadata.stipend,
+      };
+
+      if (row.asset_type === "perk") {
+        perks.push(derivedAsset);
+      } else if (row.asset_type === "companion") {
+        companions.push(derivedAsset);
+      }
+
+      for (const trait of metadata.traitTags) {
+        const key = trait.toLowerCase();
+        const existing = traitMap.get(key);
+        if (existing) {
+          existing.sources.push(source);
+        } else {
+          traitMap.set(key, { name: trait, sources: [source] });
+        }
+      }
+
+      for (const altForm of metadata.altForms) {
+        const summary = altForm.summary ?? "";
+        const key = `${altForm.name.toLowerCase()}::${summary.toLowerCase()}`;
+        const existing = altFormMap.get(key);
+        if (existing) {
+          existing.sources.push(source);
+        } else {
+          altFormMap.set(key, {
+            name: altForm.name,
+            summary,
+            sources: [source],
+          });
+        }
+      }
+
+      for (const attribute of metadata.attributes) {
+        const normalizedKey = attribute.key.toLowerCase();
+        const entry: PassportDerivedAttributeEntry = {
+          ...source,
+          value: attribute.value,
+          numericValue: attribute.numericValue ?? null,
+        };
+        const existing = attributeMap.get(normalizedKey);
+        if (existing) {
+          existing.entries.push(entry);
+          if (entry.numericValue !== null && Number.isFinite(entry.numericValue)) {
+            existing.total += entry.numericValue;
+            existing.numericCount += 1;
+          }
+        } else {
+          const numeric = entry.numericValue;
+          const hasNumeric = numeric !== null && Number.isFinite(numeric);
+          attributeMap.set(normalizedKey, {
+            key: attribute.key,
+            total: hasNumeric ? (numeric as number) : 0,
+            numericCount: hasNumeric ? 1 : 0,
+            entries: [entry],
+          });
+        }
+      }
+
+      if (metadata.stipend) {
+        stipendTotal += metadata.stipend.total;
+        stipends.push({
+          ...source,
+          amount: metadata.stipend.total,
+          frequency: metadata.stipend.frequency,
+          notes: metadata.stipend.notes,
+        });
+      }
+    }
+
+    const traits = Array.from(traitMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    );
+    const altForms = Array.from(altFormMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    );
+    const attributes = Array.from(attributeMap.values()).sort((a, b) =>
+      a.key.localeCompare(b.key, undefined, { sensitivity: "base" })
+    );
+
+    return {
+      perks,
+      companions,
+      traits,
+      altForms,
+      attributes,
+      stipendTotal,
+      stipends: stipends.sort((a, b) => a.assetName.localeCompare(b.assetName, undefined, { sensitivity: "base" })),
+    };
+  });
 }
 
 export async function loadExportSnapshot(): Promise<ExportSnapshot> {

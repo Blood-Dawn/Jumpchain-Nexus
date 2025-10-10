@@ -197,6 +197,7 @@ export const AssetWorkbench: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["export-snapshot"] }).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: ["analytics-snapshot"] }).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: ["jmh-snapshot"] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["passport-derived"] }).catch(() => undefined);
       if (assetType === "drawback") {
         queryClient.invalidateQueries({ queryKey: ["jump-drawbacks", jumpId] }).catch(() => undefined);
       }

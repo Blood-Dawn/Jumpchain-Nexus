@@ -26,7 +26,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   deleteCharacterProfile,
   listCharacterProfiles,
+  loadPassportDerivedSnapshot,
   type CharacterProfileRecord,
+  type PassportDerivedSnapshot,
   type UpsertCharacterProfileInput,
   upsertCharacterProfile,
 } from "../../db/dao";
@@ -106,30 +108,57 @@ function toFormState(record: CharacterProfileRecord): ProfileFormState {
   };
 }
 
-const DerivedSummary: React.FC<{ form: ProfileFormState | null }> = ({ form }) => {
+const DerivedSummary: React.FC<{ form: ProfileFormState | null; derived: PassportDerivedSnapshot | undefined }> = ({
+  form,
+  derived,
+}) => {
   const summary = useMemo(() => {
-    if (!form) {
-      return { attributeTotal: 0, attributeAverage: 0, altFormCount: 0, traitCount: 0 };
-    }
-    const numericValues = form.attributes
+    const manualAttributes = form
+      ? form.attributes.filter((entry) => entry.key.trim().length > 0)
+      : [];
+    const manualNumericValues = manualAttributes
       .map((entry) => Number(entry.value))
       .filter((value) => Number.isFinite(value));
-    const total = numericValues.reduce((acc, value) => acc + value, 0);
-    const average = numericValues.length ? total / numericValues.length : 0;
-    const altFormCount = form.altForms.filter((formEntry) => formEntry.name.trim().length > 0).length;
-    const traitCount = form.traits.filter((trait) => trait.name.trim().length > 0).length;
+    const manualAltFormCount = form
+      ? form.altForms.filter((entry) => entry.name.trim().length > 0).length
+      : 0;
+    const manualTraitCount = form ? form.traits.filter((entry) => entry.name.trim().length > 0).length : 0;
+    const manualAttributeCount = manualAttributes.length;
+    const manualNumericTotal = manualNumericValues.reduce((acc, value) => acc + value, 0);
+
+    const derivedAttributes = derived?.attributes ?? [];
+    const derivedAttributeCount = derivedAttributes.length;
+    const derivedNumericTotal = derivedAttributes.reduce((acc, entry) => acc + entry.total, 0);
+    const derivedNumericCount = derivedAttributes.reduce((acc, entry) => acc + entry.numericCount, 0);
+    const derivedTraitCount = derived?.traits.length ?? 0;
+    const derivedAltFormCount = derived?.altForms.length ?? 0;
+
+    const totalNumeric = manualNumericTotal + derivedNumericTotal;
+    const totalNumericCount = manualNumericValues.length + derivedNumericCount;
+
+    const attributeTotal = Math.round(totalNumeric * 100) / 100;
+    const attributeAverage = totalNumericCount
+      ? Math.round((totalNumeric / totalNumericCount) * 100) / 100
+      : 0;
+    const stipendTotal = Math.round((derived?.stipendTotal ?? 0) * 100) / 100;
+
     return {
-      attributeTotal: Math.round(total * 100) / 100,
-      attributeAverage: Math.round(average * 100) / 100,
-      altFormCount,
-      traitCount,
+      attributeTotal,
+      attributeAverage,
+      manualAttributeCount,
+      derivedAttributeCount,
+      manualTraitCount,
+      derivedTraitCount,
+      manualAltFormCount,
+      derivedAltFormCount,
+      stipendTotal,
     };
-  }, [form]);
+  }, [form, derived]);
 
   return (
     <div className="passport__summary">
       <div>
-        <strong>Attribute Sum</strong>
+        <strong>Attribute Score</strong>
         <span>{summary.attributeTotal}</span>
       </div>
       <div>
@@ -137,20 +166,181 @@ const DerivedSummary: React.FC<{ form: ProfileFormState | null }> = ({ form }) =
         <span>{summary.attributeAverage}</span>
       </div>
       <div>
-        <strong>Alt Forms</strong>
-        <span>{summary.altFormCount}</span>
+        <strong>Attributes (M / Auto)</strong>
+        <span>
+          {summary.manualAttributeCount} / {summary.derivedAttributeCount}
+        </span>
       </div>
       <div>
-        <strong>Traits</strong>
-        <span>{summary.traitCount}</span>
+        <strong>Traits (M / Auto)</strong>
+        <span>
+          {summary.manualTraitCount} / {summary.derivedTraitCount}
+        </span>
+      </div>
+      <div>
+        <strong>Alt Forms (M / Auto)</strong>
+        <span>
+          {summary.manualAltFormCount} / {summary.derivedAltFormCount}
+        </span>
+      </div>
+      <div>
+        <strong>Stipend Income</strong>
+        <span>{summary.stipendTotal}</span>
       </div>
     </div>
   );
 };
 
+const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefined; isLoading: boolean }> = ({
+  derived,
+  isLoading,
+}) => {
+  if (isLoading) {
+    return (
+      <section className="passport__section passport__section--readonly">
+        <p className="passport__empty">Loading derived jump assets…</p>
+      </section>
+    );
+  }
+
+  if (!derived) {
+    return (
+      <section className="passport__section passport__section--readonly">
+        <p className="passport__empty">No jump assets available yet.</p>
+      </section>
+    );
+  }
+
+  const renderAssetList = (assets: PassportDerivedSnapshot["perks"], emptyMessage: string) => {
+    if (!assets.length) {
+      return <p className="passport__empty">{emptyMessage}</p>;
+    }
+    return (
+      <ul className="passport__derived-list">
+        {assets.map((asset) => (
+          <li key={asset.id} className="passport__derived-item">
+            <div className="passport__derived-item-header">
+              <strong>{asset.name}</strong>
+              {asset.jumpTitle ? <span>{asset.jumpTitle}</span> : null}
+            </div>
+            {asset.traitTags.length ? (
+              <div className="passport__derived-tags">
+                {asset.traitTags.map((tag) => (
+                  <span key={`${asset.id}-${tag}`} className="passport__pill">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {asset.attributes.length ? (
+              <div className="passport__derived-tags passport__derived-tags--metrics">
+                {asset.attributes.map((attribute, index) => (
+                  <span key={`${asset.id}-attr-${index}`} className="passport__pill passport__pill--metric">
+                    <span>{attribute.key}</span>
+                    <span>{attribute.value}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {asset.notes ? <p className="passport__derived-notes">{asset.notes}</p> : null}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
+  return (
+    <div className="passport__derived">
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Auto Perks</h3>
+          <span>{derived.perks.length}</span>
+        </header>
+        {renderAssetList(derived.perks, "No perks captured from jumps yet.")}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Auto Companions</h3>
+          <span>{derived.companions.length}</span>
+        </header>
+        {renderAssetList(derived.companions, "No companions recruited from jumps yet.")}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Auto Traits</h3>
+          <span>{derived.traits.length}</span>
+        </header>
+        {derived.traits.length ? (
+          <div className="passport__derived-tags">
+            {derived.traits.map((trait) => (
+              <span key={trait.name.toLowerCase()} className="passport__pill passport__pill--tally">
+                <span>{trait.name}</span>
+                <span className="passport__pill-count">{trait.sources.length}</span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="passport__empty">No trait metadata detected yet.</p>
+        )}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Auto Alt-Forms</h3>
+          <span>{derived.altForms.length}</span>
+        </header>
+        {derived.altForms.length ? (
+          <ul className="passport__derived-list passport__derived-list--compact">
+            {derived.altForms.map((altForm, index) => (
+              <li key={`${altForm.name.toLowerCase()}-${index}`} className="passport__derived-item passport__derived-item--compact">
+                <div className="passport__derived-item-header">
+                  <strong>{altForm.name}</strong>
+                  <span>{altForm.sources.length} sources</span>
+                </div>
+                {altForm.summary ? <p className="passport__derived-notes">{altForm.summary}</p> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="passport__empty">No alternate forms recorded yet.</p>
+        )}
+      </section>
+
+      {derived.stipends.length ? (
+        <section className="passport__section passport__section--readonly">
+          <header>
+            <h3>Auto Stipends</h3>
+            <span>{derived.stipends.length}</span>
+          </header>
+          <ul className="passport__derived-list passport__derived-list--compact">
+            {derived.stipends.map((entry) => (
+              <li key={`${entry.assetId}-stipend`} className="passport__derived-item passport__derived-item--compact">
+                <div className="passport__derived-item-header">
+                  <strong>{entry.assetName}</strong>
+                  {entry.jumpTitle ? <span>{entry.jumpTitle}</span> : null}
+                </div>
+                <div className="passport__derived-stipend">
+                  <span className="passport__pill passport__pill--metric">
+                    <span>{entry.frequency}</span>
+                    <span>{entry.amount}</span>
+                  </span>
+                  {entry.notes ? <p className="passport__derived-notes">{entry.notes}</p> : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+};
 const CosmicPassport: React.FC = () => {
   const queryClient = useQueryClient();
   const profilesQuery = useQuery({ queryKey: ["passport-profiles"], queryFn: listCharacterProfiles });
+  const derivedQuery = useQuery({ queryKey: ["passport-derived"], queryFn: loadPassportDerivedSnapshot });
+  const derivedLoading = derivedQuery.isPending || derivedQuery.isFetching;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formState, setFormState] = useState<ProfileFormState | null>(null);
 
@@ -203,9 +393,9 @@ const CosmicPassport: React.FC = () => {
       homeland: null,
       biography: "",
       notes: "",
-  attributes: {},
-  traits: JSON.stringify([]),
-  alt_forms: JSON.stringify([]),
+      attributes: {},
+      traits: JSON.stringify([]),
+      alt_forms: JSON.stringify([]),
     });
   };
 
@@ -232,8 +422,8 @@ const CosmicPassport: React.FC = () => {
       biography: formState.biography.trim() || null,
       notes: formState.notes.trim() || null,
       attributes: attributesObject,
-  traits: JSON.stringify(traitsArray),
-  alt_forms: JSON.stringify(altFormsArray),
+      traits: JSON.stringify(traitsArray),
+      alt_forms: JSON.stringify(altFormsArray),
     };
     upsertMutation.mutate(payload);
   };
@@ -522,7 +712,8 @@ const CosmicPassport: React.FC = () => {
                 </div>
               </form>
 
-              <DerivedSummary form={formState} />
+              <DerivedSummary form={formState} derived={derivedQuery.data} />
+              <DerivedCollections derived={derivedQuery.data} isLoading={derivedLoading} />
             </>
           ) : (
             <div className="passport__empty-state">

@@ -1646,6 +1646,140 @@ a:hover {
   cursor: pointer;
 }
 
+.passport__section--readonly {
+  background: rgba(12, 21, 34, 0.78);
+  border: 1px solid rgba(122, 203, 255, 0.08);
+  padding: 1.5rem;
+  border-radius: 1.1rem;
+  gap: 1rem;
+}
+
+.passport__section--readonly header {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.passport__section--readonly header span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.8rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(122, 203, 255, 0.18);
+  color: rgba(240, 247, 255, 0.78);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.passport__derived {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.passport__derived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.passport__derived-list--compact {
+  gap: 0.65rem;
+}
+
+.passport__derived-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(122, 203, 255, 0.12);
+  background: rgba(16, 27, 42, 0.82);
+}
+
+.passport__derived-item--compact {
+  padding: 0.75rem 0.95rem;
+}
+
+.passport__derived-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: rgba(240, 247, 255, 0.78);
+}
+
+.passport__derived-item-header strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f0f7ff;
+}
+
+.passport__derived-item-header span {
+  font-size: 0.8rem;
+  color: rgba(240, 247, 255, 0.6);
+}
+
+.passport__derived-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.passport__derived-tags--metrics {
+  gap: 0.45rem;
+}
+
+.passport__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(122, 203, 255, 0.16);
+  color: rgba(240, 247, 255, 0.78);
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+}
+
+.passport__pill--metric {
+  background: rgba(124, 241, 200, 0.16);
+  color: rgba(196, 250, 255, 0.9);
+}
+
+.passport__pill--tally {
+  background: rgba(122, 203, 255, 0.12);
+}
+
+.passport__pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(122, 203, 255, 0.24);
+  font-size: 0.75rem;
+  color: rgba(240, 247, 255, 0.82);
+}
+
+.passport__derived-notes {
+  margin: 0;
+  color: rgba(240, 247, 255, 0.62);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.passport__derived-stipend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
 .passport__repeat {
   display: flex;
   flex-direction: column;

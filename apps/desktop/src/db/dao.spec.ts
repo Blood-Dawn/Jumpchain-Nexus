@@ -417,6 +417,118 @@ describe("formatter settings dao", () => {
   });
 });
 
+describe("passport derived snapshot", () => {
+  it("aggregates assets into derived perks, traits, companions, and metadata summaries", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("JOIN jumps"),
+      () => [
+        {
+          id: "asset-perk-1",
+          jump_id: "jump-1",
+          asset_type: "perk",
+          name: "Might of the Colossus",
+          category: "Physical",
+          subcategory: null,
+          cost: 200,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          notes: "Grants tremendous strength.",
+          metadata: JSON.stringify({
+            traitTags: ["Strength", "Power"],
+            attributes: [
+              { key: "Strength", value: "50" },
+              { key: "Resolve", value: "A" },
+            ],
+            stipend: { base: 100, periods: 3, frequency: "monthly", notes: "Arena winnings" },
+            altForms: [{ name: "Titan Form", summary: "Colossal battle avatar." }],
+          }),
+          sort_order: 0,
+          created_at: "2025-01-02T03:04:05.000Z",
+          updated_at: "2025-01-02T03:04:05.000Z",
+          jump_title: "Spark of Adventure",
+        },
+        {
+          id: "asset-companion-1",
+          jump_id: "jump-2",
+          asset_type: "companion",
+          name: "Kara the Shield",
+          category: null,
+          subcategory: null,
+          cost: 300,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          notes: "Unwavering guardian.",
+          metadata: JSON.stringify({
+            traitTags: ["Ally", "Strength"],
+            attributes: [{ key: "Strength", value: "25" }],
+            stipend: { base: 50, frequency: "once" },
+            altForms: [{ name: "Battle Mode", summary: "" }],
+          }),
+          sort_order: 1,
+          created_at: "2025-01-03T04:05:06.000Z",
+          updated_at: "2025-01-03T04:05:06.000Z",
+          jump_title: "Trial of Champions",
+        },
+      ],
+      { once: true }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadPassportDerivedSnapshot } = await importDao();
+    const snapshot = await loadPassportDerivedSnapshot();
+
+    expect(snapshot.perks).toHaveLength(1);
+    expect(snapshot.perks[0]).toMatchObject({
+      id: "asset-perk-1",
+      jumpTitle: "Spark of Adventure",
+      traitTags: ["Strength", "Power"],
+    });
+
+    expect(snapshot.companions).toHaveLength(1);
+    expect(snapshot.companions[0]).toMatchObject({
+      id: "asset-companion-1",
+      jumpTitle: "Trial of Champions",
+    });
+
+    const strengthTrait = snapshot.traits.find((entry) => entry.name === "Strength");
+    expect(strengthTrait?.sources.map((source) => source.assetId)).toEqual([
+      "asset-perk-1",
+      "asset-companion-1",
+    ]);
+
+    expect(snapshot.altForms.map((entry) => entry.name)).toEqual(["Battle Mode", "Titan Form"]);
+
+    const strengthAttribute = snapshot.attributes.find((entry) => entry.key === "Strength");
+    expect(strengthAttribute).toMatchObject({
+      total: 75,
+      numericCount: 2,
+    });
+    expect(strengthAttribute?.entries.map((entry) => entry.assetId)).toEqual([
+      "asset-perk-1",
+      "asset-companion-1",
+    ]);
+
+    const resolveAttribute = snapshot.attributes.find((entry) => entry.key === "Resolve");
+    expect(resolveAttribute?.numericCount).toBe(0);
+
+    expect(snapshot.stipendTotal).toBe(350);
+    expect(snapshot.stipends).toEqual([
+      expect.objectContaining({
+        assetId: "asset-companion-1",
+        amount: 50,
+        frequency: "once",
+      }),
+      expect.objectContaining({
+        assetId: "asset-perk-1",
+        amount: 300,
+        frequency: "monthly",
+      }),
+    ]);
+  });
+});
 describe("supplement settings dao", () => {
   it("returns defaults when essential body mod settings are missing", async () => {
     const fakeDb = new FakeDb();
