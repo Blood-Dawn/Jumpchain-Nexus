@@ -35,10 +35,12 @@ This uses `sql.js` to execute the migration scripts and writes the resulting dat
 
 ## Tests
 
-The project uses Vitest 3 for unit coverage. Run the suite with:
+The project uses Vitest 3 for unit coverage and a mixture of WebdriverIO/Playwright for end-to-end safety nets.
 
 ```powershell
-.\npm.cmd test
+.\npm.cmd test                 # run the Vitest suite once
+.\npm.cmd run test:smoke       # focused @smoke vitest specs for CI gating
+.\npm.cmd run test:full        # chain unit, e2e, accessibility, and Rust checks
 ```
 
 ## Contributing tips

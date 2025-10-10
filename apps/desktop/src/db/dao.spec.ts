@@ -24,11 +24,92 @@ SOFTWARE.
 
 /// <reference types="vitest" />
 
-import { describe, expect, it } from "vitest";
-import { computeBudget, type PurchaseCostInput } from "./dao";
+import { webcrypto } from "node:crypto";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const loadMock = vi.fn<[string], Promise<FakeDb>>();
+
+vi.mock("@tauri-apps/plugin-sql", () => ({
+  default: { load: loadMock },
+}));
+
+class FakeDb {
+  executeCalls: Array<{ sql: string; params: unknown[] }> = [];
+  selectCalls: Array<{ sql: string; params: unknown[] }> = [];
+  private selectQueue: Array<unknown> = [];
+  private handlers: Array<{
+    matcher: (sql: string, params: unknown[]) => boolean;
+    resolver: (sql: string, params: unknown[]) => unknown;
+    once: boolean;
+  }> = [];
+
+  enqueueSelect(result: unknown): void {
+    this.selectQueue.push(result);
+  }
+
+  whenSelect(
+    matcher: (sql: string, params: unknown[]) => boolean,
+    resolver: (sql: string, params: unknown[]) => unknown,
+    options: { once?: boolean } = {}
+  ): void {
+    this.handlers.push({ matcher, resolver, once: options.once ?? false });
+  }
+
+  clearCalls(): void {
+    this.executeCalls = [];
+    this.selectCalls = [];
+  }
+
+  async execute(sql: string, params: unknown[] = []): Promise<void> {
+    this.executeCalls.push({ sql, params });
+  }
+
+  async select(sql: string, params: unknown[] = []): Promise<unknown> {
+    this.selectCalls.push({ sql, params });
+    const handlerIndex = this.handlers.findIndex((entry) => entry.matcher(sql, params));
+    if (handlerIndex >= 0) {
+      const handler = this.handlers[handlerIndex];
+      const result = handler.resolver(sql, params);
+      if (handler.once) {
+        this.handlers.splice(handlerIndex, 1);
+      }
+      return result;
+    }
+    const normalized = sql.trim().toUpperCase();
+    if (normalized.startsWith("PRAGMA TABLE_INFO")) {
+      return [];
+    }
+    if (normalized.includes("FROM KNOWLEDGE_ARTICLES")) {
+      return [{ count: 0 }];
+    }
+    if (!this.selectQueue.length) {
+      return [];
+    }
+    const next = this.selectQueue.shift();
+    if (typeof next === "function") {
+      return (next as (sql: string, params: unknown[]) => unknown)(sql, params);
+    }
+    return next;
+  }
+}
+
+async function importDao() {
+  return import("./dao");
+}
+
+type PurchaseCostInput = import("./dao").PurchaseCostInput;
+
+const cryptoImpl = globalThis.crypto ?? webcrypto;
+
+beforeEach(() => {
+  vi.resetModules();
+  loadMock.mockReset();
+});
 
 describe("computeBudget", () => {
-  it("aggregates normal purchases", () => {
+  it("aggregates normal purchases", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
     const purchases: PurchaseCostInput[] = [
       { cost: 200 },
       { cost: 50 },
@@ -41,7 +122,9 @@ describe("computeBudget", () => {
     });
   });
 
-  it("halves discounted purchases", () => {
+  it("halves discounted purchases", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
     const purchases: PurchaseCostInput[] = [
       { cost: 100, discount: true },
     ];
@@ -53,7 +136,9 @@ describe("computeBudget", () => {
     });
   });
 
-  it("ignores freebies from net cost", () => {
+  it("ignores freebies from net cost", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
     const purchases: PurchaseCostInput[] = [
       { cost: 350, freebie: true },
     ];
@@ -65,7 +150,9 @@ describe("computeBudget", () => {
     });
   });
 
-  it("handles mixed purchases", () => {
+  it("handles mixed purchases", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
     const purchases: PurchaseCostInput[] = [
       { cost: 200 },
       { cost: 150, discount: true },
@@ -77,5 +164,342 @@ describe("computeBudget", () => {
       freebies: 75,
       netCost: 275,
     });
+  });
+});
+
+describe("jump asset dao", () => {
+  it("@smoke creates jump assets with derived defaults and summary updates", async () => {
+    const fakeDb = new FakeDb();
+    const insertedAt = new Date("2025-01-02T03:04:05.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(insertedAt);
+    const uuidSpy = vi.spyOn(cryptoImpl, "randomUUID").mockReturnValue("asset-123");
+    fakeDb.whenSelect(
+      (sql) => sql.includes("COALESCE(MAX(sort_order)"),
+      () => [{ max_order: 2 }],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("SELECT asset_type, cost, quantity, discounted, freebie") && sql.includes("FROM jump_assets"),
+      () => [
+        {
+          asset_type: "perk",
+          cost: 200,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+        },
+      ],
+      { once: true }
+    );
+    const storedRecord = {
+      id: "asset-123",
+      jump_id: "jump-1",
+      asset_type: "perk",
+      name: "Sword of Dawn",
+      category: null,
+      subcategory: null,
+      cost: 200,
+      quantity: 1,
+      discounted: 0,
+      freebie: 0,
+      notes: "Keep away from water",
+      metadata: "{\"rarity\":\"legendary\"}",
+      sort_order: 3,
+      created_at: insertedAt.toISOString(),
+      updated_at: insertedAt.toISOString(),
+    };
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("SELECT * FROM jump_assets WHERE id = $1") && params[0] === "asset-123",
+      () => [storedRecord],
+      { once: true }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { createJumpAsset } = await importDao();
+    const result = await createJumpAsset({
+      jump_id: "jump-1",
+      asset_type: "perk",
+      name: "Sword of Dawn",
+      cost: 200,
+      metadata: { rarity: "legendary" },
+      notes: "Keep away from water",
+    });
+
+    expect(result).toEqual(storedRecord);
+
+    const insertCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("INSERT INTO jump_assets")
+    );
+    expect(insertCall?.params).toEqual([
+      "asset-123",
+      "jump-1",
+      "perk",
+      "Sword of Dawn",
+      null,
+      null,
+      200,
+      1,
+      0,
+      0,
+      "Keep away from water",
+      "{\"rarity\":\"legendary\"}",
+      3,
+      insertedAt.toISOString(),
+    ]);
+
+    const summaryUpdate = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("UPDATE jumps SET cp_spent")
+    );
+    expect(summaryUpdate?.params).toEqual([200, 0, "jump-1"]);
+
+    vi.useRealTimers();
+    uuidSpy.mockRestore();
+  });
+
+  it("lists jump assets scoped by type", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("asset_type IN"),
+      () => [
+        {
+          id: "asset-1",
+          jump_id: "jump-1",
+          asset_type: "perk",
+          name: "Perk A",
+          category: null,
+          subcategory: null,
+          cost: 100,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          notes: null,
+          metadata: null,
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "asset-2",
+          jump_id: "jump-1",
+          asset_type: "item",
+          name: "Item B",
+          category: null,
+          subcategory: null,
+          cost: 50,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          notes: null,
+          metadata: null,
+          sort_order: 1,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { listJumpAssets } = await importDao();
+    const rows = await listJumpAssets("jump-1", ["perk", "item"]);
+    expect(rows).toHaveLength(2);
+    const listCall = fakeDb.selectCalls.find((call) => call.sql.includes("asset_type IN"));
+    expect(listCall?.sql).toContain("asset_type IN ($2, $3)");
+    expect(listCall?.params).toEqual(["jump-1", "perk", "item"]);
+  });
+});
+
+describe("formatter settings dao", () => {
+  it("reads persisted overrides with tolerant parsing", async () => {
+    const fakeDb = new FakeDb();
+    const formatterSelects: Record<string, unknown[][]> = {
+      "formatter.deleteAllLineBreaks": [
+        [
+          { key: "formatter.deleteAllLineBreaks", value: "true", updated_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      ],
+      "formatter.leaveDoubleLineBreaks": [
+        [
+          { key: "formatter.leaveDoubleLineBreaks", value: "0", updated_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      ],
+      "formatter.thousandsSeparator": [
+        [
+          { key: "formatter.thousandsSeparator", value: "space", updated_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      ],
+    };
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM app_settings WHERE key = $1"),
+      (_, params) => {
+        const key = params[0] as string;
+        const responses = formatterSelects[key];
+        if (!responses || !responses.length) {
+          return [];
+        }
+        return responses.shift() ?? [];
+      }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadFormatterSettings } = await importDao();
+    await expect(loadFormatterSettings()).resolves.toEqual({
+      removeAllLineBreaks: true,
+      leaveDoubleLineBreaks: false,
+      thousandsSeparator: "space",
+    });
+  });
+
+  it("updates formatter settings and persists overrides", async () => {
+    const fakeDb = new FakeDb();
+    const now = new Date("2025-02-03T04:05:06.000Z").toISOString();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(now));
+    const updateSelects: Record<string, unknown[][]> = {
+      "formatter.deleteAllLineBreaks": [
+        [],
+        [
+          { key: "formatter.deleteAllLineBreaks", value: "true", updated_at: now },
+        ],
+      ],
+      "formatter.leaveDoubleLineBreaks": [
+        [],
+        [
+          { key: "formatter.leaveDoubleLineBreaks", value: "false", updated_at: now },
+        ],
+      ],
+      "formatter.thousandsSeparator": [
+        [
+          { key: "formatter.thousandsSeparator", value: "period", updated_at: now },
+        ],
+        [
+          { key: "formatter.thousandsSeparator", value: "comma", updated_at: now },
+        ],
+      ],
+    };
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM app_settings WHERE key = $1"),
+      (_, params) => {
+        const key = params[0] as string;
+        const responses = updateSelects[key];
+        if (!responses || !responses.length) {
+          return [];
+        }
+        return responses.shift() ?? [];
+      }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { updateFormatterSettings } = await importDao();
+    const result = await updateFormatterSettings({
+      removeAllLineBreaks: true,
+      thousandsSeparator: "comma",
+    });
+
+    expect(result).toEqual({
+      removeAllLineBreaks: true,
+      leaveDoubleLineBreaks: false,
+      thousandsSeparator: "comma",
+    });
+
+    const persistedCalls = fakeDb.executeCalls.filter((call) =>
+      call.sql.includes("INSERT INTO app_settings")
+    );
+    expect(persistedCalls).toHaveLength(3);
+    expect(persistedCalls.map((call) => call.params.slice(0, 2))).toEqual([
+      ["formatter.deleteAllLineBreaks", "true"],
+      ["formatter.leaveDoubleLineBreaks", "false"],
+      ["formatter.thousandsSeparator", "comma"],
+    ]);
+
+    vi.useRealTimers();
+  });
+});
+
+describe("export preset dao", () => {
+  it("persists presets with serialized options", async () => {
+    const fakeDb = new FakeDb();
+    const now = new Date("2025-01-05T10:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM export_presets WHERE id = $1") && params[0] === "preset-1",
+      () => [
+        {
+          id: "preset-1",
+          name: "Quick Export",
+          description: "Short form",
+          options_json: "{\"mode\":\"compact\"}",
+          created_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        },
+      ],
+      { once: true }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { upsertExportPreset } = await importDao();
+    const record = await upsertExportPreset({
+      id: "preset-1",
+      name: "Quick Export",
+      description: "Short form",
+      options: { mode: "compact" },
+    });
+
+    expect(record).toEqual({
+      id: "preset-1",
+      name: "Quick Export",
+      description: "Short form",
+      options_json: "{\"mode\":\"compact\"}",
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    });
+
+    const insertCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("INSERT INTO export_presets")
+    );
+    expect(insertCall?.params).toEqual([
+      "preset-1",
+      "Quick Export",
+      "Short form",
+      "{\"mode\":\"compact\"}",
+      now.toISOString(),
+    ]);
+
+    vi.useRealTimers();
+  });
+
+  it("lists presets sorted by name", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM export_presets ORDER BY name"),
+      () => [
+        {
+          id: "preset-a",
+          name: "Alpha",
+          description: null,
+          options_json: "{}",
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "preset-b",
+          name: "Beta",
+          description: null,
+          options_json: "{}",
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { listExportPresets } = await importDao();
+    const presets = await listExportPresets();
+    expect(presets.map((preset) => preset.name)).toEqual(["Alpha", "Beta"]);
+    const selectCall = fakeDb.selectCalls.find((call) => call.sql.includes("FROM export_presets"));
+    expect(selectCall?.sql).toContain("ORDER BY name COLLATE NOCASE");
   });
 });
