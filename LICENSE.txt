@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2025 Jumpchain Nexus Maintainers
 Copyright (c) 2025 Age-Of-Ages
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
