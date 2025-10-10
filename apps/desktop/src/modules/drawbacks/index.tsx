@@ -174,7 +174,7 @@ const DrawbackSupplement: React.FC = () => {
           <p>Track drawback purchases, house rules, and bonus CP.</p>
         </header>
         <p className="drawbacks__summary">
-          The Drawback Supplement is disabled. Enable it from Options -> Supplements to resume editing.
+          The Drawback Supplement is disabled. Enable it from Options &gt; Supplements to resume editing.
         </p>
       </section>
     );

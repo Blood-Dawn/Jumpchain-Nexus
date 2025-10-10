@@ -32,6 +32,9 @@ import {
   type StipendMetadata,
 } from "../../assetMetadata";
 
+export { buildAssetMetadata, computeStipendTotal };
+export type { AssetMetadata, StipendFrequency, StipendMetadata };
+
 export const ASSET_TYPE_LABELS: Record<JumpAssetType, string> = {
   origin: "Origins",
   perk: "Perks",
