@@ -326,12 +326,144 @@ function validateSeedInput(seed: string): string | null {
 }
 
 const JumpRandomizerPlaceholder: React.FC = () => {
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [highlightedEntry, setHighlightedEntry] = useState<RandomizerEntryRecord | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const listsQuery = useQuery({ queryKey: LISTS_QUERY_KEY, queryFn: () => listRandomizerLists() });
+  const lists = listsQuery.data ?? [];
+
+  useEffect(() => {
+    if (!lists.length) {
+      setSelectedListId(null);
+      setHighlightedEntry(null);
+      return;
+    }
+    if (!selectedListId || !lists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(lists[0]!.id);
+      setHighlightedEntry(null);
+    }
+  }, [lists, selectedListId]);
+
+  const entriesQuery = useQuery({
+    queryKey: selectedListId ? entriesQueryKey(selectedListId) : ["randomizer", "entries", "preview"],
+    queryFn: () => listRandomizerEntriesForList(selectedListId ?? ""),
+    enabled: Boolean(selectedListId),
+  });
+  const entries = entriesQuery.data ?? [];
+
+  const currentList = useMemo(
+    () => lists.find((list) => list.id === selectedListId) ?? null,
+    [lists, selectedListId]
+  );
+
+  const handleQuickDraw = useCallback(() => {
+    setStatusMessage(null);
+    if (!entries.length) {
+      setHighlightedEntry(null);
+      setStatusMessage("No entries are available for this list yet.");
+      return;
+    }
+    const pick = entries[Math.floor(Math.random() * entries.length)]!;
+    setHighlightedEntry(pick);
+    setStatusMessage(`Selected "${pick.name}" (w${pick.weight}).`);
+  }, [entries]);
+
+  const handleListChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      setSelectedListId(event.target.value.length ? event.target.value : null);
+      setHighlightedEntry(null);
+      setStatusMessage(null);
+    },
+    []
+  );
+
   return (
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Loading randomizerΓÇª</p>
+        <p>Run a quick draw or open the full randomizer for advanced controls.</p>
       </header>
+      <div className="randomizer-preview">
+        <div className="preview-field">
+          <label htmlFor="randomizer-placeholder-list">List</label>
+          <select
+            id="randomizer-placeholder-list"
+            value={selectedListId ?? ""}
+            onChange={handleListChange}
+            disabled={listsQuery.isLoading || !lists.length}
+          >
+            {lists.length ? (
+              lists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {list.name || "Untitled list"}
+                </option>
+              ))
+            ) : (
+              <option value="">No lists available</option>
+            )}
+          </select>
+          {listsQuery.isError ? <p className="error-message">Failed to load lists.</p> : null}
+        </div>
+
+        <div className="preview-field">
+          <span className="preview-metrics" aria-live="polite">
+            {entriesQuery.isLoading
+              ? "Loading entries..."
+              : entriesQuery.isError
+              ? "Failed to load entries."
+              : entries.length
+              ? `${entries.length} entries loaded`
+              : "No entries found"}
+          </span>
+          <button type="button" onClick={handleQuickDraw} disabled={!entries.length}>
+            Quick Draw
+          </button>
+        </div>
+
+        {statusMessage ? (
+          <p className="info-message" role="status">
+            {statusMessage}
+          </p>
+        ) : null}
+
+        {highlightedEntry ? (
+          <div className="preview-result" role="note">
+            <h2>{highlightedEntry.name}</h2>
+            <dl>
+              <div>
+                <dt>Weight</dt>
+                <dd>{`w${highlightedEntry.weight}`}</dd>
+              </div>
+              <div>
+                <dt>Tags</dt>
+                <dd>{highlightedEntry.tags.length ? highlightedEntry.tags.join(", ") : "None"}</dd>
+              </div>
+              <div>
+                <dt>Link</dt>
+                <dd>
+                  {highlightedEntry.link ? (
+                    <a href={highlightedEntry.link} target="_blank" rel="noopener noreferrer">
+                      {highlightedEntry.link}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ) : null}
+
+        <footer className="preview-footer">
+          {currentList ? (
+            <span>{`Viewing “${currentList.name || "Untitled list"}”.`}</span>
+          ) : (
+            <span>Create a list to get started.</span>
+          )}
+          <span>Open the full module for filtering, history, and presets.</span>
+        </footer>
+      </div>
     </section>
   );
 };
@@ -358,8 +490,7 @@ const JumpRandomizer: React.FC = () => {
   const [drawError, setDrawError] = useState<string | null>(null);
   const [drawResults, setDrawResults] = useState<RandomizerEntryRecord[]>([]);
   const [lastDrawSummary, setLastDrawSummary] = useState<DrawSummary | null>(null);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [presetStore, setPresetStore] = useState<PresetStore>(() => loadPresetStore());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const toastTimers = useRef<Map<string, number>>(new Map());
@@ -1298,6 +1429,9 @@ const JumpRandomizer: React.FC = () => {
         <h1>Jump Randomizer</h1>
         <p>Manage lists, groups, and entries to run weighted draws.</p>
       </header>
+      {copyMessage ? (
+        <p className="info-message" role="status">{copyMessage}</p>
+      ) : null}
       <div className="randomizer-layout">
         <aside className="randomizer-sidebar">
           <div className="randomizer-panel">
