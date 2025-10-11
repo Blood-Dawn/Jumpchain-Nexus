@@ -21,7 +21,11 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["**/legacy/**", "src-tauri/**"],
     },
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "src/__tests__/**/*.{ts,tsx}"],
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "src/__tests__/**/*.{ts,tsx}",
+      "test/unit/**/*.{test,spec}.{ts,tsx}",
+    ],
     exclude: ["**/legacy/**", "src-tauri/**"],
   },
 });
