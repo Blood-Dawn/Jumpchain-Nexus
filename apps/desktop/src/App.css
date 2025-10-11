@@ -5053,6 +5053,21 @@ a:hover {
   gap: 0.3rem;
 }
 
+.entry-button.has-error {
+  border-color: rgba(217, 70, 97, 0.7);
+  background: rgba(64, 18, 28, 0.85);
+}
+
+.entry-button.has-error:hover:not(:disabled) {
+  border-color: rgba(255, 148, 164, 0.9);
+  background: rgba(72, 24, 34, 0.95);
+}
+
+.entry-button.has-error.is-selected {
+  border-color: rgba(255, 148, 164, 0.9);
+  background: rgba(72, 24, 34, 0.95);
+}
+
 .list-button:hover:not(:disabled),
 .entry-button:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -5076,9 +5091,19 @@ a:hover {
   color: rgba(122, 203, 255, 0.85);
 }
 
+.entry-weight.is-invalid {
+  color: rgba(255, 180, 192, 0.95);
+}
+
 .entry-tags {
   font-size: 0.8rem;
   color: rgba(240, 247, 255, 0.72);
+}
+
+.entry-warning {
+  font-size: 0.75rem;
+  color: rgba(255, 180, 192, 0.95);
+  font-weight: 600;
 }
 
 .muted {

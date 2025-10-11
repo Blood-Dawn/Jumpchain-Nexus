@@ -144,6 +144,9 @@ describe("JumpRandomizer", () => {
     entriesDataForQuery = entriesData;
     historyDataForQuery = historyData;
     vi.restoreAllMocks();
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.clear();
+    }
 
     vi.spyOn(dao, "listRandomizerLists").mockResolvedValue([baseList]);
     vi.spyOn(dao, "listRandomizerGroups").mockResolvedValue([baseGroup]);
@@ -203,14 +206,15 @@ describe("JumpRandomizer", () => {
     expect(await screen.findByText("Jump Randomizer")).toBeInTheDocument();
     expect(screen.getByText("Alpha Entry")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /draw/i }));
+    await user.click(screen.getByRole("button", { name: /^draw$/i }));
 
     await waitFor(() => {
       expect(dao.recordRandomizerRoll).toHaveBeenCalledTimes(1);
     });
 
-    expect(await screen.findByText(/Draw 1/)).toBeInTheDocument();
-    expect(screen.getByText(/Draw 1\s+·\s+Scope all/)).toBeInTheDocument();
+    const drawSummaryChips = await screen.findAllByText(/Draw 1/);
+    expect(drawSummaryChips.length).toBeGreaterThan(0);
+    expect(screen.getByText(/Scope: Entire list/)).toBeInTheDocument();
 
     const call = vi.mocked(dao.recordRandomizerRoll).mock.calls[0]?.[0];
     const pickName = call?.picks[0]?.name;
@@ -218,5 +222,34 @@ describe("JumpRandomizer", () => {
       const occurrences = await screen.findAllByText(pickName);
       expect(occurrences.length).toBeGreaterThan(0);
     }
+  });
+
+  it("shows an error when attempting to draw with only zero-weight entries", async () => {
+    entriesData = entriesData.map((entry) => ({ ...entry, weight: 0 }));
+    entriesDataForQuery = entriesData;
+
+    const { user } = renderRandomizer();
+
+    expect(await screen.findByText("Jump Randomizer")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^draw$/i }));
+
+    expect(await screen.findByText("No entries match the current filters.")).toBeInTheDocument();
+    expect(dao.recordRandomizerRoll).not.toHaveBeenCalled();
+  });
+
+  it("prevents saving entries with a non-positive weight", async () => {
+    const { user } = renderRandomizer();
+
+    expect(await screen.findByText("Jump Randomizer")).toBeInTheDocument();
+
+    const weightInput = await screen.findByLabelText("Weight");
+    await user.clear(weightInput);
+    await user.type(weightInput, "0");
+
+    await user.click(screen.getByRole("button", { name: /save entry/i }));
+
+    expect(await screen.findByText("Weight must be greater than 0.")).toBeInTheDocument();
+    expect(dao.updateRandomizerEntry).not.toHaveBeenCalled();
   });
 });

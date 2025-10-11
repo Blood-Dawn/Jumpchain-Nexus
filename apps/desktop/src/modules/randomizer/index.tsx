@@ -1073,6 +1073,14 @@ const JumpRandomizer: React.FC = () => {
       return;
     }
     const weight = Number.parseInt(entryForm.weight, 10);
+    if (Number.isNaN(weight)) {
+      setEntryFormError("Weight must be a valid number.");
+      return;
+    }
+    if (weight <= 0) {
+      setEntryFormError("Weight must be greater than 0.");
+      return;
+    }
     updateEntryMutation.mutate({
       id: entryForm.id,
       updates: {
@@ -1674,16 +1682,26 @@ const JumpRandomizer: React.FC = () => {
                 <ul className="entry-list">
                   {availableEntries.map((entry) => {
                     const isSelected = entry.id === selectedEntryId;
+                    const hasInvalidWeight = entry.weight <= 0;
+                    const entryButtonClassName = ["entry-button"];
+                    if (isSelected) {
+                      entryButtonClassName.push("is-selected");
+                    }
+                    if (hasInvalidWeight) {
+                      entryButtonClassName.push("has-error");
+                    }
+                    const weightClassName = hasInvalidWeight ? "entry-weight is-invalid" : "entry-weight";
                     return (
                       <li key={entry.id}>
                         <button
                           type="button"
-                          className={isSelected ? "entry-button is-selected" : "entry-button"}
+                          className={entryButtonClassName.join(" ")}
                           onClick={() => setSelectedEntryId(entry.id)}
                           aria-pressed={isSelected}
                         >
                           <span className="entry-name">{entry.name || "Untitled entry"}</span>
-                          <span className="entry-weight">{`w${entry.weight}`}</span>
+                          <span className={weightClassName}>{`w${entry.weight}`}</span>
+                          {hasInvalidWeight ? <span className="entry-warning">Invalid weight</span> : null}
                           {entry.tags.length ? (
                             <span className="entry-tags">{entry.tags.join(", ")}</span>
                           ) : (
