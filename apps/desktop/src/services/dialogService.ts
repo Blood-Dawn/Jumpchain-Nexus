@@ -22,86 +22,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { confirm as tauriConfirm, open as tauriOpen, save as tauriSave } from "@tauri-apps/plugin-dialog";
-import type {
-  ConfirmDialogOptions as NativeConfirmOptions,
-  OpenDialogOptions as NativeOpenOptions,
-  SaveDialogOptions as NativeSaveOptions,
-} from "@tauri-apps/plugin-dialog";
+import {
+  getPlatform,
+  type ConfirmDialogOptions,
+  type OpenFileDialogOptions,
+  type SaveFileDialogOptions,
+} from "./platform";
 
-export type ConfirmDialogKind = "info" | "warning" | "error";
-
-export interface ConfirmDialogOptions {
-  message: string;
-  title?: string;
-  okLabel?: string;
-  cancelLabel?: string;
-  kind?: ConfirmDialogKind;
-}
+export type {
+  ConfirmDialogKind,
+  ConfirmDialogOptions,
+  OpenFileDialogOptions,
+  SaveFileDialogOptions,
+} from "./platform";
 
 export async function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
-  try {
-    const tauriOptions: NativeConfirmOptions = {
-      title: options.title,
-      okLabel: options.okLabel,
-      cancelLabel: options.cancelLabel,
-      kind: options.kind,
-    };
-    return await tauriConfirm(options.message, tauriOptions);
-  } catch (error) {
-    if (typeof window !== "undefined" && typeof window.confirm === "function") {
-      return window.confirm(options.message);
-    }
-    console.warn("confirmDialog fallback hit", error);
-    return true;
-  }
-}
-
-export interface OpenFileDialogOptions {
-  title?: string;
-  multiple?: boolean;
-  directory?: boolean;
-  filters?: NativeOpenOptions["filters"];
-  defaultPath?: string;
+  const platform = await getPlatform();
+  return platform.dialog.confirm(options);
 }
 
 export async function openFileDialog(options: OpenFileDialogOptions = {}): Promise<string[] | null> {
-  try {
-    const selection = await tauriOpen({
-      multiple: options.multiple ?? false,
-      directory: options.directory ?? false,
-      filters: options.filters,
-      defaultPath: options.defaultPath,
-      title: options.title,
-    });
-    if (!selection) {
-      return null;
-    }
-    if (Array.isArray(selection)) {
-      return selection;
-    }
-    return [selection];
-  } catch (error) {
-    console.warn("openFileDialog fallback hit", error);
-    return null;
-  }
-}
-
-export interface SaveFileDialogOptions {
-  title?: string;
-  filters?: NativeSaveOptions["filters"];
-  defaultPath?: string;
+  const platform = await getPlatform();
+  return platform.dialog.openFile(options);
 }
 
 export async function saveFileDialog(options: SaveFileDialogOptions = {}): Promise<string | null> {
-  try {
-    return await tauriSave({
-      title: options.title,
-      filters: options.filters,
-      defaultPath: options.defaultPath,
-    });
-  } catch (error) {
-    console.warn("saveFileDialog fallback hit", error);
-    return null;
-  }
+  const platform = await getPlatform();
+  return platform.dialog.saveFile(options);
 }

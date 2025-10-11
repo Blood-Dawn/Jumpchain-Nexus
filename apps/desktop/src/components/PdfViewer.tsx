@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { readFile } from "@tauri-apps/plugin-fs";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?worker&module";
 import {
   getDocument,
@@ -30,6 +29,7 @@ import {
   type PDFDocumentProxy,
 } from "pdfjs-dist";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { getPlatform } from "../services/platform";
 
 GlobalWorkerOptions.workerPort = new pdfjsWorker();
 
@@ -90,7 +90,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       setError(null);
       setRenderState(null);
       try {
-  const data = await readFile(filePath);
+        const platform = await getPlatform();
+        const data = await platform.fs.readBinaryFile(filePath);
         const task = getDocument({ data });
         const doc = await task.promise;
         activeDoc = doc;
