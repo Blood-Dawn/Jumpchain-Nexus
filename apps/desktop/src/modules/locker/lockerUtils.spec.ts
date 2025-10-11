@@ -78,23 +78,32 @@ describe("lockerUtils filtering", () => {
   const analyzed = mapLockerItems(records);
 
   it("filters by body mod type", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "essential", booster: "all", tag: "all" };
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "essential", booster: "all" };
     const result = filterLockerItems(analyzed, filters, "");
     expect(result).toHaveLength(1);
     expect(result[0].item.id).toBe("strength");
   });
 
   it("filters boosters only", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "booster", tag: "all" };
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "booster" };
     const result = filterLockerItems(analyzed, filters, "");
     expect(result.map((entry) => entry.item.id)).toEqual(["core", "strength"]);
   });
 
   it("filters by normalized tag value", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all", tag: "medical" };
-    const result = filterLockerItems(analyzed, filters, "");
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all" };
+    const result = filterLockerItems(analyzed, filters, "", ["medical"]);
     expect(result).toHaveLength(1);
     expect(result[0].item.id).toBe("medkit");
+  });
+
+  it("requires all active tags to be present", () => {
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all" };
+    const result = filterLockerItems(analyzed, filters, "", ["medical", "support"]);
+    expect(result).toHaveLength(1);
+    expect(result[0].item.id).toBe("medkit");
+    const none = filterLockerItems(analyzed, filters, "", ["medical", "support", "booster:core"]);
+    expect(none).toHaveLength(0);
   });
 
   it("collects unique tag labels", () => {
