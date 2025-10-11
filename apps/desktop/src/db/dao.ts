@@ -456,6 +456,7 @@ export interface FormatterSettings {
   removeAllLineBreaks: boolean;
   leaveDoubleLineBreaks: boolean;
   thousandsSeparator: ThousandsSeparatorOption;
+  spellcheckEnabled: boolean;
 }
 
 export interface JumpDefaultsSettings {
@@ -3323,6 +3324,7 @@ export async function deleteAppSetting(key: string): Promise<void> {
 const FORMATTER_REMOVE_ALL_KEY = "formatter.deleteAllLineBreaks";
 const FORMATTER_LEAVE_DOUBLE_KEY = "formatter.leaveDoubleLineBreaks";
 const FORMATTER_SEPARATOR_KEY = "formatter.thousandsSeparator";
+const FORMATTER_SPELLCHECK_KEY = "formatter.spellcheckEnabled";
 
 export const JUMP_DEFAULTS_SETTING_KEY = "options.jumpDefaults";
 export const SUPPLEMENT_SETTING_KEY = "options.supplements";
@@ -3393,6 +3395,7 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   removeAllLineBreaks: false,
   leaveDoubleLineBreaks: false,
   thousandsSeparator: "none",
+  spellcheckEnabled: true,
 };
 
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
@@ -4125,10 +4128,11 @@ export async function loadExportPreferences(): Promise<ExportPreferenceSettings>
 }
 
 export async function loadFormatterSettings(): Promise<FormatterSettings> {
-  const [removeAllRecord, leaveDoubleRecord, separatorRecord] = await Promise.all([
+  const [removeAllRecord, leaveDoubleRecord, separatorRecord, spellcheckRecord] = await Promise.all([
     getAppSetting(FORMATTER_REMOVE_ALL_KEY),
     getAppSetting(FORMATTER_LEAVE_DOUBLE_KEY),
     getAppSetting(FORMATTER_SEPARATOR_KEY),
+    getAppSetting(FORMATTER_SPELLCHECK_KEY),
   ]);
 
   return {
@@ -4138,6 +4142,7 @@ export async function loadFormatterSettings(): Promise<FormatterSettings> {
       separatorRecord,
       DEFAULT_FORMATTER_SETTINGS.thousandsSeparator
     ),
+    spellcheckEnabled: parseBooleanSetting(spellcheckRecord, DEFAULT_FORMATTER_SETTINGS.spellcheckEnabled),
   };
 }
 
@@ -4154,6 +4159,7 @@ export async function updateFormatterSettings(
     setAppSetting(FORMATTER_REMOVE_ALL_KEY, next.removeAllLineBreaks),
     setAppSetting(FORMATTER_LEAVE_DOUBLE_KEY, next.leaveDoubleLineBreaks),
     setAppSetting(FORMATTER_SEPARATOR_KEY, next.thousandsSeparator),
+    setAppSetting(FORMATTER_SPELLCHECK_KEY, next.spellcheckEnabled),
   ]);
 
   return next;

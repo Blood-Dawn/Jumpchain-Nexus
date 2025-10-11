@@ -193,6 +193,7 @@ const JumpchainOverview: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
   const defaultFormState = useMemo<JumpFormState>(() => {
     return {
       title: "",
@@ -303,6 +304,7 @@ const JumpchainOverview: React.FC = () => {
               value={formState.title}
               onChange={(event) => setFormState((prev) => ({ ...prev, title: event.target.value }))}
               required
+              spellCheck={spellcheckEnabled}
             />
           </label>
           <label>
@@ -311,6 +313,7 @@ const JumpchainOverview: React.FC = () => {
               type="text"
               value={formState.world}
               onChange={(event) => setFormState((prev) => ({ ...prev, world: event.target.value }))}
+              spellCheck={spellcheckEnabled}
             />
           </label>
           <label>

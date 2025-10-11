@@ -51,6 +51,7 @@ import {
   parseWarehouseMode,
   saveEssentialBodyModSettings,
   saveUniversalDrawbackSettings,
+  loadFormatterSettings,
   upsertEssentialBodyModEssence,
   deleteEssentialBodyModEssence,
   type AppSettingRecord,
@@ -167,6 +168,10 @@ const JumpchainOptions: React.FC = () => {
     queryKey: ["universal-drawback-settings"],
     queryFn: loadUniversalDrawbackSettings,
   });
+  const formatterSettingsQuery = useQuery({
+    queryKey: ["app-settings", "formatter"],
+    queryFn: loadFormatterSettings,
+  });
 
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
@@ -227,6 +232,9 @@ const JumpchainOptions: React.FC = () => {
   const [sectionStatus, setSectionStatus] = useState<SectionStatusMap>({});
 
   const statusTimers = useRef<Record<SectionKey, number>>({});
+
+  const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
+  const spellcheckProps = { spellCheck: spellcheckEnabled } as const;
 
   const settingsMap = useMemo(() => {
     if (!settingsQuery.data) {
@@ -1080,6 +1088,7 @@ const JumpchainOptions: React.FC = () => {
                 value={essentialSettings.unbalancedDescription ?? ""}
                 onChange={(event) => handleEssentialTextChange("unbalancedDescription", event.target.value)}
                 disabled={saveEssentialMutation.isPending}
+                {...spellcheckProps}
               />
             </label>
             <label className="options__field">
@@ -1089,6 +1098,7 @@ const JumpchainOptions: React.FC = () => {
                 value={essentialSettings.limiterDescription ?? ""}
                 onChange={(event) => handleEssentialTextChange("limiterDescription", event.target.value)}
                 disabled={saveEssentialMutation.isPending}
+                {...spellcheckProps}
               />
             </label>
           </div>
@@ -1134,6 +1144,7 @@ const JumpchainOptions: React.FC = () => {
                         handleEssenceDraftChange(essence.id, "description", event.target.value)
                       }
                       disabled={upsertEssenceMutation.isPending}
+                      {...spellcheckProps}
                     />
                   </label>
                   <div>
@@ -1174,6 +1185,7 @@ const JumpchainOptions: React.FC = () => {
                   setNewEssence((prev) => ({ ...prev, description: event.target.value }))
                 }
                 disabled={upsertEssenceMutation.isPending}
+                {...spellcheckProps}
               />
             </label>
             <div>
@@ -1415,4 +1427,3 @@ const JumpchainOptions: React.FC = () => {
 };
 
 export default JumpchainOptions;
-
