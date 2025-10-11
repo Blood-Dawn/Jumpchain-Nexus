@@ -2838,6 +2838,28 @@ a:hover {
   gap: 0.7rem;
 }
 
+.drawbacks__order-buttons {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.drawbacks__order-buttons button {
+  flex: 1;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(122, 203, 255, 0.24);
+  background: rgba(12, 20, 34, 0.75);
+  color: #cfe7ff;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.drawbacks__order-buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .drawbacks__item {
   width: 100%;
   border-radius: 1rem;
@@ -3004,6 +3026,34 @@ a:hover {
   background: rgba(11, 18, 30, 0.7);
   color: rgba(240, 247, 255, 0.65);
   text-align: center;
+}
+
+.drawbacks__order-controls {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.drawbacks__order-controls button {
+  border-radius: 999px;
+  border: 1px solid rgba(122, 203, 255, 0.35);
+  background: rgba(12, 20, 34, 0.75);
+  color: #f0f7ff;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+}
+
+.drawbacks__order-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drawbacks__order-feedback {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #ff9cab;
 }
 
 .stats {
