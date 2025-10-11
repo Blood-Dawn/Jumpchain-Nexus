@@ -43,6 +43,12 @@ describe("JumpchainOptions", () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["app-settings"], []);
     queryClient.setQueryData(["export-presets"], []);
+    queryClient.setQueryData(["app-settings", "formatter"], {
+      removeAllLineBreaks: false,
+      leaveDoubleLineBreaks: false,
+      thousandsSeparator: "none",
+      spellcheckEnabled: true,
+    });
 
     render(
       <QueryClientProvider client={queryClient}>

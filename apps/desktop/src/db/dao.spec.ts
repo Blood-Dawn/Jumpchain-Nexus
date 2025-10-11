@@ -329,6 +329,11 @@ describe("formatter settings dao", () => {
           { key: "formatter.thousandsSeparator", value: "space", updated_at: "2025-01-01T00:00:00.000Z" },
         ],
       ],
+      "formatter.spellcheckEnabled": [
+        [
+          { key: "formatter.spellcheckEnabled", value: "false", updated_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      ],
     };
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM app_settings WHERE key = $1"),
@@ -348,6 +353,7 @@ describe("formatter settings dao", () => {
       removeAllLineBreaks: true,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "space",
+      spellcheckEnabled: false,
     });
   });
 
@@ -377,6 +383,14 @@ describe("formatter settings dao", () => {
           { key: "formatter.thousandsSeparator", value: "comma", updated_at: now },
         ],
       ],
+      "formatter.spellcheckEnabled": [
+        [
+          { key: "formatter.spellcheckEnabled", value: "true", updated_at: now },
+        ],
+        [
+          { key: "formatter.spellcheckEnabled", value: "true", updated_at: now },
+        ],
+      ],
     };
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM app_settings WHERE key = $1"),
@@ -401,16 +415,18 @@ describe("formatter settings dao", () => {
       removeAllLineBreaks: true,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "comma",
+      spellcheckEnabled: true,
     });
 
     const persistedCalls = fakeDb.executeCalls.filter((call) =>
       call.sql.includes("INSERT INTO app_settings")
     );
-    expect(persistedCalls).toHaveLength(3);
+    expect(persistedCalls).toHaveLength(4);
     expect(persistedCalls.map((call) => call.params.slice(0, 2))).toEqual([
       ["formatter.deleteAllLineBreaks", "true"],
       ["formatter.leaveDoubleLineBreaks", "false"],
       ["formatter.thousandsSeparator", "comma"],
+      ["formatter.spellcheckEnabled", "true"],
     ]);
 
     vi.useRealTimers();
