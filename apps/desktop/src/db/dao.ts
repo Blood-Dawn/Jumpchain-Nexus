@@ -339,6 +339,15 @@ export interface UpdateRandomizerListInput {
   sort_order?: number;
 }
 
+export interface UpsertRandomizerListRecord {
+  id: string;
+  name?: string | null;
+  description?: string | null;
+  sort_order?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface RandomizerGroupRecord {
   id: string;
   list_id: string;
@@ -360,6 +369,16 @@ export interface UpdateRandomizerGroupInput {
   name?: string;
   sort_order?: number;
   filters?: Record<string, unknown>;
+}
+
+export interface UpsertRandomizerGroupRecord {
+  id: string;
+  list_id: string;
+  name?: string | null;
+  sort_order?: number | null;
+  filters?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface RandomizerEntryRecord {
@@ -396,6 +415,19 @@ export interface UpdateRandomizerEntryInput {
   tags?: string[];
   filters?: Record<string, unknown>;
   group_id?: string;
+}
+
+export interface UpsertRandomizerEntryRecord {
+  id: string;
+  group_id: string;
+  name?: string | null;
+  weight?: number | null;
+  link?: string | null;
+  sort_order?: number | null;
+  tags?: string[] | null;
+  filters?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface RandomizerRollPickRecord {
@@ -797,6 +829,14 @@ function toNullableText(value: string | null | undefined): string | null {
     return null;
   }
   const trimmed = value?.trim() ?? "";
+  return trimmed.length ? trimmed : null;
+}
+
+function sanitizeTimestampInput(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 
@@ -3478,6 +3518,142 @@ export async function updateRandomizerEntry(
 
 export async function deleteRandomizerEntry(id: string): Promise<void> {
   await withInit((db) => db.execute(`DELETE FROM randomizer_entries WHERE id = $1`, [id]));
+}
+
+export async function upsertRandomizerList(
+  record: UpsertRandomizerListRecord
+): Promise<RandomizerListRecord> {
+  if (!record?.id) {
+    throw new Error("Randomizer list id is required");
+  }
+
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    const createdAt = sanitizeTimestampInput(record.created_at) ?? now;
+    const updatedAt = sanitizeTimestampInput(record.updated_at) ?? createdAt;
+    const name = toNullableText(record.name ?? null) ?? "Imported List";
+    const description = toNullableText(record.description ?? null);
+    const sortOrder =
+      typeof record.sort_order === "number" && Number.isFinite(record.sort_order)
+        ? Math.round(record.sort_order)
+        : 0;
+
+    await db.execute(
+      `INSERT INTO randomizer_lists (id, name, description, sort_order, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         sort_order = excluded.sort_order,
+         updated_at = excluded.updated_at`,
+      [record.id, name, description, sortOrder, createdAt, updatedAt]
+    );
+
+    const row = await fetchRandomizerListRow(db, record.id);
+    if (!row) {
+      throw new Error(`Randomizer list ${record.id} not found after upsert`);
+    }
+    return mapRandomizerListRow(row);
+  });
+}
+
+export async function upsertRandomizerGroup(
+  record: UpsertRandomizerGroupRecord
+): Promise<RandomizerGroupRecord> {
+  if (!record?.id) {
+    throw new Error("Randomizer group id is required");
+  }
+  if (!record.list_id) {
+    throw new Error("Randomizer group requires a list_id");
+  }
+
+  return withInit(async (db) => {
+    const list = await fetchRandomizerListRow(db, record.list_id);
+    if (!list) {
+      throw new Error(`Randomizer list ${record.list_id} not found`);
+    }
+
+    const now = new Date().toISOString();
+    const createdAt = sanitizeTimestampInput(record.created_at) ?? now;
+    const updatedAt = sanitizeTimestampInput(record.updated_at) ?? createdAt;
+    const name = toNullableText(record.name ?? null) ?? "Imported Group";
+    const sortOrder =
+      typeof record.sort_order === "number" && Number.isFinite(record.sort_order)
+        ? Math.round(record.sort_order)
+        : 0;
+    const filtersJson = encodeFilters(record.filters ?? null);
+
+    await db.execute(
+      `INSERT INTO randomizer_groups (id, list_id, name, sort_order, filters_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT(id) DO UPDATE SET
+         list_id = excluded.list_id,
+         name = excluded.name,
+         sort_order = excluded.sort_order,
+         filters_json = excluded.filters_json,
+         updated_at = excluded.updated_at`,
+      [record.id, record.list_id, name, sortOrder, filtersJson, createdAt, updatedAt]
+    );
+
+    const row = await fetchRandomizerGroupRow(db, record.id);
+    if (!row) {
+      throw new Error(`Randomizer group ${record.id} not found after upsert`);
+    }
+    return mapRandomizerGroupRow(row);
+  });
+}
+
+export async function upsertRandomizerEntry(
+  record: UpsertRandomizerEntryRecord
+): Promise<RandomizerEntryRecord> {
+  if (!record?.id) {
+    throw new Error("Randomizer entry id is required");
+  }
+  if (!record.group_id) {
+    throw new Error("Randomizer entry requires a group_id");
+  }
+
+  return withInit(async (db) => {
+    const group = await fetchRandomizerGroupRow(db, record.group_id);
+    if (!group) {
+      throw new Error(`Randomizer group ${record.group_id} not found`);
+    }
+
+    const now = new Date().toISOString();
+    const createdAt = sanitizeTimestampInput(record.created_at) ?? now;
+    const updatedAt = sanitizeTimestampInput(record.updated_at) ?? createdAt;
+    const name = toNullableText(record.name ?? null) ?? "Imported Entry";
+    const weight = normalizeWeight(record.weight ?? null);
+    const link = toNullableText(record.link ?? null);
+    const sortOrder =
+      typeof record.sort_order === "number" && Number.isFinite(record.sort_order)
+        ? Math.round(record.sort_order)
+        : 0;
+    const tagsJson = encodeStringArray(record.tags ?? null);
+    const filtersJson = encodeFilters(record.filters ?? null);
+
+    await db.execute(
+      `INSERT INTO randomizer_entries (
+         id, group_id, name, weight, link, tags_json, filters_json, sort_order, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT(id) DO UPDATE SET
+         group_id = excluded.group_id,
+         name = excluded.name,
+         weight = excluded.weight,
+         link = excluded.link,
+         tags_json = excluded.tags_json,
+         filters_json = excluded.filters_json,
+         sort_order = excluded.sort_order,
+         updated_at = excluded.updated_at`,
+      [record.id, record.group_id, name, weight, link, tagsJson, filtersJson, sortOrder, createdAt, updatedAt]
+    );
+
+    const row = await fetchRandomizerEntryRow(db, record.id);
+    if (!row) {
+      throw new Error(`Randomizer entry ${record.id} not found after upsert`);
+    }
+    return mapRandomizerEntryRow(row);
+  });
 }
 
 export async function recordRandomizerRoll(

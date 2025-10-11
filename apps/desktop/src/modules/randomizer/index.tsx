@@ -40,10 +40,16 @@ import {
   updateRandomizerEntry,
   updateRandomizerGroup,
   updateRandomizerList,
+  upsertRandomizerEntry,
+  upsertRandomizerGroup,
+  upsertRandomizerList,
   type RandomizerEntryRecord,
   type RandomizerGroupRecord,
   type RandomizerListRecord,
   type RandomizerRollRecord,
+  type UpsertRandomizerEntryRecord,
+  type UpsertRandomizerGroupRecord,
+  type UpsertRandomizerListRecord,
 } from "../../db/dao";
 import {
   createHistoryExportPayload,
@@ -54,6 +60,8 @@ import {
   type WeightedEntry,
   type WeightedHistoryRun,
 } from "./weightedPicker";
+import { confirmDialog, openFileDialog } from "../../services/dialogService";
+import { getPlatform } from "../../services/platform";
 
 const LISTS_QUERY_KEY = ["randomizer", "lists"] as const;
 const groupsQueryKey = (listId: string) => ["randomizer", "groups", listId] as const;
@@ -183,6 +191,269 @@ function loadPresetStore(): PresetStore {
     console.warn("Failed to load randomizer presets", error);
     return {};
   }
+}
+
+interface RandomizerImportPayload {
+  lists: UpsertRandomizerListRecord[];
+  groups: UpsertRandomizerGroupRecord[];
+  entries: UpsertRandomizerEntryRecord[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function pickValue(source: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      return source[key];
+    }
+  }
+  return undefined;
+}
+
+function collectArrays(source: Record<string, unknown>, keys: string[]): unknown[] {
+  const result: unknown[] = [];
+  for (const key of keys) {
+    const value = source[key];
+    if (Array.isArray(value)) {
+      result.push(...value);
+    }
+  }
+  return result;
+}
+
+function getStringField(source: Record<string, unknown>, keys: string[]): string | null {
+  const value = pickValue(source, keys);
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function getNullableStringField(
+  source: Record<string, unknown>,
+  keys: string[]
+): string | null | undefined {
+  const value = pickValue(source, keys);
+  if (value === null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : undefined;
+  }
+  return undefined;
+}
+
+function parseNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function sanitizeRandomizerListImport(value: unknown): UpsertRandomizerListRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = getStringField(value, ["id", "list_id", "listId"]);
+  if (!id) {
+    return null;
+  }
+  const name = getNullableStringField(value, ["name", "label"]);
+  const description = getNullableStringField(value, ["description", "details"]);
+  const sortOrder = parseNumericValue(pickValue(value, ["sort_order", "sortOrder"]));
+  const createdAt = getNullableStringField(value, ["created_at", "createdAt"]);
+  const updatedAt = getNullableStringField(value, ["updated_at", "updatedAt"]);
+  return {
+    id,
+    name: name ?? undefined,
+    description: description ?? undefined,
+    sort_order: sortOrder ?? undefined,
+    created_at: createdAt ?? undefined,
+    updated_at: updatedAt ?? undefined,
+  };
+}
+
+function sanitizeRandomizerGroupImport(
+  value: unknown,
+  fallbackListId?: string
+): UpsertRandomizerGroupRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = getStringField(value, ["id", "group_id", "groupId"]);
+  if (!id) {
+    return null;
+  }
+  const listId = getStringField(value, ["list_id", "listId"]) ?? fallbackListId ?? null;
+  if (!listId) {
+    return null;
+  }
+  const name = getNullableStringField(value, ["name", "label"]);
+  const sortOrder = parseNumericValue(pickValue(value, ["sort_order", "sortOrder"]));
+  const filtersValue = pickValue(value, ["filters", "filters_json", "filtersJson"]);
+  const filters = isRecord(filtersValue) ? (filtersValue as Record<string, unknown>) : null;
+  const createdAt = getNullableStringField(value, ["created_at", "createdAt"]);
+  const updatedAt = getNullableStringField(value, ["updated_at", "updatedAt"]);
+  return {
+    id,
+    list_id: listId,
+    name: name ?? undefined,
+    sort_order: sortOrder ?? undefined,
+    filters,
+    created_at: createdAt ?? undefined,
+    updated_at: updatedAt ?? undefined,
+  };
+}
+
+function sanitizeRandomizerEntryImport(
+  value: unknown,
+  fallbackGroupId?: string
+): UpsertRandomizerEntryRecord | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = getStringField(value, ["id", "entry_id", "entryId"]);
+  if (!id) {
+    return null;
+  }
+  const groupId = getStringField(value, ["group_id", "groupId"]) ?? fallbackGroupId ?? null;
+  if (!groupId) {
+    return null;
+  }
+  const name = getNullableStringField(value, ["name", "label"]);
+  const weightValue = parseNumericValue(pickValue(value, ["weight", "weight_value", "weightValue"]));
+  const linkRaw = pickValue(value, ["link", "url"]);
+  let link: string | null | undefined;
+  if (linkRaw === null) {
+    link = null;
+  } else if (typeof linkRaw === "string") {
+    const trimmed = linkRaw.trim();
+    link = trimmed.length ? trimmed : null;
+  }
+  const sortOrder = parseNumericValue(pickValue(value, ["sort_order", "sortOrder"]));
+  const tagsRaw = pickValue(value, ["tags", "tag_list", "tagList"]);
+  const tags = Array.isArray(tagsRaw)
+    ? tagsRaw
+        .map((item) =>
+          typeof item === "string"
+            ? item.trim()
+            : typeof item === "number"
+            ? String(item)
+            : ""
+        )
+        .filter((item) => item.length > 0)
+    : null;
+  const filtersRaw = pickValue(value, ["filters", "filters_json", "filtersJson"]);
+  const filters = isRecord(filtersRaw) ? (filtersRaw as Record<string, unknown>) : null;
+  const createdAt = getNullableStringField(value, ["created_at", "createdAt"]);
+  const updatedAt = getNullableStringField(value, ["updated_at", "updatedAt"]);
+  return {
+    id,
+    group_id: groupId,
+    name: name ?? undefined,
+    weight: weightValue ?? 1,
+    link,
+    sort_order: sortOrder ?? undefined,
+    tags: tags ?? undefined,
+    filters,
+    created_at: createdAt ?? undefined,
+    updated_at: updatedAt ?? undefined,
+  };
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
+function sanitizeRandomizerImportPayload(value: unknown): RandomizerImportPayload | null {
+  if (Array.isArray(value) || !isRecord(value)) {
+    return null;
+  }
+
+  const lists: UpsertRandomizerListRecord[] = [];
+  const groups: UpsertRandomizerGroupRecord[] = [];
+  const entries: UpsertRandomizerEntryRecord[] = [];
+
+  for (const candidate of collectArrays(value, ["lists", "randomizer_lists"])) {
+    const sanitized = sanitizeRandomizerListImport(candidate);
+    if (sanitized) {
+      lists.push(sanitized);
+    }
+  }
+
+  const singleList = value.list;
+  if (isRecord(singleList)) {
+    const sanitizedList = sanitizeRandomizerListImport(singleList);
+    if (sanitizedList) {
+      lists.push(sanitizedList);
+      for (const groupCandidate of collectArrays(singleList, ["groups"])) {
+        const sanitizedGroup = sanitizeRandomizerGroupImport(groupCandidate, sanitizedList.id);
+        if (sanitizedGroup) {
+          groups.push(sanitizedGroup);
+          if (isRecord(groupCandidate)) {
+            for (const entryCandidate of collectArrays(groupCandidate, ["entries"])) {
+              const nestedEntry = sanitizeRandomizerEntryImport(entryCandidate, sanitizedGroup.id);
+              if (nestedEntry) {
+                entries.push(nestedEntry);
+              }
+            }
+          }
+        }
+      }
+      for (const entryCandidate of collectArrays(singleList, ["entries"])) {
+        const sanitizedEntry = sanitizeRandomizerEntryImport(entryCandidate);
+        if (sanitizedEntry) {
+          entries.push(sanitizedEntry);
+        }
+      }
+    }
+  }
+
+  for (const groupCandidate of collectArrays(value, ["groups", "randomizer_groups"])) {
+    const sanitizedGroup = sanitizeRandomizerGroupImport(groupCandidate);
+    if (sanitizedGroup) {
+      groups.push(sanitizedGroup);
+      if (isRecord(groupCandidate)) {
+        for (const entryCandidate of collectArrays(groupCandidate, ["entries"])) {
+          const nestedEntry = sanitizeRandomizerEntryImport(entryCandidate, sanitizedGroup.id);
+          if (nestedEntry) {
+            entries.push(nestedEntry);
+          }
+        }
+      }
+    }
+  }
+
+  for (const entryCandidate of collectArrays(value, ["entries", "randomizer_entries"])) {
+    const sanitizedEntry = sanitizeRandomizerEntryImport(entryCandidate);
+    if (sanitizedEntry) {
+      entries.push(sanitizedEntry);
+    }
+  }
+
+  if (!lists.length && !groups.length && !entries.length) {
+    return null;
+  }
+
+  return {
+    lists: dedupeById(lists),
+    groups: dedupeById(groups),
+    entries: dedupeById(entries),
+  };
 }
 
 function parseRollParams(
@@ -382,7 +653,10 @@ const JumpRandomizerPlaceholder: React.FC = () => {
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Run a quick draw or open the full randomizer for advanced controls.</p>
+        <p>
+          Run a quick draw or open the full randomizer for advanced controls, including JSON
+          import/export tools.
+        </p>
       </header>
       <div className="randomizer-preview">
         <div className="preview-field">
@@ -1390,21 +1664,136 @@ const JumpRandomizer: React.FC = () => {
     }
   };
 
-  const handleExportHistory = (): void => {
+  const handleImportJson = useCallback(async (): Promise<void> => {
+    try {
+      const selection = await openFileDialog({
+        title: "Import Randomizer JSON",
+        filters: [{ name: "JSON Files", extensions: ["json"] }],
+      });
+      const filePath = selection?.[0];
+      if (!filePath) {
+        return;
+      }
+      const platform = await getPlatform();
+      const raw = await platform.fs.readTextFile(filePath);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (error) {
+        console.warn("Failed to parse randomizer import JSON", error);
+        showToast("Selected file is not valid JSON.", "error");
+        return;
+      }
+      const payload = sanitizeRandomizerImportPayload(parsed);
+      if (!payload) {
+        showToast("No lists, groups, or entries found in the import file.", "error");
+        return;
+      }
+
+      let importedLists = 0;
+      for (const list of payload.lists) {
+        await upsertRandomizerList(list);
+        importedLists += 1;
+      }
+      let importedGroups = 0;
+      for (const group of payload.groups) {
+        await upsertRandomizerGroup(group);
+        importedGroups += 1;
+      }
+      let importedEntries = 0;
+      for (const entry of payload.entries) {
+        await upsertRandomizerEntry(entry);
+        importedEntries += 1;
+      }
+
+      await queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
+      if (selectedListId) {
+        await queryClient
+          .invalidateQueries({ queryKey: groupsQueryKey(selectedListId) })
+          .catch(() => undefined);
+        await queryClient
+          .invalidateQueries({ queryKey: entriesQueryKey(selectedListId) })
+          .catch(() => undefined);
+      }
+      if (!selectedListId && payload.lists.length === 1) {
+        setSelectedListId(payload.lists[0]!.id);
+      }
+
+      if (!importedLists && !importedGroups && !importedEntries) {
+        showToast("Import completed — no new records detected.", "info");
+        return;
+      }
+
+      const summarySegments: string[] = [];
+      if (importedLists) {
+        summarySegments.push(`${importedLists} ${importedLists === 1 ? "list" : "lists"}`);
+      }
+      if (importedGroups) {
+        summarySegments.push(`${importedGroups} ${importedGroups === 1 ? "group" : "groups"}`);
+      }
+      if (importedEntries) {
+        summarySegments.push(`${importedEntries} ${importedEntries === 1 ? "entry" : "entries"}`);
+      }
+      showToast(`Imported ${summarySegments.join(", ")}.`, "success");
+    } catch (error) {
+      console.warn("Failed to import randomizer configuration", error);
+      showToast("Import failed.", "error");
+    }
+  }, [queryClient, selectedListId, setSelectedListId, showToast]);
+
+  const handleExportHistory = useCallback(async (): Promise<void> => {
     if (!historyRecords.length || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-    const payload = createHistoryExportPayload(historySnapshots);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `randomizer-results-${Date.now()}.json`;
-    anchor.rel = "noopener";
-    anchor.click();
-    window.URL.revokeObjectURL(url);
-    showToast("Export downloaded.", "success");
-  };
+
+    let includeConfiguration = false;
+    if (selectedList) {
+      try {
+        includeConfiguration = await confirmDialog({
+          title: "Export Randomizer JSON",
+          message: "Include the list configuration (lists, groups, and entries) in the export?",
+          okLabel: "Include configuration",
+          cancelLabel: "History only",
+        });
+      } catch (error) {
+        console.warn("Export confirmation dialog failed", error);
+      }
+    }
+
+    const historyPayload = createHistoryExportPayload(historySnapshots);
+    let exportPayload: unknown = historyPayload;
+    let filename = `randomizer-results-${Date.now()}.json`;
+
+    if (includeConfiguration && selectedList) {
+      exportPayload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        lists: [selectedList],
+        groups,
+        entries,
+        history: historyPayload,
+      };
+      filename = `randomizer-export-${selectedList.id}-${Date.now()}.json`;
+    }
+
+    try {
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      showToast(
+        includeConfiguration ? "Exported history and configuration." : "Export downloaded.",
+        "success"
+      );
+    } catch (error) {
+      console.warn("Failed to export randomizer history", error);
+      showToast("Export failed.", "error");
+    }
+  }, [entries, groups, historyRecords.length, historySnapshots, selectedList, showToast]);
 
   const listControlsDisabled =
     createListMutation.isPending || deleteListMutation.isPending || updateListMutation.isPending;
@@ -1427,7 +1816,10 @@ const JumpRandomizer: React.FC = () => {
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Manage lists, groups, and entries to run weighted draws.</p>
+        <p>
+          Manage lists, groups, and entries to run weighted draws. Use Import JSON to load shared
+          pools and Export History to capture rolls or full configurations.
+        </p>
       </header>
       {copyMessage ? (
         <p className="info-message" role="status">{copyMessage}</p>
@@ -1966,10 +2358,30 @@ const JumpRandomizer: React.FC = () => {
             <div className="panel-heading">
               <h2>History</h2>
               <div className="panel-heading__actions">
-                <button type="button" onClick={handleCopyHistory} disabled={!historyRecords.length}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCopyHistory();
+                  }}
+                  disabled={!historyRecords.length}
+                >
                   Copy History
                 </button>
-                <button type="button" onClick={handleExportHistory} disabled={!historyRecords.length}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleImportJson();
+                  }}
+                >
+                  Import JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleExportHistory();
+                  }}
+                  disabled={!historyRecords.length}
+                >
                   Export History
                 </button>
                 <button
