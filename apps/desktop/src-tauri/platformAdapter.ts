@@ -6,7 +6,7 @@ import type {
 } from "../src/services/platform";
 
 import { appConfigDir, join } from "@tauri-apps/api/path";
-import { exists, mkdir, readFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
   confirm as tauriConfirm,
   open as tauriOpen,
@@ -42,6 +42,7 @@ export function createTauriPlatform(): Platform {
       exists,
       readBinaryFile: readFile,
       readTextFile,
+      writeTextFile,
     },
     dialog: {
       async confirm(options: ConfirmDialogOptions) {

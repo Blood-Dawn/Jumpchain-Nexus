@@ -25,6 +25,7 @@ SOFTWARE.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
+import { getPlatform } from "../../services/platform";
 
 const TEST_EVENT = "devtools://test-run";
 
@@ -32,12 +33,28 @@ export type LogLevel = "info" | "warn" | "error";
 
 type LogSource = "stdout" | "stderr";
 
-type LogEntry = {
+export type LogEntry = {
   id: number;
   timestamp: string;
   level: LogLevel;
   message: string;
   source: LogSource;
+};
+
+export const LOG_CAP = 500;
+
+const formatLogEntry = (entry: LogEntry): string => {
+  const level = entry.level.toUpperCase();
+  const source = entry.source.toUpperCase();
+  return `[${entry.timestamp}] ${source} ${level}: ${entry.message}`;
+};
+
+export const appendLogEntry = (current: LogEntry[], entry: LogEntry): LogEntry[] => {
+  const next = [...current, entry];
+  if (next.length <= LOG_CAP) {
+    return next;
+  }
+  return next.slice(next.length - LOG_CAP);
 };
 
 type RunnerEvent =
@@ -85,7 +102,7 @@ const DevToolsTestRunner: React.FC = () => {
               source: payload.source,
               timestamp: formatTimestamp(new Date()),
             };
-            setLogs((current) => [...current, entry]);
+            setLogs((current) => appendLogEntry(current, entry));
             return;
           }
 
@@ -110,7 +127,7 @@ const DevToolsTestRunner: React.FC = () => {
               source: "stderr",
               timestamp: formatTimestamp(new Date()),
             };
-            setLogs((current) => [...current, entry]);
+            setLogs((current) => appendLogEntry(current, entry));
             setStatusMessage("Failed to stream test output. See the log for details.");
           }
         });
@@ -143,7 +160,7 @@ const DevToolsTestRunner: React.FC = () => {
         source: "stderr",
         timestamp: formatTimestamp(new Date()),
       };
-      setLogs((current) => [...current, entry]);
+      setLogs((current) => appendLogEntry(current, entry));
       setStatusMessage("Unable to launch the test suite. See the log for details.");
     }
   }, []);
@@ -151,6 +168,33 @@ const DevToolsTestRunner: React.FC = () => {
   const handleClearLog = useCallback(() => {
     setLogs([]);
   }, []);
+
+  const handleDownloadLog = useCallback(async () => {
+    if (logs.length === 0) {
+      return;
+    }
+
+    try {
+      const platform = await getPlatform();
+      const defaultName = `test-run-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+      const targetPath = await platform.dialog.saveFile({
+        title: "Save test run log",
+        defaultPath: defaultName,
+      });
+
+      if (!targetPath) {
+        return;
+      }
+
+      setStatusMessage("Saving log output to disk…");
+      const payload = logs.map(formatLogEntry).join("\n");
+      await platform.fs.writeTextFile(targetPath, payload);
+      setStatusMessage("Log saved to disk.");
+    } catch (error) {
+      console.error("Failed to export log output", error);
+      setStatusMessage("Failed to export log output. See the console for details.");
+    }
+  }, [logs]);
 
   const runningHint = useMemo(() => {
     if (isRunning) {
@@ -177,6 +221,14 @@ const DevToolsTestRunner: React.FC = () => {
         </button>
         <button type="button" className="button button--secondary" onClick={handleClearLog}>
           Clear log
+        </button>
+        <button
+          type="button"
+          className="button button--secondary"
+          onClick={handleDownloadLog}
+          disabled={logs.length === 0}
+        >
+          Download log
         </button>
       </div>
 
