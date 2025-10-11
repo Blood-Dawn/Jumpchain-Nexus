@@ -106,6 +106,64 @@ beforeEach(() => {
   loadMock.mockReset();
 });
 
+describe("fetchKnowledgeArticles", () => {
+  it("deduplicates rows that share the same article id", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const now = new Date().toISOString();
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM knowledge_articles") && sql.includes("ORDER BY"),
+      () => [
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-2",
+          title: "Unique Entry",
+          category: "Systems",
+          summary: "",
+          content: "Body",
+          tags: JSON.stringify(["unique"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    const { fetchKnowledgeArticles } = await importDao();
+    const articles = await fetchKnowledgeArticles();
+
+    expect(articles).toHaveLength(2);
+    expect(articles.map((article) => article.id)).toEqual(["article-1", "article-2"]);
+  });
+});
+
 describe("computeBudget", () => {
   it("aggregates normal purchases", async () => {
     loadMock.mockResolvedValue(new FakeDb());

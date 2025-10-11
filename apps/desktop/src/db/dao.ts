@@ -1136,7 +1136,15 @@ export async function fetchKnowledgeArticles(
       )) as KnowledgeArticleRow[];
     }
 
-    const articles = rows.map(mapKnowledgeRow);
+    const seen = new Set<string>();
+    const articles = rows.reduce<KnowledgeArticleRecord[]>((acc, row) => {
+      const record = mapKnowledgeRow(row);
+      if (!seen.has(record.id)) {
+        seen.add(record.id);
+        acc.push(record);
+      }
+      return acc;
+    }, []);
     if (query.tag && query.tag.trim()) {
       const tag = query.tag.trim().toLowerCase();
       return articles.filter((article) =>
