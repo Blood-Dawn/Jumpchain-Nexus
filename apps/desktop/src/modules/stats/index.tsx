@@ -7,8 +7,8 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+copies of the Software, and to permit persons to do so, subject to the
+following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -22,94 +22,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  loadExportSnapshot,
-  type ExportSnapshot,
-  type JumpRecord,
-  type JumpAssetRecord,
-  type JumpAssetType,
-  type InventoryItemRecord,
-} from "../../db/dao";
+import { FixedSizeList as List, type ListChildComponentProps } from "react-window";
+import { loadStatisticsSnapshot, type JumpAssetType, type StatisticsSnapshot } from "../../db/dao";
 
-interface StatusBucket {
-  label: string;
-  count: number;
-}
+const ROW_HEIGHT = 44;
+const GAUNTLET_ROW_HEIGHT = 56;
+const BOOSTER_ROW_HEIGHT = 56;
 
-interface WorldBucket {
-  world: string;
-  count: number;
-}
-
-interface AssetMetric {
-  type: JumpAssetType;
-  label: string;
-  count: number;
-  gross: number;
-  netCost: number;
-  credit: number;
-  discounted: number;
-  freebies: number;
-}
-
-interface InventoryTotals {
-  totalCount: number;
-  totalQuantity: number;
-  warehouseCount: number;
-  lockerCount: number;
-}
-
-interface ComputedMetrics {
-  totalJumps: number;
-  totalBudget: number;
-  totalSpent: number;
-  totalCredit: number;
-  netBalance: number;
-  averageBudget: number;
-  totalPurchases: number;
-  statusBuckets: StatusBucket[];
-  assetBreakdown: AssetMetric[];
-  inventoryTotals: InventoryTotals;
-  profileCount: number;
-  topWorlds: WorldBucket[];
-  recentJumps: JumpRecord[];
-}
-
-const EMPTY_METRICS: ComputedMetrics = {
-  totalJumps: 0,
-  totalBudget: 0,
-  totalSpent: 0,
-  totalCredit: 0,
-  netBalance: 0,
-  averageBudget: 0,
-  totalPurchases: 0,
-  statusBuckets: [],
-  assetBreakdown: [],
-  inventoryTotals: {
-    totalCount: 0,
-    totalQuantity: 0,
-    warehouseCount: 0,
-    lockerCount: 0,
-  },
-  profileCount: 0,
-  topWorlds: [],
-  recentJumps: [],
-};
-
-const numberFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 0,
-});
-
-const decimalFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 1,
-});
-
-const percentFormatter = new Intl.NumberFormat(undefined, {
-  style: "percent",
-  maximumFractionDigits: 1,
-});
+const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+const percentFormatter = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
 
 const assetLabels: Record<JumpAssetType, string> = {
   origin: "Origins",
@@ -117,6 +40,17 @@ const assetLabels: Record<JumpAssetType, string> = {
   item: "Items",
   companion: "Companions",
   drawback: "Drawbacks",
+};
+
+const EMPTY_STATS: StatisticsSnapshot = {
+  cp: {
+    totals: { budget: 0, spent: 0, earned: 0, net: 0 },
+    byJump: [],
+    byAssetType: [],
+  },
+  inventory: { totalItems: 0, totalQuantity: 0, categories: [] },
+  gauntlet: { allowGauntlet: false, gauntletHalved: false, totalGauntlets: 0, completedGauntlets: 0, rows: [] },
+  boosters: { totalCharacters: 0, charactersWithBoosters: 0, totalBoosters: 0, uniqueBoosters: 0, entries: [] },
 };
 
 const formatCount = (value: number): string => {
@@ -127,11 +61,6 @@ const formatCount = (value: number): string => {
 const formatCP = (value: number): string => {
   if (!Number.isFinite(value)) return "0";
   return numberFormatter.format(Math.round(value));
-};
-
-const formatDecimal = (value: number): string => {
-  if (!Number.isFinite(value)) return "0";
-  return decimalFormatter.format(value);
 };
 
 const formatPercent = (value: number): string => {
@@ -151,301 +80,204 @@ const normalizeStatus = (status: string | null): string => {
     .join(" ");
 };
 
-const normalizeWorld = (world: string | null): string => {
-  if (!world || !world.trim()) {
-    return "Unspecified";
-  }
-  return world.trim();
-};
+const StatisticsHub: React.FC = () => {
+  const statsQuery = useQuery({ queryKey: ["statistics-snapshot"], queryFn: loadStatisticsSnapshot });
 
-const parseDate = (value: string | null | undefined): number => {
-  if (!value) return Number.NaN;
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? time : Number.NaN;
-};
+  const snapshot = statsQuery.data ?? EMPTY_STATS;
+  const cpTotals = snapshot.cp.totals;
+  const cpRows = snapshot.cp.byJump;
+  const assetBreakdown = snapshot.cp.byAssetType;
+  const inventoryCategories = snapshot.inventory.categories;
+  const gauntletSummary = snapshot.gauntlet;
+  const boosterSummary = snapshot.boosters;
 
-const jumpTimestamp = (jump: JumpRecord): number => {
-  const candidates = [jump.end_date, jump.start_date, jump.created_at].map((value) => parseDate(value));
-  const finite = candidates.filter(Number.isFinite);
-  if (!finite.length) {
-    return 0;
-  }
-  return Math.max(...finite);
-};
-
-const getMetadata = (raw: string | null): Record<string, unknown> => {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-};
-
-const computeMetrics = (snapshot: ExportSnapshot | undefined): ComputedMetrics => {
-  if (!snapshot) {
-    return EMPTY_METRICS;
-  }
-
-  const statusCounts = new Map<string, number>();
-  const worldCounts = new Map<string, number>();
-  let totalBudget = 0;
-  let totalSpent = 0;
-  let totalCredit = 0;
-
-  snapshot.jumps.forEach((jump) => {
-    totalBudget += jump.cp_budget ?? 0;
-    totalSpent += jump.cp_spent ?? 0;
-    totalCredit += jump.cp_income ?? 0;
-    const status = normalizeStatus(jump.status ?? null);
-    statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1);
-    const world = normalizeWorld(jump.world ?? null);
-    worldCounts.set(world, (worldCounts.get(world) ?? 0) + 1);
-  });
-
-  const assetBreakdownMap = new Map<JumpAssetType, AssetMetric>();
-  (Object.keys(assetLabels) as JumpAssetType[]).forEach((type) => {
-    assetBreakdownMap.set(type, {
-      type,
-      label: assetLabels[type],
-      count: 0,
-      gross: 0,
-      netCost: 0,
-      credit: 0,
-      discounted: 0,
-      freebies: 0,
-    });
-  });
-
-  snapshot.jumpAssets.forEach((asset: JumpAssetRecord) => {
-    const entry = assetBreakdownMap.get(asset.asset_type);
-    if (!entry) {
-      return;
-    }
-    entry.count += 1;
-    const quantity = Math.max(asset.quantity ?? 1, 1);
-    const gross = Math.max(asset.cost ?? 0, 0) * quantity;
-    entry.gross += gross;
-
-    if (asset.freebie === 1) {
-      entry.freebies += 1;
-      if (asset.asset_type === "drawback") {
-        entry.credit += gross;
-      }
-      return;
-    }
-
-    if (asset.discounted === 1 && asset.asset_type !== "drawback") {
-      entry.discounted += 1;
-      entry.netCost += gross / 2;
-      return;
-    }
-
-    if (asset.asset_type === "drawback") {
-      entry.credit += gross;
-    } else {
-      entry.netCost += gross;
-    }
-  });
-
-  const inventoryTotals = snapshot.inventory.reduce<InventoryTotals>(
-    (totals, item: InventoryItemRecord) => {
-      totals.totalCount += 1;
-      const quantity = Number.isFinite(item.quantity) ? Math.max(item.quantity ?? 0, 0) : 0;
-      totals.totalQuantity += quantity;
-      if (item.scope === "warehouse") {
-        totals.warehouseCount += 1;
-      }
-      if (item.scope === "locker") {
-        totals.lockerCount += 1;
-      }
-      return totals;
-    },
-    {
-      totalCount: 0,
-      totalQuantity: 0,
-      warehouseCount: 0,
-      lockerCount: 0,
-    }
+  const totalJumps = cpRows.length;
+  const totalPurchases = useMemo(
+    () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.itemCount, 0),
+    [assetBreakdown]
+  );
+  const totalSpend = useMemo(
+    () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.netCost, 0),
+    [assetBreakdown]
+  );
+  const totalCredit = useMemo(
+    () => assetBreakdown.find((entry) => entry.assetType === "drawback")?.credit ?? 0,
+    [assetBreakdown]
   );
 
-  const topWorlds = Array.from(worldCounts.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-    .slice(0, 5)
-    .map(([world, count]) => ({ world, count }));
+  const cpRowRenderer = useCallback(
+    ({ index, style }: ListChildComponentProps) => {
+      const row = cpRows[index];
+      if (!row) return null;
+      return (
+        <div style={style} className="stats__table-row stats__table-row--cp">
+          <span className="stats__cell-primary">{row.title}</span>
+          <span>{normalizeStatus(row.status)}</span>
+          <span>{formatCP(row.budget)} CP</span>
+          <span>{formatCP(row.spent)} CP</span>
+          <span>{formatCP(row.earned)} CP</span>
+          <span className={row.net >= 0 ? "stats__value-positive" : "stats__value-negative"}>{formatCP(row.net)} CP</span>
+        </div>
+      );
+    },
+    [cpRows]
+  );
 
-  const recentJumps = [...snapshot.jumps]
-    .sort((a, b) => jumpTimestamp(b) - jumpTimestamp(a))
-    .slice(0, 5);
+  const inventoryRowRenderer = useCallback(
+    ({ index, style }: ListChildComponentProps) => {
+      const row = inventoryCategories[index];
+      if (!row) return null;
+      return (
+        <div style={style} className="stats__table-row stats__table-row--inventory">
+          <span className="stats__cell-primary">{row.category}</span>
+          <span>{formatCount(row.itemCount)}</span>
+          <span>{formatCount(row.totalQuantity)}</span>
+          <span>{formatCount(row.warehouseCount)}</span>
+          <span>{formatCount(row.lockerCount)}</span>
+        </div>
+      );
+    },
+    [inventoryCategories]
+  );
 
-  const assetBreakdown = Array.from(assetBreakdownMap.values()).filter((entry) => entry.count > 0);
+  const gauntletRowRenderer = useCallback(
+    ({ index, style }: ListChildComponentProps) => {
+      const row = gauntletSummary.rows[index];
+      if (!row) return null;
+      const capped = Math.min(Math.max(row.progress, 0), 1);
+      return (
+        <div style={style} className="stats__table-row stats__table-row--gauntlet">
+          <div className="stats__cell-primary stats__cell-primary--stacked">
+            <strong>{row.title}</strong>
+            <span>{normalizeStatus(row.status)}</span>
+          </div>
+          <span>{formatCP(row.budget)} CP</span>
+          <span>{formatCP(row.spent)} CP</span>
+          <span>{formatCP(row.earned)} CP</span>
+          <div className="stats__progress-wrapper">
+            <span className="stats__progress-label">{formatPercent(row.progress)}</span>
+            <div className="stats__progress" aria-hidden="true">
+              <div
+                className={`stats__progress-bar${row.progress >= 1 ? " stats__progress-bar--complete" : ""}`}
+                style={{ width: `${capped * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    },
+    [gauntletSummary.rows]
+  );
 
-  return {
-    totalJumps: snapshot.jumps.length,
-    totalBudget,
-    totalSpent,
-    totalCredit,
-    netBalance: totalCredit - totalSpent,
-    averageBudget: snapshot.jumps.length ? totalBudget / snapshot.jumps.length : 0,
-    totalPurchases: snapshot.jumpAssets.filter((asset) => asset.asset_type !== "drawback").length,
-    statusBuckets: Array.from(statusCounts.entries())
-      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-      .map(([label, count]) => ({ label, count })),
-    assetBreakdown,
-    inventoryTotals,
-    profileCount: snapshot.profiles.length,
-    topWorlds,
-    recentJumps,
-  };
-};
+  const boosterRowRenderer = useCallback(
+    ({ index, style }: ListChildComponentProps) => {
+      const entry = boosterSummary.entries[index];
+      if (!entry) return null;
+      const characters = entry.characters.map((character) => character.name).join(", ");
+      return (
+        <div style={style} className="stats__table-row stats__table-row--booster">
+          <span className="stats__cell-primary">{entry.booster}</span>
+          <span>{formatCount(entry.count)}</span>
+          <span title={characters || undefined}>{characters || "—"}</span>
+        </div>
+      );
+    },
+    [boosterSummary.entries]
+  );
 
-const describeInventory = (item: InventoryItemRecord): string => {
-  const metadata = getMetadata(item.metadata);
-  const packed = typeof metadata.packed === "boolean" ? metadata.packed : null;
-  const priority = typeof metadata.priority === "string" ? metadata.priority : null;
-  const bits = [item.category, priority ? `priority: ${String(priority)}` : null];
-  if (packed !== null) {
-    bits.push(packed ? "packed" : "unpacked");
-  }
-  return bits.filter(Boolean).join(" • ");
-};
+  const cpListHeight = Math.max(1, Math.min(cpRows.length, 8)) * ROW_HEIGHT;
+  const inventoryListHeight = Math.max(1, Math.min(inventoryCategories.length, 8)) * ROW_HEIGHT;
+  const gauntletListHeight = Math.max(1, Math.min(gauntletSummary.rows.length, 6)) * GAUNTLET_ROW_HEIGHT;
+  const boosterListHeight = Math.max(1, Math.min(boosterSummary.entries.length, 8)) * BOOSTER_ROW_HEIGHT;
 
-const formatDate = (value: string | null): string => {
-  if (!value) return "—";
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }).format(new Date(value));
-  } catch {
-    return value.slice(0, 10);
-  }
-};
-
-const StatisticsHub: React.FC = () => {
-  const analyticsQuery = useQuery({ queryKey: ["analytics-snapshot"], queryFn: loadExportSnapshot });
-
-  const metrics = useMemo(() => computeMetrics(analyticsQuery.data), [analyticsQuery.data]);
-
-  const purchaseNetTotal = metrics.assetBreakdown
-    .filter((entry) => entry.type !== "drawback")
-    .reduce((sum, entry) => sum + entry.netCost, 0);
-  const drawbackTotal = metrics.assetBreakdown.find((entry) => entry.type === "drawback")?.credit ?? 0;
-
-  const newestInventory = useMemo(() => {
-    if (!analyticsQuery.data?.inventory.length) {
-      return [] as InventoryItemRecord[];
-    }
-    return [...analyticsQuery.data.inventory]
-      .sort((a, b) => {
-        const left = parseDate(b.updated_at ?? b.created_at);
-        const right = parseDate(a.updated_at ?? a.created_at);
-        return left - right;
-      })
-      .slice(0, 4);
-  }, [analyticsQuery.data?.inventory]);
+  const gauntletStatusLabel = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(gauntletSummary.allowGauntlet ? "Enabled" : "Disabled");
+    parts.push(gauntletSummary.gauntletHalved ? "Halved" : "Full value");
+    parts.push(`${formatCount(gauntletSummary.completedGauntlets)} complete`);
+    return parts.join(" • ");
+  }, [gauntletSummary.allowGauntlet, gauntletSummary.gauntletHalved, gauntletSummary.completedGauntlets]);
 
   return (
     <section className="stats">
       <header className="stats__header">
         <div>
           <h1>Chain Analytics</h1>
-          <p>High-level insights across jumps, purchases, characters, and storage.</p>
+          <p>Aggregated jump performance, storage distribution, gauntlet pacing, and booster coverage.</p>
         </div>
         <button
           type="button"
           className="stats__refresh"
-          onClick={() => analyticsQuery.refetch()}
-          disabled={analyticsQuery.isFetching}
+          onClick={() => statsQuery.refetch()}
+          disabled={statsQuery.isFetching}
         >
-          {analyticsQuery.isFetching ? "Refreshing…" : "Refresh"}
+          {statsQuery.isFetching ? "Refreshing…" : "Refresh"}
         </button>
       </header>
 
-      {analyticsQuery.isLoading && <p className="stats__empty">Loading analytics…</p>}
-      {analyticsQuery.isError && (
+      {statsQuery.isLoading && <p className="stats__empty">Loading analytics…</p>}
+      {statsQuery.isError && (
         <p className="stats__empty stats__empty--error">Failed to load analytics snapshot.</p>
       )}
 
-      {!analyticsQuery.isLoading && !analyticsQuery.isError && (
+      {!statsQuery.isLoading && !statsQuery.isError && (
         <div className="stats__content">
           <div className="stats__summary">
             <article className="stats__summary-card">
-              <h3>Total Jumps</h3>
-              <strong>{formatCount(metrics.totalJumps)}</strong>
-              <span>{formatCount(metrics.totalPurchases)} purchases logged</span>
+              <h3>Jumps Logged</h3>
+              <strong>{formatCount(totalJumps)}</strong>
+              <span>{formatCount(totalPurchases)} purchases tracked</span>
             </article>
             <article className="stats__summary-card">
-              <h3>Budget Allocated</h3>
-              <strong>{formatCP(metrics.totalBudget)} CP</strong>
-              <span>Avg {formatDecimal(metrics.averageBudget || 0)} CP per jump</span>
+              <h3>Drawback Credit</h3>
+              <strong>{formatCP(cpTotals.earned)} CP</strong>
+              <span>Net balance {formatCP(cpTotals.net)} CP</span>
             </article>
             <article className="stats__summary-card">
-              <h3>Net Balance</h3>
-              <strong>{formatCP(metrics.netBalance)} CP</strong>
-              <span>{formatCP(metrics.totalCredit)} CP earned from drawbacks</span>
+              <h3>Inventory Footprint</h3>
+              <strong>{formatCount(snapshot.inventory.totalItems)} items</strong>
+              <span>Total quantity {formatCount(snapshot.inventory.totalQuantity)}</span>
             </article>
             <article className="stats__summary-card">
-              <h3>Characters &amp; Inventory</h3>
-              <strong>{formatCount(metrics.profileCount)} profiles</strong>
-              <span>{formatCount(metrics.inventoryTotals.totalCount)} items tracked</span>
+              <h3>Booster Coverage</h3>
+              <strong>{formatCount(boosterSummary.uniqueBoosters)} unique</strong>
+              <span>{formatCount(boosterSummary.charactersWithBoosters)} boosted profiles</span>
             </article>
           </div>
 
           <div className="stats__grid">
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>Status Distribution</h2>
-                <span>Total {formatCount(metrics.totalJumps)}</span>
+                <h2>CP Breakdown</h2>
+                <span>{formatCP(cpTotals.spent)} CP spent • {formatCP(totalCredit)} CP earned</span>
               </header>
-              {metrics.statusBuckets.length ? (
-                <ul className="stats__distribution">
-                  {metrics.statusBuckets.map((bucket) => (
-                    <li key={bucket.label}>
-                      <span className="stats__chip">{bucket.label}</span>
-                      <span>{formatCount(bucket.count)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="stats__empty">No jumps yet to categorize.</p>
-              )}
-            </section>
-
-            <section className="stats__panel">
-              <header className="stats__panel-header">
-                <h2>Purchase Breakdown</h2>
-                <span>{formatCount(metrics.totalPurchases)} entries</span>
-              </header>
-              {metrics.assetBreakdown.length ? (
+              {assetBreakdown.length ? (
                 <div className="stats__asset-grid">
-                  {metrics.assetBreakdown.map((asset) => {
-                    const share =
-                      asset.type === "drawback"
-                        ? drawbackTotal > 0
-                          ? asset.credit / Math.max(drawbackTotal, 1)
-                          : 0
-                        : purchaseNetTotal > 0
-                          ? asset.netCost / Math.max(purchaseNetTotal, 1)
-                          : 0;
+                  {assetBreakdown.map((asset) => {
+                    const label = assetLabels[asset.assetType] ?? asset.assetType;
+                    const share = asset.assetType === "drawback"
+                      ? totalCredit > 0
+                        ? asset.credit / totalCredit
+                        : 0
+                      : totalSpend > 0
+                        ? asset.netCost / totalSpend
+                        : 0;
                     return (
-                      <article key={asset.type} className="stats__asset-card">
+                      <article key={asset.assetType} className="stats__asset-card">
                         <header>
-                          <h3>{asset.label}</h3>
+                          <h3>{label}</h3>
                           <span>{formatPercent(share)}</span>
                         </header>
                         <dl>
                           <div>
                             <dt>Entries</dt>
-                            <dd>{formatCount(asset.count)}</dd>
+                            <dd>{formatCount(asset.itemCount)}</dd>
                           </div>
                           <div>
                             <dt>Gross</dt>
                             <dd>{formatCP(asset.gross)} CP</dd>
                           </div>
-                          {asset.type === "drawback" ? (
+                          {asset.assetType === "drawback" ? (
                             <div>
                               <dt>Credit</dt>
                               <dd>{formatCP(asset.credit)} CP</dd>
@@ -456,7 +288,7 @@ const StatisticsHub: React.FC = () => {
                               <dd>{formatCP(asset.netCost)} CP</dd>
                             </div>
                           )}
-                          {asset.discounted > 0 && asset.type !== "drawback" && (
+                          {asset.discounted > 0 && asset.assetType !== "drawback" && (
                             <div>
                               <dt>Discounted</dt>
                               <dd>{formatCount(asset.discounted)}</dd>
@@ -480,88 +312,116 @@ const StatisticsHub: React.FC = () => {
 
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>Top Worlds</h2>
-                <span>Most visited settings</span>
+                <h2>Spend &amp; Credit by Jump</h2>
+                <span>{formatCount(totalJumps)} jumps</span>
               </header>
-              {metrics.topWorlds.length ? (
-                <ol className="stats__ranking">
-                  {metrics.topWorlds.map((world) => (
-                    <li key={world.world}>
-                      <span>{world.world}</span>
-                      <strong>{formatCount(world.count)}</strong>
-                    </li>
-                  ))}
-                </ol>
+              {cpRows.length ? (
+                <div className="stats__table">
+                  <div className="stats__table-header stats__table-row--cp">
+                    <span>Jump</span>
+                    <span>Status</span>
+                    <span>Budget</span>
+                    <span>Spent</span>
+                    <span>Earned</span>
+                    <span>Net</span>
+                  </div>
+                  <List
+                    height={cpListHeight}
+                    itemCount={cpRows.length}
+                    itemKey={(index) => cpRows[index]?.jumpId ?? index}
+                    itemSize={ROW_HEIGHT}
+                    width="100%"
+                  >
+                    {cpRowRenderer}
+                  </List>
+                </div>
               ) : (
-                <p className="stats__empty">World metadata hasn&apos;t been entered yet.</p>
+                <p className="stats__empty">No jump budgets available yet.</p>
               )}
             </section>
 
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>Recent Jumps</h2>
-                <span>Latest five entries</span>
+                <h2>Inventory by Category</h2>
+                <span>{formatCount(snapshot.inventory.totalItems)} items tracked</span>
               </header>
-              {metrics.recentJumps.length ? (
-                <ul className="stats__recent">
-                  {metrics.recentJumps.map((jump) => (
-                    <li key={jump.id}>
-                      <div>
-                        <strong>{jump.title}</strong>
-                        <span>{normalizeWorld(jump.world ?? null)}</span>
-                      </div>
-                      <div className="stats__recent-meta">
-                        <span>{formatDate(jump.start_date)}</span>
-                        <span>{formatCP(jump.cp_spent ?? 0)} CP spent</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="stats__empty">No jump history logged yet.</p>
-              )}
-            </section>
-
-            <section className="stats__panel">
-              <header className="stats__panel-header">
-                <h2>Inventory Snapshot</h2>
-                <span>{formatCount(metrics.inventoryTotals.totalCount)} items</span>
-              </header>
-              {metrics.inventoryTotals.totalCount ? (
-                <>
-                  <dl className="stats__inventory-summary">
-                    <div>
-                      <dt>Warehouse</dt>
-                      <dd>{formatCount(metrics.inventoryTotals.warehouseCount)}</dd>
-                    </div>
-                    <div>
-                      <dt>Locker</dt>
-                      <dd>{formatCount(metrics.inventoryTotals.lockerCount)}</dd>
-                    </div>
-                    <div>
-                      <dt>Total Qty</dt>
-                      <dd>{formatCount(metrics.inventoryTotals.totalQuantity)}</dd>
-                    </div>
-                  </dl>
-                  {newestInventory.length > 0 && (
-                    <ul className="stats__inventory-list">
-                      {newestInventory.map((item) => (
-                        <li key={item.id}>
-                          <div>
-                            <strong>{item.name}</strong>
-                            <span>{describeInventory(item)}</span>
-                          </div>
-                          <div className="stats__inventory-meta">
-                            <span>{formatDate(item.updated_at)}</span>
-                            <span>Qty {formatCount(item.quantity ?? 0)}</span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
+              {inventoryCategories.length ? (
+                <div className="stats__table">
+                  <div className="stats__table-header stats__table-row--inventory">
+                    <span>Category</span>
+                    <span>Entries</span>
+                    <span>Quantity</span>
+                    <span>Warehouse</span>
+                    <span>Locker</span>
+                  </div>
+                  <List
+                    height={inventoryListHeight}
+                    itemCount={inventoryCategories.length}
+                    itemKey={(index) => inventoryCategories[index]?.category ?? index}
+                    itemSize={ROW_HEIGHT}
+                    width="100%"
+                  >
+                    {inventoryRowRenderer}
+                  </List>
+                </div>
               ) : (
                 <p className="stats__empty">Warehouse and locker are currently empty.</p>
+              )}
+            </section>
+
+            <section className="stats__panel">
+              <header className="stats__panel-header">
+                <h2>Gauntlet Progress</h2>
+                <span>{gauntletSummary.totalGauntlets ? gauntletStatusLabel : "No gauntlet runs logged"}</span>
+              </header>
+              {gauntletSummary.totalGauntlets ? (
+                <div className="stats__table">
+                  <div className="stats__table-header stats__table-row--gauntlet">
+                    <span>Jump</span>
+                    <span>Budget</span>
+                    <span>Spent</span>
+                    <span>Earned</span>
+                    <span>Progress</span>
+                  </div>
+                  <List
+                    height={gauntletListHeight}
+                    itemCount={gauntletSummary.rows.length}
+                    itemKey={(index) => gauntletSummary.rows[index]?.jumpId ?? index}
+                    itemSize={GAUNTLET_ROW_HEIGHT}
+                    width="100%"
+                  >
+                    {gauntletRowRenderer}
+                  </List>
+                </div>
+              ) : (
+                <p className="stats__empty">Tag jumps with a gauntlet status to monitor budget pacing.</p>
+              )}
+            </section>
+
+            <section className="stats__panel">
+              <header className="stats__panel-header">
+                <h2>Booster Usage</h2>
+                <span>{formatCount(boosterSummary.totalCharacters)} profiles analysed</span>
+              </header>
+              {boosterSummary.entries.length ? (
+                <div className="stats__table">
+                  <div className="stats__table-header stats__table-row--booster">
+                    <span>Booster</span>
+                    <span>Characters</span>
+                    <span>Roster</span>
+                  </div>
+                  <List
+                    height={boosterListHeight}
+                    itemCount={boosterSummary.entries.length}
+                    itemKey={(index) => boosterSummary.entries[index]?.booster ?? index}
+                    itemSize={BOOSTER_ROW_HEIGHT}
+                    width="100%"
+                  >
+                    {boosterRowRenderer}
+                  </List>
+                </div>
+              ) : (
+                <p className="stats__empty">Boosters haven&apos;t been recorded in character profiles yet.</p>
               )}
             </section>
           </div>

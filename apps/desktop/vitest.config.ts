@@ -8,6 +8,7 @@ export default defineConfig({
     setupFiles: ["./test/setup.ts"],
     globals: true,
     css: false,
+    testTimeout: 10000,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
@@ -20,7 +21,11 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["**/legacy/**", "src-tauri/**"],
     },
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "src/__tests__/**/*.{ts,tsx}"],
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "src/__tests__/**/*.{ts,tsx}",
+      "test/unit/**/*.{test,spec}.{ts,tsx}",
+    ],
     exclude: ["**/legacy/**", "src-tauri/**"],
   },
 });

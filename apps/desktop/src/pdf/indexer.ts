@@ -22,10 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { readFile } from "@tauri-apps/plugin-fs";
 import type { PdfIndexComplete, PdfIndexProgress } from "./types";
 import type { PdfWorkerOutbound } from "./types";
 import { indexFileText } from "../db/dao";
+import { getPlatform } from "../services/platform";
 
 export interface PdfIndexOptions {
   fileId: string;
@@ -43,7 +43,8 @@ function toArrayBuffer(view: Uint8Array): ArrayBuffer {
 }
 
 export async function indexPdf(options: PdfIndexOptions): Promise<PdfIndexComplete> {
-  const data = await readFile(options.filePath);
+  const platform = await getPlatform();
+  const data = await platform.fs.readBinaryFile(options.filePath);
   const worker = new Worker(new URL("./pdf-worker.ts", import.meta.url), { type: "module" });
 
   return new Promise((resolve, reject) => {

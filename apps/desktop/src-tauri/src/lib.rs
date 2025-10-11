@@ -20,10 +20,43 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::AppHandle;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use tauri::{path::BaseDirectory, AppHandle, Window};
 use tauri_plugin_dialog::{DialogExt, FilePath};
+use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+
+const TEST_RUN_EVENT: &str = "devtools://test-run";
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum LogLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum LogSource {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TestRunPayload {
+    Started,
+    Log {
+        level: LogLevel,
+        message: String,
+        source: LogSource,
+    },
+    Terminated { code: Option<i32> },
+    Error { message: String },
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct FileFilter {
@@ -57,6 +90,71 @@ fn paths_to_strings(paths: Vec<FilePath>) -> Result<Vec<String>, String> {
                 .map(|pb| pb.to_string_lossy().into_owned())
         })
         .collect()
+}
+
+fn sanitize_line(bytes: Vec<u8>) -> Option<String> {
+    let text = String::from_utf8(bytes).ok()?;
+    let cleaned = text.trim_end_matches(['\r', '\n']);
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
+}
+
+fn classify_level(source: LogSource, message: &str) -> LogLevel {
+    if matches!(source, LogSource::Stderr) {
+        return LogLevel::Error;
+    }
+
+    let upper = message.to_ascii_uppercase();
+    if upper.contains("FAIL") || upper.contains("ERROR") {
+        LogLevel::Error
+    } else if upper.contains("WARN") {
+        LogLevel::Warn
+    } else {
+        LogLevel::Info
+    }
+}
+
+fn locate_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Ok(current) = std::env::current_dir() {
+        candidates.push(current);
+    }
+
+    if let Ok(resource_parent) = app.path().resolve("..", BaseDirectory::Resource) {
+        candidates.push(resource_parent);
+    }
+
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+
+    for mut candidate in candidates {
+        loop {
+            if !visited.insert(candidate.clone()) {
+                match candidate.parent() {
+                    Some(parent) => {
+                        candidate = parent.to_path_buf();
+                        continue;
+                    }
+                    None => break,
+                }
+            }
+
+            let package = candidate.join("package.json");
+            if package.is_file() {
+                return Ok(candidate);
+            }
+
+            match candidate.parent() {
+                Some(parent) => candidate = parent.to_path_buf(),
+                None => break,
+            }
+        }
+    }
+
+    Err("Unable to locate workspace directory for npm".into())
 }
 
 #[tauri::command]
@@ -113,6 +211,65 @@ async fn index_pdf(
     Ok(())
 }
 
+#[tauri::command]
+async fn run_full_test_suite(window: Window) -> Result<(), String> {
+    let app = window.app_handle();
+    let workspace_dir = locate_workspace_dir(&app)?;
+
+    let command = app
+        .shell()
+        .command("npm")
+        .args(["run", "test:full"])
+        .current_dir(&workspace_dir)
+        .env("FORCE_COLOR", "0")
+        .env("npm_config_color", "false");
+
+    let (mut rx, child) = command.spawn().map_err(|err| err.to_string())?;
+
+    let _ = window.emit(TEST_RUN_EVENT, &TestRunPayload::Started);
+
+    let event_window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        let _child_handle = child;
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    if let Some(message) = sanitize_line(line) {
+                        let level = classify_level(LogSource::Stdout, &message);
+                        let payload = TestRunPayload::Log {
+                            level,
+                            message,
+                            source: LogSource::Stdout,
+                        };
+                        let _ = event_window.emit(TEST_RUN_EVENT, &payload);
+                    }
+                }
+                CommandEvent::Stderr(line) => {
+                    if let Some(message) = sanitize_line(line) {
+                        let level = classify_level(LogSource::Stderr, &message);
+                        let payload = TestRunPayload::Log {
+                            level,
+                            message,
+                            source: LogSource::Stderr,
+                        };
+                        let _ = event_window.emit(TEST_RUN_EVENT, &payload);
+                    }
+                }
+                CommandEvent::Terminated(details) => {
+                    let payload = TestRunPayload::Terminated { code: details.code };
+                    let _ = event_window.emit(TEST_RUN_EVENT, &payload);
+                }
+                CommandEvent::Error(error) => {
+                    let payload = TestRunPayload::Error { message: error };
+                    let _ = event_window.emit(TEST_RUN_EVENT, &payload);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -120,7 +277,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![db_query, file_pick, index_pdf])
+        .invoke_handler(tauri::generate_handler![
+            db_query,
+            file_pick,
+            index_pdf,
+            run_full_test_suite
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

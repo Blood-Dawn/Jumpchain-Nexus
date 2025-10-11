@@ -165,6 +165,362 @@ describe("computeBudget", () => {
       netCost: 275,
     });
   });
+
+  it("clamps negative costs before aggregating", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
+    const purchases: PurchaseCostInput[] = [
+      { cost: -50 },
+      { cost: -25, discount: true },
+      { cost: -10, freebie: true },
+    ];
+    expect(computeBudget(purchases)).toEqual({
+      totalCost: 0,
+      discounted: 0,
+      freebies: 0,
+      netCost: 0,
+    });
+  });
+});
+
+describe("summarizeJumpBudget", () => {
+  it("includes stipend toggles and companion import selections", async () => {
+    const fakeDb = new FakeDb();
+    const assetRows = [
+      {
+        id: "asset-perk",
+        asset_type: "perk",
+        name: "Perk A",
+        cost: 400,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: JSON.stringify({ stipend: { base: 100, frequency: "once", total: 100 } }),
+      },
+      {
+        id: "asset-companion",
+        asset_type: "companion",
+        name: "Companion B",
+        cost: 0,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: JSON.stringify({ stipend: { base: 50, periods: 3, frequency: "monthly", total: 150 } }),
+      },
+      {
+        id: "asset-drawback",
+        asset_type: "drawback",
+        name: "Drawback Z",
+        cost: 200,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: null,
+      },
+    ];
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("WHERE jump_id = $1"),
+      () => assetRows
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [
+        { asset_id: "asset-perk", enabled: 1, override_total: null },
+        { asset_id: "asset-companion", enabled: 0, override_total: null },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM companion_imports"),
+      () => [
+        {
+          id: "import-1",
+          asset_id: "asset-companion",
+          companion_name: "Alice",
+          option_value: 150,
+          selected: 1,
+        },
+        {
+          id: "import-2",
+          asset_id: "asset-companion",
+          companion_name: "Bob",
+          option_value: 200,
+          selected: 0,
+        },
+      ]
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { summarizeJumpBudget } = await importDao();
+    const summary = await summarizeJumpBudget("jump-1");
+
+    expect(summary.netCost).toBe(550);
+    expect(summary.purchasesNetCost).toBe(400);
+    expect(summary.companionImportCost).toBe(150);
+    expect(summary.drawbackCredit).toBe(200);
+    expect(summary.stipendAdjustments).toBe(100);
+    expect(summary.stipendPotential).toBe(250);
+    expect(summary.balance).toBe(-250);
+
+    expect(summary.stipendToggles).toEqual([
+      {
+        assetId: "asset-perk",
+        assetName: "Perk A",
+        enabled: true,
+        amount: 100,
+        potentialAmount: 100,
+      },
+      {
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        enabled: false,
+        amount: 150,
+        potentialAmount: 150,
+      },
+    ]);
+
+    expect(summary.companionImportSelections).toEqual([
+      {
+        id: "import-1",
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        companionName: "Alice",
+        optionValue: 150,
+        selected: true,
+      },
+      {
+        id: "import-2",
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        companionName: "Bob",
+        optionValue: 200,
+        selected: false,
+      },
+    ]);
+  });
+
+  it("persists stipend toggle updates and refreshes jump costs", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("WHERE jump_id = $1"),
+      () => [
+        {
+          id: "asset-perk",
+          asset_type: "perk",
+          name: "Perk A",
+          cost: 100,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          metadata: JSON.stringify({ stipend: { base: 50, frequency: "once", total: 50 } }),
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [{ asset_id: "asset-perk", enabled: 0, override_total: null }]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM companion_imports"),
+      () => []
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { summarizeJumpBudget, setJumpStipendToggle } = await importDao();
+
+    const before = await summarizeJumpBudget("jump-1");
+    expect(before.stipendAdjustments).toBe(50);
+    expect(before.balance).toBe(-50);
+
+    await setJumpStipendToggle("jump-1", "asset-perk", false);
+
+    const insertCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("INSERT INTO jump_stipend_toggles")
+    );
+    expect(insertCall?.params.slice(0, 3)).toEqual(["jump-1", "asset-perk", 0]);
+
+    const updateCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("UPDATE jumps SET cp_spent")
+    );
+    expect(updateCall).toBeTruthy();
+
+    const after = await summarizeJumpBudget("jump-1");
+    expect(after.stipendAdjustments).toBe(0);
+    expect(after.balance).toBe(-100);
+  });
+});
+
+describe("statistics snapshot", () => {
+  it("aggregates cp, inventory, gauntlet, and boosters", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jumps j") && sql.includes("GROUP BY j.id") && !sql.includes("gauntlet_jumps"),
+      () => [
+        {
+          jump_id: "jump-1",
+          title: "Arc One",
+          status: "Gauntlet",
+          cp_budget: 1500,
+          spent: 600,
+          earned: 400,
+        },
+        {
+          jump_id: "jump-2",
+          title: "World Two",
+          status: "Completed",
+          cp_budget: 1000,
+          spent: 850,
+          earned: 50,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("GROUP BY asset_type"),
+      () => [
+        {
+          asset_type: "perk",
+          item_count: 4,
+          gross_cost: 1000,
+          net_cost: 900,
+          credit: 0,
+          discounted_count: 2,
+          freebie_count: 1,
+        },
+        {
+          asset_type: "item",
+          item_count: 3,
+          gross_cost: 600,
+          net_cost: 550,
+          credit: 0,
+          discounted_count: 0,
+          freebie_count: 0,
+        },
+        {
+          asset_type: "drawback",
+          item_count: 2,
+          gross_cost: 450,
+          net_cost: 0,
+          credit: 450,
+          discounted_count: 0,
+          freebie_count: 0,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM normalized_inventory"),
+      () => [
+        {
+          category: "Weapons",
+          item_count: 4,
+          total_quantity: 8,
+          warehouse_count: 3,
+          locker_count: 1,
+        },
+        {
+          category: null,
+          item_count: 1,
+          total_quantity: 1,
+          warehouse_count: 0,
+          locker_count: 1,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM gauntlet_jumps"),
+      () => [
+        {
+          jump_id: "jump-1",
+          title: "Arc One",
+          status: "Gauntlet",
+          cp_budget: 1500,
+          spent: 600,
+          earned: 400,
+        },
+        {
+          jump_id: "jump-3",
+          title: "Trial of Courage",
+          status: "GAUNTLET-PHASE",
+          cp_budget: 1200,
+          spent: 1300,
+          earned: 200,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 500,
+          companion_cp: 200,
+          item_cp: 150,
+          warehouse_wp: 50,
+          allow_gauntlet: 1,
+          gauntlet_halved: 0,
+          created_at: "2025-02-03T04:05:06.000Z",
+          updated_at: "2025-02-03T04:05:06.000Z",
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM character_profiles"),
+      () => [
+        {
+          id: "char-1",
+          name: "Alicia Storm",
+          attributes_json: JSON.stringify({ boosters: ["Regeneration", { name: "Speed Burst" }] }),
+          traits_json: JSON.stringify([{ name: "Courage", type: "virtue" }]),
+        },
+        {
+          id: "char-2",
+          name: "Borin Flame",
+          attributes_json: JSON.stringify({ boosters: { "Fire Core": { rank: "A" } } }),
+          traits_json: JSON.stringify([{ name: "Fire Core", type: "booster" }]),
+        },
+        {
+          id: "char-3",
+          name: "Cara Shade",
+          attributes_json: null,
+          traits_json: JSON.stringify([{ name: "Shadow Blend", type: "booster" }]),
+        },
+      ]
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+    const { loadStatisticsSnapshot } = await importDao();
+    const snapshot = await loadStatisticsSnapshot();
+
+    expect(snapshot.cp.totals).toEqual({ budget: 2500, spent: 1450, earned: 450, net: -1000 });
+    expect(snapshot.cp.byAssetType.find((entry) => entry.assetType === "perk")).toMatchObject({
+      itemCount: 4,
+      netCost: 900,
+      discounted: 2,
+      freebies: 1,
+    });
+    expect(snapshot.inventory.totalItems).toBe(5);
+    expect(snapshot.inventory.totalQuantity).toBe(9);
+    expect(snapshot.inventory.categories[0]).toMatchObject({ category: "Weapons", itemCount: 4 });
+    expect(snapshot.gauntlet.allowGauntlet).toBe(true);
+    expect(snapshot.gauntlet.totalGauntlets).toBe(2);
+    expect(snapshot.gauntlet.completedGauntlets).toBe(1);
+    expect(snapshot.gauntlet.rows[1]).toMatchObject({ jumpId: "jump-3", spent: 1300 });
+    expect(snapshot.boosters.totalCharacters).toBe(3);
+    expect(snapshot.boosters.totalBoosters).toBe(4);
+    expect(snapshot.boosters.entries.map((entry) => entry.booster)).toEqual([
+      "Fire Core",
+      "Regeneration",
+      "Shadow Blend",
+      "Speed Burst",
+    ]);
+    const fireCore = snapshot.boosters.entries[0];
+    expect(fireCore.characters.map((character) => character.name)).toEqual(["Borin Flame"]);
+  });
 });
 
 describe("jump asset dao", () => {
@@ -180,14 +536,17 @@ describe("jump asset dao", () => {
       { once: true }
     );
     fakeDb.whenSelect(
-      (sql) => sql.includes("SELECT asset_type, cost, quantity, discounted, freebie") && sql.includes("FROM jump_assets"),
+      (sql) => sql.includes("SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata") && sql.includes("FROM jump_assets"),
       () => [
         {
+          id: "asset-123",
           asset_type: "perk",
+          name: "Sword of Dawn",
           cost: 200,
           quantity: 1,
           discounted: 0,
           freebie: 0,
+          metadata: JSON.stringify({ stipend: null }),
         },
       ],
       { once: true }
@@ -308,6 +667,32 @@ describe("jump asset dao", () => {
     expect(listCall?.sql).toContain("asset_type IN ($2, $3)");
     expect(listCall?.params).toEqual(["jump-1", "perk", "item"]);
   });
+
+  it("reorders jump assets inside a transaction", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { reorderJumpAssets } = await importDao();
+    await reorderJumpAssets("jump-9", "item", ["asset-a", "asset-b"]);
+
+    const executedSql = fakeDb.executeCalls.map((entry) => entry.sql.trim());
+    expect(executedSql.some((sql) => sql === "BEGIN TRANSACTION")).toBe(true);
+    expect(executedSql.some((sql) => sql === "COMMIT")).toBe(true);
+    const updateCalls = fakeDb.executeCalls.filter((entry) =>
+      entry.sql.replace(/\s+/g, " ").toUpperCase().includes("UPDATE JUMP_ASSETS SET SORT_ORDER")
+    );
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]?.params?.[0]).toBe(0);
+    expect(typeof updateCalls[0]?.params?.[1]).toBe("string");
+    expect(updateCalls[0]?.params?.[2]).toBe("asset-a");
+    expect(updateCalls[0]?.params?.[3]).toBe("jump-9");
+    expect(updateCalls[0]?.params?.[4]).toBe("item");
+    expect(updateCalls[1]?.params?.[0]).toBe(1);
+    expect(typeof updateCalls[1]?.params?.[1]).toBe("string");
+    expect(updateCalls[1]?.params?.[2]).toBe("asset-b");
+    expect(updateCalls[1]?.params?.[3]).toBe("jump-9");
+    expect(updateCalls[1]?.params?.[4]).toBe("item");
+  });
 });
 
 describe("formatter settings dao", () => {
@@ -329,6 +714,11 @@ describe("formatter settings dao", () => {
           { key: "formatter.thousandsSeparator", value: "space", updated_at: "2025-01-01T00:00:00.000Z" },
         ],
       ],
+      "formatter.spellcheckEnabled": [
+        [
+          { key: "formatter.spellcheckEnabled", value: "false", updated_at: "2025-01-01T00:00:00.000Z" },
+        ],
+      ],
     };
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM app_settings WHERE key = $1"),
@@ -348,6 +738,7 @@ describe("formatter settings dao", () => {
       removeAllLineBreaks: true,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "space",
+      spellcheckEnabled: false,
     });
   });
 
@@ -377,6 +768,14 @@ describe("formatter settings dao", () => {
           { key: "formatter.thousandsSeparator", value: "comma", updated_at: now },
         ],
       ],
+      "formatter.spellcheckEnabled": [
+        [
+          { key: "formatter.spellcheckEnabled", value: "true", updated_at: now },
+        ],
+        [
+          { key: "formatter.spellcheckEnabled", value: "true", updated_at: now },
+        ],
+      ],
     };
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM app_settings WHERE key = $1"),
@@ -401,16 +800,18 @@ describe("formatter settings dao", () => {
       removeAllLineBreaks: true,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "comma",
+      spellcheckEnabled: true,
     });
 
     const persistedCalls = fakeDb.executeCalls.filter((call) =>
       call.sql.includes("INSERT INTO app_settings")
     );
-    expect(persistedCalls).toHaveLength(3);
+    expect(persistedCalls).toHaveLength(4);
     expect(persistedCalls.map((call) => call.params.slice(0, 2))).toEqual([
       ["formatter.deleteAllLineBreaks", "true"],
       ["formatter.leaveDoubleLineBreaks", "false"],
       ["formatter.thousandsSeparator", "comma"],
+      ["formatter.spellcheckEnabled", "true"],
     ]);
 
     vi.useRealTimers();
@@ -867,5 +1268,144 @@ describe("export preset dao", () => {
     expect(presets.map((preset) => preset.name)).toEqual(["Alpha", "Beta"]);
     const selectCall = fakeDb.selectCalls.find((call) => call.sql.includes("FROM export_presets"));
     expect(selectCall?.sql).toContain("ORDER BY name COLLATE NOCASE");
+  });
+});
+
+describe("warehouse personal reality summary", () => {
+  it("aggregates WP and limit contributions", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Stasis Pods",
+          category: null,
+          quantity: 2,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              wp: 5,
+              consumes: { structures: 1, residents: 2 },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "item-2",
+          scope: "warehouse",
+          name: "Dormitory",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              provides: { structures: 3, residents: 6 },
+            },
+          }),
+          sort_order: 1,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 0,
+          companion_cp: 0,
+          item_cp: 0,
+          warehouse_wp: 12,
+          allow_gauntlet: 0,
+          gauntlet_halved: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary).toEqual({
+      wpTotal: 10,
+      wpCap: 12,
+      limits: [
+        { key: "residents", label: "Residents", provided: 6, used: 4 },
+        { key: "structures", label: "Structures", provided: 3, used: 2 },
+      ],
+    });
+  });
+
+  it("normalizes string values and ignores malformed metadata", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Generator",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personal_reality: {
+              wpCost: "7",
+              provides: { power: "10" },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "item-2",
+          scope: "warehouse",
+          name: "Luxury Suite",
+          category: null,
+          quantity: 0,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: "not-json",
+          sort_order: 1,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary.wpTotal).toBe(7);
+    expect(summary.wpCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
+    expect(summary.limits).toEqual([
+      { key: "power", label: "Power", provided: 10, used: 0 },
+    ]);
   });
 });

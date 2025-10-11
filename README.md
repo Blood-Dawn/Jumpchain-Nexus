@@ -21,8 +21,17 @@ Additional acknowledgments:
 
 Thanks to the broader Jumpchain community for patterns, export formats, and category conventions reflected in configuration options.
 
+## Project Documentation
+
+- [Contribution guidelines](CONTRIBUTING.md) — workflows, tooling expectations, and review process for both the modern desktop app and the legacy WPF client.
+- [Code of Conduct](CODE_OF_CONDUCT.md) — expected standards for respectful collaboration.
+- [Changelog](CHANGELOG.md) — notable changes recorded using Keep a Changelog conventions.
+- `DEV_NOTES/` — design discussions, audits, and modernization plans that inform roadmap priorities.
+
 ## Contributing to the new desktop app
 A Tauri + React rewrite lives in `apps/desktop`. A portable Node.js runtime is vendored under `tools/node/node-v22.12.0-win-x64`. Use the wrapper scripts at the repo root (`node.cmd`, `npm.cmd`, `npx.cmd`) so everyone targets the same toolchain.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor expectations, test commands, and issue triage policies.
 
 From PowerShell (repository root):
 ```powershell
@@ -31,10 +40,16 @@ From PowerShell (repository root):
 .\npm.cmd run build      # production web build (Tauri bundling uses tauri:build)
 .\npm.cmd run tauri:dev  # native shell with live reload
 .\npm.cmd run tauri:build
+.\npm.cmd run lint       # ESLint (TypeScript/React with Vitest/Playwright/Tauri rules)
+.\npm.cmd run format     # Prettier formatting across the desktop workspace
 ```
 Migration & DB scripts (SQLite via `@tauri-apps/plugin-sql`):
 ```powershell
 .\npm.cmd run migrate
+```
+After pulling dependency updates, re-run the install step to prune removed packages and refresh local binaries. Optional browser bundles for Playwright-based tests are not installed automatically; fetch them when needed with:
+```powershell
+npx playwright install --with-deps
 ```
 See `apps/desktop/README.md` (if present) for module details, schema evolution, and test commands.
 
@@ -92,16 +107,9 @@ Navigate to Releases and download the latest `JumpchainNexus.zip` (name may stil
 
 ### Running Source (WPF)
 > [!NOTE]
-> The WPF project is considered legacy/reference-only. It remains in the repository for historical parity and migration support, but active development is focused on the modern Tauri desktop client.
+> The classic WPF client has been archived under `apps/desktop/legacy/old-wpf/`. No new features or fixes are planned and the solution is retained purely for reference.
 
-Prerequisites: .NET 8 SDK (Windows). From repo root:
-```powershell
-dotnet restore
-dotnet build
-# Optionally:
-dotnet run --project JumpchainCharacterBuilder/JumpchainCharacterBuilder.csproj
-```
-The WPF project remains under the original `JumpchainCharacterBuilder` folder pending full namespace remap.
+If you need to inspect or migrate code from the legacy client, clone the upstream Age-Of-Ages repository or reopen the solution stored at `apps/desktop/legacy/old-wpf/JumpchainCharacterBuilderWPF.sln`. The active Jumpchain Nexus desktop application is built with Tauri + React (see below).
 
 ### Running Source (Tauri + React)
 Use the bundled Node runtime wrappers (do NOT rely on a different system Node to avoid drift):
@@ -140,7 +148,8 @@ Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are main
 - PDF placeholder (future indexing): `pdfjs-dist`
 - Packaging + Native Bridges: Tauri 2, plugins (dialog, fs, sql, opener)
 - Local DB: SQLite via `@tauri-apps/plugin-sql` + migration scripts
-- Utility: `jszip`, `zod` validation, `react-window` virtualization
+- Utility: `zod` validation, `react-window` virtualization
+- PDF tooling is now loaded on demand so the default UI bundle stays leaner while still supporting import/index workflows when invoked.
 - Rust Crate Dependencies: `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`, `tauri-plugin-sql`, `serde`, `serde_json`
 
 ## Dependencies Summary (Top Level)
