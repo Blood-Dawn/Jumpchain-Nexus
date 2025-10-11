@@ -21,8 +21,17 @@ Additional acknowledgments:
 
 Thanks to the broader Jumpchain community for patterns, export formats, and category conventions reflected in configuration options.
 
+## Project Documentation
+
+- [Contribution guidelines](CONTRIBUTING.md) — workflows, tooling expectations, and review process for both the modern desktop app and the legacy WPF client.
+- [Code of Conduct](CODE_OF_CONDUCT.md) — expected standards for respectful collaboration.
+- [Changelog](CHANGELOG.md) — notable changes recorded using Keep a Changelog conventions.
+- `DEV_NOTES/` — design discussions, audits, and modernization plans that inform roadmap priorities.
+
 ## Contributing to the new desktop app
 A Tauri + React rewrite lives in `apps/desktop`. A portable Node.js runtime is vendored under `tools/node/node-v22.12.0-win-x64`. Use the wrapper scripts at the repo root (`node.cmd`, `npm.cmd`, `npx.cmd`) so everyone targets the same toolchain.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full contributor expectations, test commands, and issue triage policies.
 
 From PowerShell (repository root):
 ```powershell
