@@ -3059,6 +3059,34 @@ a:hover {
   justify-content: space-between;
 }
 
+.locker__supplement-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1.1rem;
+}
+
+.locker__status {
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.locker__status--ok {
+  border-color: rgba(124, 241, 200, 0.32);
+  background: rgba(124, 241, 200, 0.1);
+  color: #c8ffe9;
+}
+
+.locker__status--warning {
+  border-color: rgba(255, 196, 122, 0.32);
+  background: rgba(255, 196, 122, 0.1);
+  color: #ffe1bd;
+}
+
 .locker__filter-group {
   display: flex;
   flex-direction: column;
@@ -3076,6 +3104,20 @@ a:hover {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.locker__filter-group--select label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.locker__filter-group--select select {
+  border-radius: 0.65rem;
+  border: 1px solid rgba(122, 203, 255, 0.22);
+  background: rgba(9, 18, 32, 0.92);
+  color: #f0f7ff;
+  padding: 0.45rem 0.85rem;
 }
 
 .locker__chip {
@@ -3211,6 +3253,64 @@ a:hover {
 .locker__badge--luxury {
   background: rgba(255, 196, 122, 0.22);
   color: #ffe8b8;
+}
+
+.locker__badge--bodymod {
+  border: 1px solid rgba(122, 203, 255, 0.32);
+}
+
+.locker__badge--bodymod-universal {
+  background: rgba(122, 203, 255, 0.18);
+  color: #d8f1ff;
+}
+
+.locker__badge--bodymod-essential {
+  background: rgba(124, 241, 200, 0.18);
+  color: #d9ffef;
+}
+
+.locker__badge--booster {
+  background: rgba(255, 149, 122, 0.22);
+  color: #ffd6cb;
+}
+
+.locker__badge--inactive {
+  opacity: 0.55;
+}
+
+.locker__item-warning {
+  margin-left: auto;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ffe1bd;
+}
+
+.locker__warnings {
+  background: rgba(255, 196, 122, 0.12);
+  border: 1px solid rgba(255, 196, 122, 0.28);
+  border-radius: 0.9rem;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.locker__warnings strong {
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ffe8c9;
+}
+
+.locker__warnings ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: rgba(255, 229, 199, 0.9);
+  font-size: 0.85rem;
 }
 
 .locker__detail {
