@@ -94,6 +94,8 @@ SOFTWARE.
   flex: 1;
   overflow: hidden;
   display: flex;
+  gap: 1.5rem;
+  position: relative;
 }
 
 .studio-editor__content {
@@ -142,6 +144,94 @@ SOFTWARE.
 .studio-grammar__popover button {
   display: inline-flex;
   margin-top: 0.5rem;
+}
+
+.studio-grammar__sidebar {
+  width: 280px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.studio-grammar__sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.studio-grammar__toggle {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.studio-grammar__sidebar-status {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.studio-grammar__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0;
+  margin: 0;
+}
+
+.studio-grammar__list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.studio-grammar__list-message {
+  margin: 0;
+  font-weight: 600;
+}
+
+.studio-grammar__list-rule {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.studio-grammar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.studio-grammar__action {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(54, 124, 255, 0.2);
+  color: inherit;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.studio-grammar__action:hover {
+  background: rgba(54, 124, 255, 0.35);
+  border-color: rgba(114, 188, 255, 0.65);
+}
+
+.studio-grammar__action--subtle {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .studio-chapter-list {

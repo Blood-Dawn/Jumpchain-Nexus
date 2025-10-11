@@ -28,7 +28,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { Plugin, PluginKey } from "prosemirror-state";
@@ -53,6 +53,7 @@ import { checkGrammar, createGrammarDebouncer, type GrammarSuggestion } from "..
 import { syncChapterMetadata } from "./indexer";
 import { exportChapter, exportStory, type StoryExportFormat } from "./exporters";
 import { confirmDialog } from "../../services/dialogService";
+import GrammarMatchesSidebar from "./GrammarMatchesSidebar";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -74,7 +75,12 @@ interface GrammarDecoration {
   to: number;
 }
 
-interface GrammarSuggestionWithRange extends GrammarSuggestion {
+type GrammarDecorationMeta =
+  | { type: "set"; decorations: GrammarDecoration[] }
+  | { type: "remove"; id: string }
+  | { type: "clear" };
+
+export interface GrammarSuggestionWithRange extends GrammarSuggestion {
   from: number;
   to: number;
 }
@@ -91,17 +97,28 @@ const GrammarHighlightExtension = Extension.create({
           init: () => DecorationSet.empty,
           apply(tr, old) {
             let decorations = old.map(tr.mapping, tr.doc);
-            const meta = tr.getMeta(grammarKey) as GrammarDecoration[] | undefined;
+            const meta = tr.getMeta(grammarKey) as GrammarDecorationMeta | undefined;
             if (meta) {
-              decorations = DecorationSet.create(
-                tr.doc,
-                meta.map((item) =>
-                  Decoration.inline(item.from, item.to, {
-                    class: "studio-grammar__underline",
-                    "data-grammar-id": item.id,
-                  }),
-                ),
-              );
+              if (meta.type === "set") {
+                decorations = DecorationSet.create(
+                  tr.doc,
+                  meta.decorations.map((item) =>
+                    Decoration.inline(item.from, item.to, {
+                      class: "studio-grammar__underline",
+                      "data-grammar-id": item.id,
+                    }),
+                  ),
+                );
+              } else if (meta.type === "remove") {
+                const toRemove = decorations.find(
+                  undefined,
+                  undefined,
+                  (spec) => spec.spec["data-grammar-id"] === meta.id,
+                );
+                decorations = decorations.remove(toRemove);
+              } else if (meta.type === "clear") {
+                decorations = DecorationSet.empty;
+              }
             }
             return decorations;
           },
@@ -210,6 +227,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const setSnapshotsOpen = useStudioStore((state) => state.setSnapshotsOpen);
   const grammarEnabled = useStudioStore((state) => state.grammarEnabled);
   const grammarMode = useStudioStore((state) => state.grammarMode);
+  const setGrammarEnabled = useStudioStore((state) => state.setGrammarEnabled);
   const lastAutosaveAt = useStudioStore((state) => state.lastAutosaveAt);
   const setLastAutosave = useStudioStore((state) => state.setLastAutosave);
 
@@ -287,7 +305,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
               from: item.from,
               to: item.to,
             }));
-            const tr = editor.state.tr.setMeta(grammarKey, decorations);
+            const tr = editor.state.tr.setMeta(grammarKey, { type: "set", decorations });
             editor.view.dispatch(tr);
           }
         } catch (error) {
@@ -312,7 +330,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     if (!grammarEnabled || !draft) {
       setGrammarMatches([]);
       if (editor) {
-        const tr = editor.state.tr.setMeta(grammarKey, []);
+        const tr = editor.state.tr.setMeta(grammarKey, { type: "clear" });
         editor.view.dispatch(tr);
       }
       return;
@@ -386,6 +404,15 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   }, [editor, entities, grammarMatches]);
 
   useEffect(() => {
+    setHoveredGrammar((current) => {
+      if (!current) return current;
+      const updated = grammarMatches.find((item) => item.id === current.suggestion.id);
+      if (!updated) return null;
+      return { suggestion: updated, rect: current.rect };
+    });
+  }, [grammarMatches]);
+
+  useEffect(() => {
     if (!dirty || !chapterId || !draft) return;
     const timer = window.setTimeout(() => {
       void saveChapter(false);
@@ -441,15 +468,52 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     }
   };
 
-  const applyReplacement = (suggestion: GrammarSuggestionWithRange, replacement: string) => {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertContentAt({ from: suggestion.from, to: suggestion.to }, replacement)
-      .run();
-    setHoveredGrammar(null);
-  };
+  const clearGrammarSuggestion = useCallback(
+    (id: string) => {
+      setGrammarMatches((previous) => previous.filter((item) => item.id !== id));
+      setHoveredGrammar((current) => {
+        if (!current || current.suggestion.id !== id) return current;
+        return null;
+      });
+      if (editor) {
+        const tr = editor.state.tr.setMeta(grammarKey, { type: "remove", id });
+        editor.view.dispatch(tr);
+      }
+    },
+    [editor],
+  );
+
+  const applyReplacement = useCallback(
+    (suggestion: GrammarSuggestionWithRange, replacement: string) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from: suggestion.from, to: suggestion.to }, replacement)
+        .run();
+      clearGrammarSuggestion(suggestion.id);
+    },
+    [clearGrammarSuggestion, editor],
+  );
+
+  const handleAcceptGrammar = useCallback(
+    (suggestion: GrammarSuggestionWithRange, replacement?: string) => {
+      const value = replacement ?? suggestion.replacements[0]?.value;
+      if (value === undefined) {
+        clearGrammarSuggestion(suggestion.id);
+        return;
+      }
+      applyReplacement(suggestion, value);
+    },
+    [applyReplacement, clearGrammarSuggestion],
+  );
+
+  const handleDismissGrammar = useCallback(
+    (suggestion: GrammarSuggestionWithRange) => {
+      clearGrammarSuggestion(suggestion.id);
+    },
+    [clearGrammarSuggestion],
+  );
 
   const handleRenameChapter = async () => {
     if (!chapter) return;
@@ -510,7 +574,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   }
 
   return (
-  <div className="studio-shell__editor-container">
+    <div className="studio-shell__editor-container">
       <header className="studio-shell__editor-header">
         <div className="studio-shell__editor-meta">
           <h2>{chapter.title}</h2>
@@ -554,6 +618,14 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
         <div className="studio-editor__content" data-grammar-state={grammarLoading ? "checking" : "idle"}>
           <EditorContent editor={editor} />
         </div>
+        <GrammarMatchesSidebar
+          enabled={grammarEnabled}
+          loading={grammarLoading}
+          matches={grammarMatches}
+          onAccept={handleAcceptGrammar}
+          onDismiss={handleDismissGrammar}
+          onToggle={() => setGrammarEnabled(!grammarEnabled)}
+        />
         {hoveredMention && (
           <div
             className="notes-editor__hover-card"
@@ -582,12 +654,12 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
                 <button
                   type="button"
                   key={replacement.value}
-                  onClick={() => applyReplacement(hoveredGrammar.suggestion, replacement.value)}
+                  onClick={() => handleAcceptGrammar(hoveredGrammar.suggestion, replacement.value)}
                 >
                   {replacement.value}
                 </button>
               ))}
-              <button type="button" onClick={() => applyReplacement(hoveredGrammar.suggestion, "")}>Ignore</button>
+              <button type="button" onClick={() => handleDismissGrammar(hoveredGrammar.suggestion)}>Ignore</button>
             </div>
           </div>
         )}
