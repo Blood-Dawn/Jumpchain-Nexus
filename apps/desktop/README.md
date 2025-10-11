@@ -2,6 +2,9 @@
 
 This package contains the new cross-platform desktop client built with Tauri 2, React, and TypeScript. It replaces the legacy WPF app and ships with a fully offline toolchain so contributors do not need a global Node installation.
 
+> [!NOTE]
+> The archived WPF solution now lives in `legacy/old-wpf/` and is excluded from npm publishing via `.npmignore`. None of the Vite, Tauri, or workspace scripts invoke that solution.
+
 ## Prerequisites
 
 - Windows (or another OS supported by Tauri 2) with Rust toolchain installed

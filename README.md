@@ -92,16 +92,9 @@ Navigate to Releases and download the latest `JumpchainNexus.zip` (name may stil
 
 ### Running Source (WPF)
 > [!NOTE]
-> The WPF project is considered legacy/reference-only. It remains in the repository for historical parity and migration support, but active development is focused on the modern Tauri desktop client.
+> The classic WPF client has been archived under `apps/desktop/legacy/old-wpf/`. No new features or fixes are planned and the solution is retained purely for reference.
 
-Prerequisites: .NET 8 SDK (Windows). From repo root:
-```powershell
-dotnet restore
-dotnet build
-# Optionally:
-dotnet run --project JumpchainCharacterBuilder/JumpchainCharacterBuilder.csproj
-```
-The WPF project remains under the original `JumpchainCharacterBuilder` folder pending full namespace remap.
+If you need to inspect or migrate code from the legacy client, clone the upstream Age-Of-Ages repository or reopen the solution stored at `apps/desktop/legacy/old-wpf/JumpchainCharacterBuilderWPF.sln`. The active Jumpchain Nexus desktop application is built with Tauri + React (see below).
 
 ### Running Source (Tauri + React)
 Use the bundled Node runtime wrappers (do NOT rely on a different system Node to avoid drift):
