@@ -45,7 +45,15 @@ import {
   type RandomizerListRecord,
   type RandomizerRollRecord,
 } from "../../db/dao";
-import { drawWeightedWithoutReplacement, type WeightedEntry } from "./weightedPicker";
+import {
+  createHistoryExportPayload,
+  drawWeightedWithoutReplacement,
+  formatWeightedDrawForClipboard,
+  formatWeightedHistoryForClipboard,
+  formatWeightedPickSummary,
+  type WeightedEntry,
+  type WeightedHistoryRun,
+} from "./weightedPicker";
 
 const LISTS_QUERY_KEY = ["randomizer", "lists"] as const;
 const groupsQueryKey = (listId: string) => ["randomizer", "groups", listId] as const;
@@ -384,6 +392,26 @@ const JumpRandomizer: React.FC = () => {
     enabled: Boolean(selectedListId),
   });
   const historyRecords = historyQuery.data ?? [];
+  const historySnapshots = useMemo<WeightedHistoryRun[]>(
+    () =>
+      historyRecords.map((run) => ({
+        id: run.id,
+        listId: run.list_id,
+        createdAt: run.created_at,
+        seed: run.seed,
+        params: run.params,
+        picks: run.picks.map((pick) => ({
+          id: pick.id,
+          entryId: pick.entry_id,
+          position: pick.position,
+          name: pick.name,
+          weight: pick.weight,
+          link: pick.link,
+          tags: pick.tags,
+        })),
+      })),
+    [historyRecords]
+  );
 
   const createListMutation = useMutation({
     mutationFn: (input: Parameters<typeof createRandomizerList>[0]) => createRandomizerList(input ?? {}),
@@ -589,6 +617,21 @@ const JumpRandomizer: React.FC = () => {
     });
   };
 
+  const handleEntryFieldChange =
+    (field: keyof EntryFormState) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const value = event.target.value;
+      setEntryForm((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [field]: value,
+        };
+      });
+    };
+
   const handleEntrySubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!entryForm) {
@@ -672,6 +715,14 @@ const JumpRandomizer: React.FC = () => {
       }
       return [...prev, tag];
     });
+  };
+
+  const getGroupName = (groupId: string | "all"): string => {
+    if (groupId === "all") {
+      return "All groups";
+    }
+    const group = groups.find((item) => item.id === groupId);
+    return group?.name ?? "Unknown group";
   };
 
   const handleDraw = async (): Promise<void> => {
@@ -765,15 +816,14 @@ const JumpRandomizer: React.FC = () => {
     if (mode === "link") {
       text = entry.link ?? "";
     } else if (mode === "full") {
-      const parts = [entry.name];
-      if (entry.link) {
-        parts.push(`(${entry.link})`);
-      }
-      parts.push(`w${entry.weight}`);
-      if (entry.tags.length) {
-        parts.push(`[${entry.tags.join(", ")}]`);
-      }
-      text = parts.join(" ");
+      text = formatWeightedPickSummary({
+        id: entry.id,
+        entryId: entry.id,
+        name: entry.name,
+        weight: entry.weight,
+        link: entry.link,
+        tags: entry.tags,
+      });
     }
     try {
       await navigator.clipboard.writeText(text);
@@ -793,19 +843,21 @@ const JumpRandomizer: React.FC = () => {
       setCopyMessage("Clipboard unavailable");
       return;
     }
-    const text = drawResults
-      .map((entry, index) => {
-        const segments = [`${index + 1}. ${entry.name}`];
-        if (entry.link) {
-          segments.push(`(${entry.link})`);
-        }
-        segments.push(`w${entry.weight}`);
-        if (entry.tags.length) {
-          segments.push(`[${entry.tags.join(", ")}]`);
-        }
-        return segments.join(" ");
-      })
-      .join("\n");
+    const text = formatWeightedDrawForClipboard(
+      drawResults.map((entry, index) => ({
+        id: entry.id,
+        entryId: entry.id,
+        position: index + 1,
+        name: entry.name,
+        weight: entry.weight,
+        link: entry.link,
+        tags: entry.tags,
+      }))
+    );
+    if (!text.length) {
+      setCopyMessage("No results available to copy.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopyMessage("Results copied to clipboard.");
@@ -813,40 +865,6 @@ const JumpRandomizer: React.FC = () => {
       console.warn("Failed to copy results", error);
       setCopyMessage("Clipboard copy failed.");
     }
-  };
-
-  const handleApplyPreset = (preset: SavedRandomizerPreset) => {
-    applyPreset(preset);
-  };
-
-  const handleRemovePreset = (presetId: string) => {
-    removePreset(presetId);
-    showToast("Preset removed.", "info");
-  };
-
-  const handleClearPresetList = () => {
-    if (!recentPresets.length) {
-      showToast("There are no presets to clear.", "info");
-      return;
-    }
-    clearPresets();
-    showToast("Preset list cleared.", "info");
-  };
-
-  const handleApplyPresetAndDraw = async (preset: SavedRandomizerPreset) => {
-    if (recordRollMutation.isPending) {
-      showToast("A draw is already in progress.", "info");
-      return;
-    }
-    applyPreset(preset, { silent: true });
-    await new Promise<void>((resolve) => {
-      if (typeof window === "undefined") {
-        resolve();
-      } else {
-        window.setTimeout(() => resolve(), 0);
-      }
-    });
-    await handleDraw();
   };
 
   const handleResetHistory = (): void => {
@@ -857,34 +875,15 @@ const JumpRandomizer: React.FC = () => {
   };
 
   const handleCopyHistory = async (): Promise<void> => {
-    if (!historyRecords.length || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
       setCopyMessage("Clipboard unavailable");
       return;
     }
-    const text = historyRecords
-      .map((run, index) => {
-        const parts = [`Roll ${index + 1} ΓÇö ${formatTimestamp(run.created_at)}`];
-        if (run.seed) {
-          parts.push(`Seed: ${run.seed}`);
-        }
-        const header = parts.join(" | ");
-        if (!run.picks.length) {
-          return header;
-        }
-        const lines = run.picks.map((pick, idx) => {
-          const segments = [`${idx + 1}. ${pick.name}`];
-          if (pick.link) {
-            segments.push(`(${pick.link})`);
-          }
-          segments.push(`w${pick.weight}`);
-          if (pick.tags.length) {
-            segments.push(`[${pick.tags.join(", ")}]`);
-          }
-          return segments.join(" ");
-        });
-        return [header, ...lines].join("\n");
-      })
-      .join("\n\n");
+    const text = formatWeightedHistoryForClipboard(historySnapshots, { formatTimestamp });
+    if (!text.length) {
+      setCopyMessage("No history available to copy.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopyMessage("Results copied to clipboard.");
@@ -898,22 +897,7 @@ const JumpRandomizer: React.FC = () => {
     if (!historyRecords.length || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-    const payload = historyRecords.map((run) => ({
-      id: run.id,
-      list_id: run.list_id,
-      created_at: run.created_at,
-      seed: run.seed,
-      params: run.params,
-      picks: run.picks.map((pick) => ({
-        id: pick.id,
-        entry_id: pick.entry_id,
-        name: pick.name,
-        weight: pick.weight,
-        link: pick.link,
-        tags: pick.tags,
-        position: pick.position,
-      })),
-    }));
+    const payload = createHistoryExportPayload(historySnapshots);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement("a");

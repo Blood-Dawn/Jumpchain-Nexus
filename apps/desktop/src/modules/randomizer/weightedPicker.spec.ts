@@ -25,7 +25,15 @@ SOFTWARE.
 /// <reference types="vitest" />
 
 import { describe, expect, it } from "vitest";
-import { drawWeightedWithoutReplacement, type WeightedEntry } from "./weightedPicker";
+import {
+  createHistoryExportPayload,
+  drawWeightedWithoutReplacement,
+  formatWeightedDrawForClipboard,
+  formatWeightedHistoryForClipboard,
+  formatWeightedPickSummary,
+  type WeightedEntry,
+  type WeightedHistoryRun,
+} from "./weightedPicker";
 
 describe("drawWeightedWithoutReplacement", () => {
   it("returns an empty array when count is zero", () => {
@@ -68,5 +76,130 @@ describe("drawWeightedWithoutReplacement", () => {
 
     const picks = drawWeightedWithoutReplacement(entries, 3, () => 0.4);
     expect(picks.map((pick) => pick.id)).toEqual(["a", "b"]);
+  });
+
+  it("captures draw steps when requested", () => {
+    const entries: WeightedEntry<string>[] = [
+      { id: "a", weight: 5, payload: "Alpha" },
+      { id: "b", weight: 5, payload: "Beta" },
+      { id: "c", weight: 10, payload: "Gamma" },
+    ];
+
+    const result = drawWeightedWithoutReplacement(entries, 2, () => 0.25, { captureSteps: true });
+
+    expect(result.picks).toHaveLength(2);
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0]?.available.map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+    expect(result.steps[0]?.selected.id).toBeDefined();
+    expect(result.steps[1]?.available).toHaveLength(2);
+  });
+});
+
+describe("format helpers", () => {
+  it("formats an individual pick summary", () => {
+    expect(
+      formatWeightedPickSummary({
+        id: "pick-a",
+        name: "Alpha",
+        weight: 5,
+        link: "https://example.com/alpha",
+        tags: ["Foo", "Bar"],
+      })
+    ).toBe("Alpha (https://example.com/alpha) w5 [Foo, Bar]");
+  });
+
+  it("creates numbered clipboard output for draw results", () => {
+    const text = formatWeightedDrawForClipboard([
+      {
+        id: "pick-a",
+        name: "Alpha",
+        weight: 5,
+        link: "https://example.com/alpha",
+        tags: ["Foo"],
+      },
+      {
+        id: "pick-b",
+        name: "Beta",
+        weight: 2,
+        tags: [],
+      },
+    ]);
+
+    expect(text).toBe("1. Alpha (https://example.com/alpha) w5 [Foo]\n2. Beta w2");
+  });
+
+  it("summarizes history runs for clipboard export", () => {
+    const history: WeightedHistoryRun[] = [
+      {
+        id: "roll-1",
+        listId: "list-1",
+        createdAt: "2024-01-01T12:00:00.000Z",
+        seed: "seed-1",
+        params: { drawCount: 2, scope: "all" },
+        picks: [
+          {
+            id: "pick-1",
+            entryId: "entry-1",
+            position: 1,
+            name: "Alpha",
+            weight: 5,
+            link: "https://example.com/alpha",
+            tags: ["Foo"],
+          },
+        ],
+      },
+    ];
+
+    const text = formatWeightedHistoryForClipboard(history, {
+      formatTimestamp: (iso) => `formatted(${iso})`,
+    });
+
+    expect(text).toBe(
+      "Roll 1 — formatted(2024-01-01T12:00:00.000Z) | Seed: seed-1\n1. Alpha (https://example.com/alpha) w5 [Foo]"
+    );
+  });
+
+  it("builds a JSON-ready history export payload", () => {
+    const history: WeightedHistoryRun[] = [
+      {
+        id: "roll-1",
+        listId: "list-1",
+        createdAt: "2024-01-01T12:00:00.000Z",
+        seed: null,
+        params: { drawCount: 1 },
+        picks: [
+          {
+            id: "pick-1",
+            entryId: "entry-1",
+            position: 1,
+            name: "Alpha",
+            weight: 5,
+            link: null,
+            tags: [],
+          },
+        ],
+      },
+    ];
+
+    expect(createHistoryExportPayload(history)).toEqual([
+      {
+        id: "roll-1",
+        list_id: "list-1",
+        created_at: "2024-01-01T12:00:00.000Z",
+        seed: null,
+        params: { drawCount: 1 },
+        picks: [
+          {
+            id: "pick-1",
+            entry_id: "entry-1",
+            name: "Alpha",
+            weight: 5,
+            link: null,
+            tags: [],
+            position: 1,
+          },
+        ],
+      },
+    ]);
   });
 });
