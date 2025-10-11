@@ -22,10 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useId, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FixedSizeList as List, type ListChildComponentProps } from "react-window";
 import { loadStatisticsSnapshot, type JumpAssetType, type StatisticsSnapshot } from "../../db/dao";
+import {
+  Bar,
+  BarChart,
+  Cell,
+  CartesianGrid,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipProps,
+} from "recharts";
 
 const ROW_HEIGHT = 44;
 const GAUNTLET_ROW_HEIGHT = 56;
@@ -40,6 +53,14 @@ const assetLabels: Record<JumpAssetType, string> = {
   item: "Items",
   companion: "Companions",
   drawback: "Drawbacks",
+};
+
+const assetColors: Record<JumpAssetType, string> = {
+  origin: "#7ACBFF",
+  perk: "#83E6C6",
+  item: "#FFB677",
+  companion: "#C6A7FF",
+  drawback: "#FF9CAB",
 };
 
 const EMPTY_STATS: StatisticsSnapshot = {
@@ -91,6 +112,11 @@ const StatisticsHub: React.FC = () => {
   const gauntletSummary = snapshot.gauntlet;
   const boosterSummary = snapshot.boosters;
 
+  const cpChartCaptionId = useId();
+  const cpChartSummaryId = useId();
+  const inventoryChartCaptionId = useId();
+  const inventoryChartSummaryId = useId();
+
   const totalJumps = cpRows.length;
   const totalPurchases = useMemo(
     () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.itemCount, 0),
@@ -103,6 +129,112 @@ const StatisticsHub: React.FC = () => {
   const totalCredit = useMemo(
     () => assetBreakdown.find((entry) => entry.assetType === "drawback")?.credit ?? 0,
     [assetBreakdown]
+  );
+
+  const cpChartData = useMemo(
+    () =>
+      assetBreakdown
+        .map((asset) => ({
+          name: assetLabels[asset.assetType] ?? asset.assetType,
+          value: asset.assetType === "drawback" ? asset.credit : asset.netCost,
+          assetType: asset.assetType,
+        }))
+        .filter((entry) => entry.value > 0),
+    [assetBreakdown]
+  );
+
+  const totalChartedCP = useMemo(
+    () => cpChartData.reduce((sum, entry) => sum + entry.value, 0),
+    [cpChartData]
+  );
+
+  const cpChartSummary = useMemo(() => {
+    if (!cpChartData.length || totalChartedCP <= 0) {
+      return "No CP distribution data available.";
+    }
+    return cpChartData
+      .map((entry) => {
+        const percent = totalChartedCP > 0 ? Math.round((entry.value / totalChartedCP) * 100) : 0;
+        const unit = entry.assetType === "drawback" ? "credit" : "spent";
+        return `${entry.name} ${formatCP(entry.value)} CP ${unit} (${percent}%)`;
+      })
+      .join("; ");
+  }, [cpChartData, totalChartedCP]);
+
+  const inventoryChartData = useMemo(
+    () =>
+      inventoryCategories
+        .map((category) => ({
+          name: category.category,
+          quantity: category.totalQuantity,
+          entries: category.itemCount,
+          warehouse: category.warehouseCount,
+          locker: category.lockerCount,
+        }))
+        .filter((entry) => entry.quantity > 0 || entry.entries > 0),
+    [inventoryCategories]
+  );
+
+  const totalTrackedQuantity = useMemo(
+    () => inventoryChartData.reduce((sum, entry) => sum + entry.quantity, 0),
+    [inventoryChartData]
+  );
+
+  const inventoryBarKey = totalTrackedQuantity > 0 ? "quantity" : "entries";
+  const inventoryBarColor = totalTrackedQuantity > 0 ? "#7ACBFF" : "#83E6C6";
+
+  const inventoryChartSummary = useMemo(() => {
+    if (!inventoryChartData.length) {
+      return "Warehouse and locker are currently empty.";
+    }
+    const fallbackTotal = totalTrackedQuantity || inventoryChartData.reduce((sum, entry) => sum + entry.entries, 0);
+    return inventoryChartData
+      .map((entry) => {
+        const numerator = totalTrackedQuantity > 0 ? entry.quantity : entry.entries;
+        const percent = fallbackTotal > 0 ? Math.round((numerator / fallbackTotal) * 100) : 0;
+        const unitLabel = totalTrackedQuantity > 0 ? `${formatCount(entry.quantity)} total quantity` : `${formatCount(entry.entries)} entries`;
+        return `${entry.name} ${unitLabel} (${percent}%)`;
+      })
+      .join("; ");
+  }, [inventoryChartData, totalTrackedQuantity]);
+
+  const renderCPTooltip = useCallback(
+    ({ active, payload }: TooltipProps<number, string>) => {
+      if (!active || !payload || payload.length === 0) {
+        return null;
+      }
+      const data = payload[0];
+      const chartEntry = data.payload as (typeof cpChartData)[number];
+      const unit = chartEntry.assetType === "drawback" ? "credit" : "spent";
+      return (
+        <div className="stats__tooltip">
+          <strong>{chartEntry.name}</strong>
+          <span>{formatCP(Number(data.value ?? 0))} CP {unit}</span>
+        </div>
+      );
+    },
+    [cpChartData]
+  );
+
+  const renderInventoryTooltip = useCallback(
+    ({ active, payload, label }: TooltipProps<number, string>) => {
+      if (!active || !payload || payload.length === 0) {
+        return null;
+      }
+      const data = payload[0];
+      const chartEntry = data.payload as (typeof inventoryChartData)[number];
+      return (
+        <div className="stats__tooltip">
+          <strong>{label}</strong>
+          <span>{formatCount(chartEntry.quantity)} total quantity</span>
+          <span>{formatCount(chartEntry.entries)} entries</span>
+          <span>
+            {formatCount(chartEntry.warehouse)} warehouse • {formatCount(chartEntry.locker)} locker
+          </span>
+        </div>
+      );
+    },
+    [inventoryChartData]
   );
 
   const cpRowRenderer = useCallback(
@@ -252,58 +384,91 @@ const StatisticsHub: React.FC = () => {
                 <span>{formatCP(cpTotals.spent)} CP spent • {formatCP(totalCredit)} CP earned</span>
               </header>
               {assetBreakdown.length ? (
-                <div className="stats__asset-grid">
-                  {assetBreakdown.map((asset) => {
-                    const label = assetLabels[asset.assetType] ?? asset.assetType;
-                    const share = asset.assetType === "drawback"
-                      ? totalCredit > 0
-                        ? asset.credit / totalCredit
-                        : 0
-                      : totalSpend > 0
-                        ? asset.netCost / totalSpend
-                        : 0;
-                    return (
-                      <article key={asset.assetType} className="stats__asset-card">
-                        <header>
-                          <h3>{label}</h3>
-                          <span>{formatPercent(share)}</span>
-                        </header>
-                        <dl>
-                          <div>
-                            <dt>Entries</dt>
-                            <dd>{formatCount(asset.itemCount)}</dd>
-                          </div>
-                          <div>
-                            <dt>Gross</dt>
-                            <dd>{formatCP(asset.gross)} CP</dd>
-                          </div>
-                          {asset.assetType === "drawback" ? (
+                <div className="stats__panel-stack">
+                  {cpChartData.length > 0 && (
+                    <figure
+                      className="stats__chart"
+                      aria-labelledby={cpChartCaptionId}
+                      aria-describedby={cpChartSummaryId}
+                    >
+                      <div className="stats__chart-visual" aria-hidden="true">
+                        <ResponsiveContainer width="100%" height={260}>
+                          <PieChart>
+                            <Pie
+                              data={cpChartData}
+                              dataKey="value"
+                              nameKey="name"
+                              innerRadius={60}
+                              outerRadius={110}
+                              paddingAngle={4}
+                            >
+                              {cpChartData.map((entry) => (
+                                <Cell key={entry.assetType} fill={assetColors[entry.assetType]} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={renderCPTooltip} cursor={{ fill: "rgba(255, 255, 255, 0.05)" }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <figcaption id={cpChartCaptionId}>CP allocation by asset type</figcaption>
+                      <p id={cpChartSummaryId} className="stats__chart-summary">
+                        {cpChartSummary}
+                      </p>
+                    </figure>
+                  )}
+                  <div className="stats__asset-grid">
+                    {assetBreakdown.map((asset) => {
+                      const label = assetLabels[asset.assetType] ?? asset.assetType;
+                      const share = asset.assetType === "drawback"
+                        ? totalCredit > 0
+                          ? asset.credit / totalCredit
+                          : 0
+                        : totalSpend > 0
+                          ? asset.netCost / totalSpend
+                          : 0;
+                      return (
+                        <article key={asset.assetType} className="stats__asset-card">
+                          <header>
+                            <h3>{label}</h3>
+                            <span>{formatPercent(share)}</span>
+                          </header>
+                          <dl>
                             <div>
-                              <dt>Credit</dt>
-                              <dd>{formatCP(asset.credit)} CP</dd>
+                              <dt>Entries</dt>
+                              <dd>{formatCount(asset.itemCount)}</dd>
                             </div>
-                          ) : (
                             <div>
-                              <dt>Net Cost</dt>
-                              <dd>{formatCP(asset.netCost)} CP</dd>
+                              <dt>Gross</dt>
+                              <dd>{formatCP(asset.gross)} CP</dd>
                             </div>
-                          )}
-                          {asset.discounted > 0 && asset.assetType !== "drawback" && (
-                            <div>
-                              <dt>Discounted</dt>
-                              <dd>{formatCount(asset.discounted)}</dd>
-                            </div>
-                          )}
-                          {asset.freebies > 0 && (
-                            <div>
-                              <dt>Freebies</dt>
-                              <dd>{formatCount(asset.freebies)}</dd>
-                            </div>
-                          )}
-                        </dl>
-                      </article>
-                    );
-                  })}
+                            {asset.assetType === "drawback" ? (
+                              <div>
+                                <dt>Credit</dt>
+                                <dd>{formatCP(asset.credit)} CP</dd>
+                              </div>
+                            ) : (
+                              <div>
+                                <dt>Net Cost</dt>
+                                <dd>{formatCP(asset.netCost)} CP</dd>
+                              </div>
+                            )}
+                            {asset.discounted > 0 && asset.assetType !== "drawback" && (
+                              <div>
+                                <dt>Discounted</dt>
+                                <dd>{formatCount(asset.discounted)}</dd>
+                              </div>
+                            )}
+                            {asset.freebies > 0 && (
+                              <div>
+                                <dt>Freebies</dt>
+                                <dd>{formatCount(asset.freebies)}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : (
                 <p className="stats__empty">No purchases recorded yet.</p>
@@ -346,23 +511,48 @@ const StatisticsHub: React.FC = () => {
                 <span>{formatCount(snapshot.inventory.totalItems)} items tracked</span>
               </header>
               {inventoryCategories.length ? (
-                <div className="stats__table">
-                  <div className="stats__table-header stats__table-row--inventory">
-                    <span>Category</span>
-                    <span>Entries</span>
-                    <span>Quantity</span>
-                    <span>Warehouse</span>
-                    <span>Locker</span>
+                <div className="stats__panel-stack">
+                  {inventoryChartData.length > 0 && (
+                    <figure
+                      className="stats__chart"
+                      aria-labelledby={inventoryChartCaptionId}
+                      aria-describedby={inventoryChartSummaryId}
+                    >
+                      <div className="stats__chart-visual" aria-hidden="true">
+                        <ResponsiveContainer width="100%" height={280}>
+                          <BarChart data={inventoryChartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(240, 247, 255, 0.12)" />
+                            <XAxis dataKey="name" tick={{ fill: "rgba(240, 247, 255, 0.75)", fontSize: 12 }} angle={-20} textAnchor="end" height={50} interval={0} />
+                            <YAxis tick={{ fill: "rgba(240, 247, 255, 0.75)", fontSize: 12 }} tickFormatter={formatCount} allowDecimals={false} width={60} />
+                            <Tooltip content={renderInventoryTooltip} cursor={{ fill: "rgba(255, 255, 255, 0.05)" }} />
+                            <Bar dataKey={inventoryBarKey} fill={inventoryBarColor} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <figcaption id={inventoryChartCaptionId}>Inventory quantity by category</figcaption>
+                      <p id={inventoryChartSummaryId} className="stats__chart-summary">
+                        {inventoryChartSummary}
+                      </p>
+                    </figure>
+                  )}
+                  <div className="stats__table">
+                    <div className="stats__table-header stats__table-row--inventory">
+                      <span>Category</span>
+                      <span>Entries</span>
+                      <span>Quantity</span>
+                      <span>Warehouse</span>
+                      <span>Locker</span>
+                    </div>
+                    <List
+                      height={inventoryListHeight}
+                      itemCount={inventoryCategories.length}
+                      itemKey={(index) => inventoryCategories[index]?.category ?? index}
+                      itemSize={ROW_HEIGHT}
+                      width="100%"
+                    >
+                      {inventoryRowRenderer}
+                    </List>
                   </div>
-                  <List
-                    height={inventoryListHeight}
-                    itemCount={inventoryCategories.length}
-                    itemKey={(index) => inventoryCategories[index]?.category ?? index}
-                    itemSize={ROW_HEIGHT}
-                    width="100%"
-                  >
-                    {inventoryRowRenderer}
-                  </List>
                 </div>
               ) : (
                 <p className="stats__empty">Warehouse and locker are currently empty.</p>
