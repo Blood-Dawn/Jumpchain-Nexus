@@ -39,6 +39,7 @@ import {
   type BodyModType,
   type LockerFilters,
   type LockerMetadata,
+  type LockerPriority,
   type LockerWarning,
   collectLockerTags,
   computeLockerWarnings,
