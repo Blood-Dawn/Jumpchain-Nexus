@@ -22,8 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { appConfigDir, join } from "@tauri-apps/api/path";
-import { mkdir, exists } from "@tauri-apps/plugin-fs";
+import { getPlatform } from "../services/platform";
 
 let cachedConfigDir: string | null = null;
 
@@ -31,17 +30,19 @@ export async function ensureConfigDir(): Promise<string> {
   if (cachedConfigDir) {
     return cachedConfigDir;
   }
-  const base = await appConfigDir();
-  const target = await join(base, "jumpchain-nexus");
-  const present = await exists(target);
+  const platform = await getPlatform();
+  const base = await platform.path.appConfigDir();
+  const target = await platform.path.join(base, "jumpchain-nexus");
+  const present = await platform.fs.exists(target);
   if (!present) {
-    await mkdir(target, { recursive: true });
+    await platform.fs.ensureDir(target, { recursive: true });
   }
   cachedConfigDir = target;
   return target;
 }
 
 export async function resolveDbPath(fileName: string): Promise<string> {
+  const platform = await getPlatform();
   const dir = await ensureConfigDir();
-  return join(dir, fileName);
+  return platform.path.join(dir, fileName);
 }
