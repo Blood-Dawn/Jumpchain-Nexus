@@ -183,6 +183,68 @@ describe("computeBudget", () => {
   });
 });
 
+describe("knowledge base import errors", () => {
+  it("persists each error with upsert semantics", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { recordKnowledgeBaseImportErrors } = await importDao();
+    const errors = [
+      { path: "/tmp/alpha.txt", reason: "Unsupported format" },
+      { path: "/tmp/beta.txt", reason: "Read failure" },
+    ];
+
+    await recordKnowledgeBaseImportErrors(errors);
+
+    expect(fakeDb.executeCalls).toHaveLength(errors.length);
+    const statement = fakeDb.executeCalls[0]?.sql ?? "";
+    expect(statement).toContain("INSERT INTO knowledge_import_errors");
+    expect(statement).toContain("ON CONFLICT(path)");
+  });
+
+  it("maps stored errors from the database", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.enqueueSelect([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+
+    const { listKnowledgeBaseImportErrors } = await importDao();
+    const rows = await listKnowledgeBaseImportErrors();
+
+    expect(rows).toEqual([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("deletes individual entries and clears the table", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { deleteKnowledgeBaseImportError, clearKnowledgeBaseImportErrors } = await importDao();
+
+    await deleteKnowledgeBaseImportError("err-1");
+    await clearKnowledgeBaseImportErrors();
+
+    expect(fakeDb.executeCalls.map((entry) => entry.sql)).toEqual([
+      "DELETE FROM knowledge_import_errors WHERE id = $1",
+      "DELETE FROM knowledge_import_errors",
+    ]);
+  });
+});
+
 describe("summarizeJumpBudget", () => {
   it("includes stipend toggles and companion import selections", async () => {
     const fakeDb = new FakeDb();
