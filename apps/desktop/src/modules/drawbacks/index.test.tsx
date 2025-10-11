@@ -63,6 +63,57 @@ const mockDrawbacks: JumpAssetRecord[] = [
   },
 ];
 
+const secondJump: JumpRecord = {
+  id: "jump-2",
+  title: "Second Jump",
+  world: null,
+  start_date: null,
+  end_date: null,
+  status: null,
+  created_at: now,
+  sort_order: 1,
+  cp_budget: 500,
+  cp_spent: 0,
+  cp_income: 0,
+};
+
+const secondJumpDrawbacks: JumpAssetRecord[] = [
+  {
+    id: "drawback-3",
+    jump_id: "jump-2",
+    asset_type: "drawback",
+    name: "Gamma Drawback",
+    category: "Category C",
+    subcategory: null,
+    cost: 150,
+    quantity: 1,
+    discounted: 0,
+    freebie: 0,
+    notes: null,
+    metadata: JSON.stringify({ severity: "moderate" }),
+    sort_order: 0,
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: "drawback-4",
+    jump_id: "jump-2",
+    asset_type: "drawback",
+    name: "Delta Drawback",
+    category: "Category D",
+    subcategory: null,
+    cost: 50,
+    quantity: 1,
+    discounted: 0,
+    freebie: 0,
+    notes: null,
+    metadata: JSON.stringify({ severity: "minor" }),
+    sort_order: 1,
+    created_at: now,
+    updated_at: now,
+  },
+];
+
 const mockBudget: JumpBudgetSummary = {
   totalCost: 0,
   discounted: 0,
@@ -82,9 +133,12 @@ vi.mock("../../db/dao", async (): Promise<DaoModule> => {
   return {
     ...actual,
     loadSupplementSettings: vi.fn(async () => supplementSettings),
-    listJumps: vi.fn(async () => [mockJump]),
-    listJumpAssets: vi.fn(async () => mockDrawbacks),
-    summarizeJumpBudget: vi.fn(async () => mockBudget),
+    listJumps: vi.fn(async () => [mockJump, secondJump]),
+    listJumpAssets: vi.fn<typeof actual.listJumpAssets>(async (jumpId, assetType) => {
+      expect(assetType).toBe("drawback");
+      return jumpId === secondJump.id ? secondJumpDrawbacks : mockDrawbacks;
+    }),
+    summarizeJumpBudget: vi.fn<typeof actual.summarizeJumpBudget>(async () => mockBudget),
     createJumpAsset: vi.fn<typeof actual.createJumpAsset>(),
     updateJumpAsset: vi.fn<typeof actual.updateJumpAsset>(),
     deleteJumpAsset: vi.fn<typeof actual.deleteJumpAsset>(),
@@ -93,7 +147,7 @@ vi.mock("../../db/dao", async (): Promise<DaoModule> => {
   } satisfies DaoModule;
 });
 
-const { reorderJumpAssets } = await import("../../db/dao");
+const { reorderJumpAssets, summarizeJumpBudget, listJumpAssets } = await import("../../db/dao");
 const { default: DrawbackSupplement } = await import("./index");
 
 describe("DrawbackSupplement ordering", () => {
@@ -115,7 +169,7 @@ describe("DrawbackSupplement ordering", () => {
     queryClient.setQueryData(["supplement-settings"], {
       enableDrawbackSupplement: true,
     });
-    queryClient.setQueryData(["jumps"], [mockJump]);
+    queryClient.setQueryData(["jumps"], [mockJump, secondJump]);
     queryClient.setQueryData(["jump-drawbacks", mockJump.id], mockDrawbacks);
     queryClient.setQueryData(["jump-budget", mockJump.id], mockBudget);
 
@@ -132,6 +186,12 @@ describe("DrawbackSupplement ordering", () => {
     await waitFor(() => {
       expect(within(list).queryAllByRole("listitem").length).toBeGreaterThan(0);
     });
+
+    await waitFor(() => {
+      expect(listJumpAssets).toHaveBeenCalledWith(mockJump.id, "drawback");
+    });
+
+    const initialBudgetCalls = summarizeJumpBudget.mock.calls.length;
 
     const initialItems = within(list).queryAllByRole("listitem");
     expect(initialItems.length).toBe(2);
@@ -161,9 +221,70 @@ describe("DrawbackSupplement ordering", () => {
       "drawback-1",
     ]);
 
+    await waitFor(() => {
+      expect(summarizeJumpBudget.mock.calls.length).toBeGreaterThan(initialBudgetCalls);
+    });
+
     const resetButton = screen.getByRole("button", { name: "Reset Order" });
     expect(resetButton).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save Order" })).toBeDisabled();
+  });
+
+  it("resets the local order when switching between jumps", async () => {
+    const queryClient = createClient();
+    queryClient.setQueryData(["supplement-settings"], {
+      enableDrawbackSupplement: true,
+    });
+    queryClient.setQueryData(["jumps"], [mockJump, secondJump]);
+    queryClient.setQueryData(["jump-drawbacks", mockJump.id], mockDrawbacks);
+    queryClient.setQueryData(["jump-drawbacks", secondJump.id], secondJumpDrawbacks);
+    queryClient.setQueryData(["jump-budget", mockJump.id], mockBudget);
+    queryClient.setQueryData(["jump-budget", secondJump.id], mockBudget);
+
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DrawbackSupplement />
+      </QueryClientProvider>
+    );
+
+    const list = await screen.findByRole("list", { name: /drawback order/i });
+
+    await waitFor(() => {
+      expect(within(list).queryAllByRole("listitem").length).toBe(2);
+    });
+
+    const items = within(list).queryAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("Drawback One");
+
+    await user.click(screen.getByRole("button", { name: "Move Drawback One later" }));
+
+    await waitFor(() => {
+      const reordered = within(list)
+        .queryAllByRole("listitem")
+        .map((item) => within(item).getByText(/Drawback/).textContent?.trim());
+      expect(reordered).toEqual(["Drawback Two", "Drawback One"]);
+    });
+
+    const jumpSelect = screen.getByLabelText("Active Jump");
+    await user.selectOptions(jumpSelect, secondJump.id);
+
+    await waitFor(() => {
+      expect(listJumpAssets).toHaveBeenCalledWith(secondJump.id, "drawback");
+    });
+
+    await waitFor(() => {
+      const secondItems = within(list).queryAllByRole("listitem");
+      expect(secondItems[0]).toHaveTextContent("Gamma Drawback");
+    });
+
+    await user.selectOptions(jumpSelect, mockJump.id);
+
+    await waitFor(() => {
+      const firstItems = within(list).queryAllByRole("listitem");
+      expect(firstItems[0]).toHaveTextContent("Drawback One");
+    });
   });
 });
 
