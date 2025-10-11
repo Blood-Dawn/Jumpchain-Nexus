@@ -58,7 +58,6 @@ export interface LockerFilters {
   priority: "all" | LockerPriority;
   bodyMod: "all" | BodyModType | "none";
   booster: "all" | "booster" | "non-booster";
-  tag: "all" | string;
 }
 
 export interface LockerTagOption {
@@ -286,8 +285,16 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
   });
 }
 
-export function filterLockerItems(items: LockerItemAnalysis[], filters: LockerFilters, search: string): LockerItemAnalysis[] {
+export function filterLockerItems(
+  items: LockerItemAnalysis[],
+  filters: LockerFilters,
+  search: string,
+  activeTags: string[] = []
+): LockerItemAnalysis[] {
   const trimmedSearch = search.trim().toLowerCase();
+  const requiredTags = activeTags
+    .map((tag) => normalizeTagValue(tag))
+    .filter((tag, index, array) => tag.length > 0 && array.indexOf(tag) === index);
   return items.filter((entry) => {
     if (filters.packed !== "all") {
       if (filters.packed === "packed" && !entry.packed) {
@@ -314,8 +321,12 @@ export function filterLockerItems(items: LockerItemAnalysis[], filters: LockerFi
     if (filters.booster === "non-booster" && entry.hasBooster) {
       return false;
     }
-    if (filters.tag !== "all" && !entry.tagSet.has(filters.tag)) {
-      return false;
+    if (requiredTags.length > 0) {
+      for (const tag of requiredTags) {
+        if (!entry.tagSet.has(tag)) {
+          return false;
+        }
+      }
     }
     if (!trimmedSearch.length) {
       return true;
