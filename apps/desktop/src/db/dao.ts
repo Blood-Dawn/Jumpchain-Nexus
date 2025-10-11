@@ -196,6 +196,7 @@ export interface CreateJumpAssetInput {
 
 export interface UpdateJumpAssetInput {
   name?: string;
+  asset_type?: JumpAssetType;
   category?: string | null;
   subcategory?: string | null;
   cost?: number;
@@ -2416,6 +2417,10 @@ export async function updateJumpAsset(
     if (updates.name !== undefined) {
       sets.push(`name = $${index++}`);
       values.push(updates.name);
+    }
+    if (updates.asset_type !== undefined) {
+      sets.push(`asset_type = $${index++}`);
+      values.push(updates.asset_type);
     }
     if (updates.category !== undefined) {
       sets.push(`category = $${index++}`);
