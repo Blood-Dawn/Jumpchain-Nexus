@@ -46,6 +46,22 @@ type RunnerEvent =
   | { kind: "terminated"; code: number | null }
   | { kind: "error"; message: string };
 
+type ToastTone = "info" | "success" | "error";
+
+type ToastMessage = {
+  id: string;
+  tone: ToastTone;
+  message: string;
+};
+
+const createToastId = (() => {
+  let counter = 0;
+  return () => {
+    counter += 1;
+    return `toast-${counter}`;
+  };
+})();
+
 const formatTimestamp = (date: Date): string =>
   `${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
 
@@ -53,7 +69,41 @@ const DevToolsTestRunner: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Ready to launch the full test suite.");
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const nextLogId = useRef(1);
+  const toastTimers = useRef<Map<string, number>>(new Map());
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+    const timer = toastTimers.current.get(id);
+    if (typeof timer === "number" && typeof window !== "undefined") {
+      window.clearTimeout(timer);
+    }
+    toastTimers.current.delete(id);
+  }, []);
+
+  const showToast = useCallback(
+    (message: string, tone: ToastTone = "info") => {
+      const id = createToastId();
+      setToasts((current) => [...current, { id, message, tone }]);
+      if (typeof window !== "undefined") {
+        const timeout = window.setTimeout(() => removeToast(id), 3200);
+        toastTimers.current.set(id, timeout);
+      }
+    },
+    [removeToast]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        for (const timer of toastTimers.current.values()) {
+          window.clearTimeout(timer);
+        }
+      }
+      toastTimers.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -92,11 +142,13 @@ const DevToolsTestRunner: React.FC = () => {
           if (payload.kind === "terminated") {
             setIsRunning(false);
             if (payload.code === 0) {
-              setStatusMessage("Test suite completed successfully.");
+              const message = "Test suite completed successfully.";
+              setStatusMessage(message);
+              showToast(message, "success");
             } else {
-              setStatusMessage(
-                `Test suite exited with code ${payload.code ?? "unknown"}. Check the log for details.`
-              );
+              const message = `Test suite exited with code ${payload.code ?? "unknown"}. Check the log for details.`;
+              setStatusMessage(message);
+              showToast("Test suite failed. Check the log for details.", "error");
             }
             return;
           }
@@ -112,6 +164,7 @@ const DevToolsTestRunner: React.FC = () => {
             };
             setLogs((current) => [...current, entry]);
             setStatusMessage("Failed to stream test output. See the log for details.");
+            showToast("Failed to stream test output.", "error");
           }
         });
       } catch (error) {
@@ -127,7 +180,7 @@ const DevToolsTestRunner: React.FC = () => {
         void unlisten();
       }
     };
-  }, []);
+  }, [showToast]);
 
   const handleRun = useCallback(async () => {
     setStatusMessage("Requesting npm run test:full…");
@@ -145,8 +198,28 @@ const DevToolsTestRunner: React.FC = () => {
       };
       setLogs((current) => [...current, entry]);
       setStatusMessage("Unable to launch the test suite. See the log for details.");
+      showToast("Unable to launch the test suite.", "error");
     }
-  }, []);
+  }, [showToast]);
+
+  const handleCancel = useCallback(async () => {
+    setStatusMessage("Requesting cancellation…");
+    try {
+      await invoke("cancel_full_test_suite");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const entry: LogEntry = {
+        id: nextLogId.current++,
+        level: "error",
+        message,
+        source: "stderr",
+        timestamp: formatTimestamp(new Date()),
+      };
+      setLogs((current) => [...current, entry]);
+      setStatusMessage("Unable to cancel the test suite. See the log for details.");
+      showToast("Unable to cancel the test suite.", "error");
+    }
+  }, [showToast]);
 
   const handleClearLog = useCallback(() => {
     setLogs([]);
@@ -163,45 +236,77 @@ const DevToolsTestRunner: React.FC = () => {
   }, [isRunning, logs.length]);
 
   return (
-    <section className="module devtools" aria-labelledby="devtools-runner-heading">
-      <header className="module__header">
-        <h1 id="devtools-runner-heading">Developer Tools</h1>
-        <p className="module__subtitle">
-          Launch the full integration test suite without leaving the desktop application.
-        </p>
-      </header>
+    <>
+      <section className="module devtools" aria-labelledby="devtools-runner-heading">
+        <header className="module__header">
+          <h1 id="devtools-runner-heading">Developer Tools</h1>
+          <p className="module__subtitle">
+            Launch the full integration test suite without leaving the desktop application.
+          </p>
+        </header>
 
-      <div className="module__toolbar" role="group" aria-label="Test suite controls">
-        <button type="button" className="button" onClick={handleRun} disabled={isRunning}>
-          Run npm run test:full
-        </button>
-        <button type="button" className="button button--secondary" onClick={handleClearLog}>
-          Clear log
-        </button>
-      </div>
+        <div className="module__toolbar" role="group" aria-label="Test suite controls">
+          <button type="button" className="button" onClick={handleRun} disabled={isRunning}>
+            Run npm run test:full
+          </button>
+          <button type="button" className="button button--secondary" onClick={handleClearLog}>
+            Clear log
+          </button>
+          {isRunning ? (
+            <button type="button" className="button button--secondary" onClick={handleCancel}>
+              Cancel run
+            </button>
+          ) : null}
+        </div>
 
-      <div className="module__status" aria-live="polite">
-        <p>{statusMessage}</p>
-        <p className="module__hint">{runningHint}</p>
-      </div>
+        <div className="module__status" aria-live="polite">
+          <p>{statusMessage}</p>
+          <p className="module__hint">{runningHint}</p>
+        </div>
 
-      <div className="module__log" role="log" aria-live="polite" aria-busy={isRunning}>
-        {logs.length === 0 ? (
-          <p className="module__hint">Logs will appear here once the test suite produces output.</p>
-        ) : (
-          <ul className="module__log-list">
-            {logs.map((entry) => (
-              <li key={entry.id} className={`module__log-entry module__log-entry--${entry.level}`}>
-                <span className="module__log-timestamp">[{entry.timestamp}]</span>{" "}
-                <span className="module__log-source">{entry.source.toUpperCase()}</span>:
-                <span className="module__log-message"> {entry.message}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
+        <div className="module__log" role="log" aria-live="polite" aria-busy={isRunning}>
+          {logs.length === 0 ? (
+            <p className="module__hint">Logs will appear here once the test suite produces output.</p>
+          ) : (
+            <ul className="module__log-list">
+              {logs.map((entry) => (
+                <li key={entry.id} className={`module__log-entry module__log-entry--${entry.level}`}>
+                  <span className="module__log-timestamp">[{entry.timestamp}]</span>{" "}
+                  <span className="module__log-source">{entry.source.toUpperCase()}</span>:
+                  <span className="module__log-message"> {entry.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+      <ToastViewport toasts={toasts} onDismiss={removeToast} />
+    </>
   );
 };
 
 export default DevToolsTestRunner;
+
+interface ToastViewportProps {
+  toasts: ToastMessage[];
+  onDismiss: (id: string) => void;
+}
+
+const ToastViewport: React.FC<ToastViewportProps> = ({ toasts, onDismiss }) => {
+  if (!toasts.length) {
+    return null;
+  }
+
+  return (
+    <div className="toast-viewport" role="status" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast--${toast.tone}`}>
+          <span>{toast.message}</span>
+          <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(toast.id)}>
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+};
