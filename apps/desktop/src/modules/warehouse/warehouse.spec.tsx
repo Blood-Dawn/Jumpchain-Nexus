@@ -64,7 +64,11 @@ describe("CosmicWarehouse", () => {
     queryClient.setQueryData(["warehouse-personal-reality"], {
       wpTotal: 15,
       wpCap: 10,
-      limits: [{ key: "structures", label: "Structures", provided: 4, used: 6 }],
+      wpBaseCap: 10,
+      wpOverride: undefined,
+      limits: [
+        { key: "structures", label: "Structures", provided: 4, used: 6, baseProvided: 4, override: undefined },
+      ],
     });
 
     render(
@@ -74,7 +78,9 @@ describe("CosmicWarehouse", () => {
     );
 
     expect(screen.getByRole("heading", { level: 1, name: /cosmic warehouse/i })).toBeInTheDocument();
-    expect(screen.getByText(/Personal Reality Limits/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: /Personal Reality Limits/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/override stipend cap/i)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/override quota/i)).toHaveLength(1);
     expect(screen.getByText(/Warehouse Points exceed stipend by 5/i)).toBeInTheDocument();
     expect(screen.getByText(/Structures limit exceeded by 2/i)).toBeInTheDocument();
 
