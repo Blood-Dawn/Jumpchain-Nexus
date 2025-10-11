@@ -1,0 +1,2 @@
+# Prevent archived WPF artifacts from being published or bundled with the Tauri workspace
+legacy/
