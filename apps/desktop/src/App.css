@@ -462,6 +462,61 @@ a:hover {
   min-height: 120px;
 }
 
+.asset-form__references {
+  background: rgba(10, 16, 24, 0.6);
+  border: 1px solid rgba(122, 203, 255, 0.18);
+  border-radius: 1rem;
+  padding: 1rem 1.2rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.asset-form__references header {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.asset-form__references header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.asset-form__references header p,
+.asset-form__references-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(240, 247, 255, 0.6);
+}
+
+.asset-form__reference-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.asset-form__reference-chip {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(122, 203, 255, 0.25);
+  background: rgba(122, 203, 255, 0.18);
+  color: #06111f;
+  padding: 0.45rem 0.8rem;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  cursor: pointer;
+  text-align: left;
+  max-width: 240px;
+}
+
+.asset-form__reference-chip span {
+  font-weight: 600;
+}
+
+.asset-form__reference-chip small {
+  font-size: 0.8rem;
+  color: rgba(6, 17, 31, 0.7);
+}
+
 .asset-form__tags,
 .asset-form__stipend {
   background: rgba(10, 16, 24, 0.6);

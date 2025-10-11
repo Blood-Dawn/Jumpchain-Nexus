@@ -24,10 +24,12 @@ SOFTWARE.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   createJumpAsset,
   deleteEntity,
   deleteJumpAsset,
+  lookupKnowledgeArticleSummaries,
   listJumpAssets,
   summarizeJumpBudget,
   updateJumpAsset,
@@ -36,6 +38,7 @@ import {
   loadFormatterSettings,
   type JumpAssetRecord,
   type JumpAssetType,
+  type KnowledgeArticleReferenceSummary,
 } from "../../db/dao";
 import { formatBudget } from "../../services/formatter";
 import { confirmDialog } from "../../services/dialogService";
@@ -103,11 +106,14 @@ export const AssetWorkbench: React.FC = () => {
   const selectedJumpId = useJmhStore((state) => state.selectedJumpId);
   const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
   const setEntities = useJmhStore((state) => state.setEntities);
+  const activeType = useJmhStore((state) => state.activeAssetType);
+  const setActiveType = useJmhStore((state) => state.setActiveAssetType);
+  const selectedAssetId = useJmhStore((state) => state.selectedAssetId);
+  const setSelectedAssetId = useJmhStore((state) => state.setSelectedAssetId);
 
-  const [activeType, setActiveType] = useState<JumpAssetType>("origin");
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [formState, setFormState] = useState<AssetFormState | null>(null);
   const [tagDraft, setTagDraft] = useState("");
+  const navigate = useNavigate();
 
   const selectedJump = useMemo(
     () => jumps.find((jump) => jump.id === selectedJumpId) ?? null,
@@ -155,6 +161,40 @@ export const AssetWorkbench: React.FC = () => {
     [currentAssets, selectedAssetId],
   );
 
+  const knowledgeReferencesQuery = useQuery({
+    queryKey: [
+      "jump-assets",
+      "knowledge-links",
+      selectedAsset?.id ?? "none",
+      selectedAsset?.knowledge_article_ids.join(",") ?? "",
+    ],
+    queryFn: () =>
+      selectedAsset && selectedAsset.knowledge_article_ids.length
+        ? lookupKnowledgeArticleSummaries(selectedAsset.knowledge_article_ids)
+        : Promise.resolve([] as KnowledgeArticleReferenceSummary[]),
+    enabled: Boolean(selectedAsset && selectedAsset.knowledge_article_ids.length),
+    staleTime: 5 * 60 * 1000,
+  });
+  const knowledgeReferences = knowledgeReferencesQuery.data ?? [];
+  const knowledgeReferenceError = knowledgeReferencesQuery.isError
+    ? (knowledgeReferencesQuery.error as Error)
+    : null;
+
+  const openKnowledgeArticle = (reference: KnowledgeArticleReferenceSummary) => {
+    navigate("/knowledge", { state: { articleId: reference.id } });
+  };
+
+  useEffect(() => {
+    if (!selectedAssetId) {
+      return;
+    }
+    const allAssets = assetsQuery.data ?? [];
+    const match = allAssets.find((asset) => asset.id === selectedAssetId);
+    if (match && match.asset_type !== activeType) {
+      setActiveType(match.asset_type);
+    }
+  }, [activeType, assetsQuery.data, selectedAssetId, setActiveType]);
+
   useEffect(() => {
     if (!selectedJumpId && jumps.length > 0) {
       setSelectedJump(jumps[0].id);
@@ -162,7 +202,14 @@ export const AssetWorkbench: React.FC = () => {
   }, [jumps, selectedJumpId, setSelectedJump]);
 
   useEffect(() => {
+    if (assetsQuery.isLoading) {
+      return;
+    }
     if (!currentAssets.length) {
+      const pendingMatch = (assetsQuery.data ?? []).find((asset) => asset.id === selectedAssetId);
+      if (pendingMatch && pendingMatch.asset_type !== activeType) {
+        return;
+      }
       setSelectedAssetId(null);
       setFormState(null);
       return;
@@ -170,7 +217,7 @@ export const AssetWorkbench: React.FC = () => {
     if (!selectedAssetId || !currentAssets.some((asset) => asset.id === selectedAssetId)) {
       setSelectedAssetId(currentAssets[0].id);
     }
-  }, [currentAssets, selectedAssetId]);
+  }, [activeType, assetsQuery.data, assetsQuery.isLoading, currentAssets, selectedAssetId, setSelectedAssetId]);
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -247,6 +294,7 @@ export const AssetWorkbench: React.FC = () => {
       }
       mergeEntityIntoStore(asset);
       void upsertEntity(assetToEntity(asset));
+      setActiveType(asset.asset_type);
       setSelectedAssetId(asset.id);
     },
   });
@@ -262,6 +310,8 @@ export const AssetWorkbench: React.FC = () => {
         invalidateAfterMutation(selectedJumpId, asset.asset_type);
       }
       mergeEntityIntoStore(asset);
+      setActiveType(asset.asset_type);
+      setSelectedAssetId(asset.id);
       setFormState(createFormState(asset));
     },
   });
@@ -590,6 +640,38 @@ export const AssetWorkbench: React.FC = () => {
                       rows={3}
                     />
                   </label>
+
+                  <section className="asset-form__references">
+                    <header>
+                      <h3>Referenced in Knowledge Base</h3>
+                      <p>Jump to related guidance articles for this asset.</p>
+                    </header>
+                    {knowledgeReferencesQuery.isLoading ? (
+                      <p className="asset-form__references-status">Loading references…</p>
+                    ) : knowledgeReferenceError ? (
+                      <p className="asset-form__references-status">
+                        Failed to load knowledge base links. {knowledgeReferenceError.message}
+                      </p>
+                    ) : knowledgeReferences.length === 0 ? (
+                      <p className="asset-form__references-status">
+                        This asset isn't linked to any knowledge base articles yet.
+                      </p>
+                    ) : (
+                      <div className="asset-form__reference-chips">
+                        {knowledgeReferences.map((reference) => (
+                          <button
+                            key={reference.id}
+                            type="button"
+                            className="asset-form__reference-chip"
+                            onClick={() => openKnowledgeArticle(reference)}
+                          >
+                            <span>{reference.title}</span>
+                            {reference.summary && <small>{reference.summary}</small>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
                   <section className="asset-form__tags">
                     <header>

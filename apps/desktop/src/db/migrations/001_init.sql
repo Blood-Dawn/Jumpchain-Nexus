@@ -159,6 +159,18 @@ CREATE TABLE IF NOT EXISTS jump_assets (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_article_assets (
+    article_id TEXT NOT NULL REFERENCES knowledge_articles(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES jump_assets(id) ON DELETE CASCADE,
+    PRIMARY KEY (article_id, asset_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_article_assets_article
+    ON knowledge_article_assets (article_id);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_article_assets_asset
+    ON knowledge_article_assets (asset_id);
+
 CREATE TABLE IF NOT EXISTS jump_stipend_toggles (
     jump_id TEXT NOT NULL REFERENCES jumps(id) ON DELETE CASCADE,
     asset_id TEXT NOT NULL REFERENCES jump_assets(id) ON DELETE CASCADE,
