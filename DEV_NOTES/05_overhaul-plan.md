@@ -70,10 +70,7 @@ _This document tracks the modernization effort and parity roadmap between the le
 ### I. Input Formatter
 - **Current status:** ⚠️ Partial. Formatter cleans text and persists preferences, but global spellcheck toggle and editor integrations pending.
 
-### J. Jump Randomizer
-- **Current status:** ❌ Missing. Placeholder route only; no list CRUD, weighting, or selection workflows.
-
-### K. Story Studio / Narrative Tools
+### J. Story Studio / Narrative Tools
 - **Current status:** 🚧 Early WIP. Markdown editor live but lacks template parity, isolation per save, and clipboard/formatter integration.
 
 ## 4. Repository & Community Metadata
@@ -99,10 +96,9 @@ _This document tracks the modernization effort and parity roadmap between the le
 8. Port U.U. supplement rules, default drawback point grants, and reward formatting to the Drawback Supplement module.
 9. Rebuild the Export Center with section presets, spoiler toggles, BBCode/Markdown parity, and per-section previews backed by saved preferences.
 10. Construct the Statistics dashboard pipeline summarizing CP spend/earn, perk/item counts per category, gauntlet tracking, and boosters.
-11. Deliver a full Jump Randomizer feature (list CRUD, weighted selection without replacement, history log, copy/export helpers) persisted via SQLite.
-12. Expand Vitest/WebdriverIO/Playwright coverage across Jump Hub, Passport, Warehouse, Export, Options, and Formatter flows, adding CI reports.
-13. Introduce developer-only in-app test dashboard leveraging the Tauri shell plugin to run `test:full` and visualize results.
-14. Abstract filesystem/dialog helpers behind a platform service to support future web deployment without Tauri.
-15. Add CONTRIBUTING, CODE_OF_CONDUCT, and CHANGELOG documents, and update module READMEs with current workflows.
+11. Expand Vitest/WebdriverIO/Playwright coverage across Jump Hub, Passport, Warehouse, Export, Options, and Formatter flows, adding CI reports.
+12. Introduce developer-only in-app test dashboard leveraging the Tauri shell plugin to run `test:full` and visualize results.
+13. Abstract filesystem/dialog helpers behind a platform service to support future web deployment without Tauri.
+14. Add CONTRIBUTING, CODE_OF_CONDUCT, and CHANGELOG documents, and update module READMEs with current workflows.
 
 _Updated: 2025-02-14._

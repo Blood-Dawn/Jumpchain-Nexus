@@ -177,9 +177,6 @@ Node / Rust (Desktop rewrite): see `apps/desktop/package.json` & `Cargo.toml` fo
 ### Saving & Backups
 Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are maintained in `Backups/` (`(1)` oldest ? rotated). Use "Save As" for branching timelines.
 
-### Randomizer Lists
-`JumpList.txt` regenerates with a template if missing. Edit via UI where possible—manual edits must preserve `JumpName | Weight | Link` format under `[Section]` tags.
-
 ## Technology Stack
 ### Legacy / Classic App (WPF)
 - .NET 8 (Windows), WPF MVVM

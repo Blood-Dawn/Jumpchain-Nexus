@@ -109,15 +109,6 @@ const moduleList: ModuleDef[] = [
     requiredPermissions: ["input-formatter-tools"],
   },
   {
-    id: "jump-randomizer",
-    title: "Jump Randomizer",
-    description: "Weighted selection",
-    path: "randomizer",
-    section: "tools",
-    element: lazyModule(() => import("./randomizer")),
-    requiredPermissions: ["jump-randomizer-sql"],
-  },
-  {
     id: "story-studio",
     title: "Story Studio",
     description: "Write chapters & recaps",
