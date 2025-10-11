@@ -869,3 +869,142 @@ describe("export preset dao", () => {
     expect(selectCall?.sql).toContain("ORDER BY name COLLATE NOCASE");
   });
 });
+
+describe("warehouse personal reality summary", () => {
+  it("aggregates WP and limit contributions", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Stasis Pods",
+          category: null,
+          quantity: 2,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              wp: 5,
+              consumes: { structures: 1, residents: 2 },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "item-2",
+          scope: "warehouse",
+          name: "Dormitory",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              provides: { structures: 3, residents: 6 },
+            },
+          }),
+          sort_order: 1,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 0,
+          companion_cp: 0,
+          item_cp: 0,
+          warehouse_wp: 12,
+          allow_gauntlet: 0,
+          gauntlet_halved: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary).toEqual({
+      wpTotal: 10,
+      wpCap: 12,
+      limits: [
+        { key: "residents", label: "Residents", provided: 6, used: 4 },
+        { key: "structures", label: "Structures", provided: 3, used: 2 },
+      ],
+    });
+  });
+
+  it("normalizes string values and ignores malformed metadata", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Generator",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personal_reality: {
+              wpCost: "7",
+              provides: { power: "10" },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+        {
+          id: "item-2",
+          scope: "warehouse",
+          name: "Luxury Suite",
+          category: null,
+          quantity: 0,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: "not-json",
+          sort_order: 1,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary.wpTotal).toBe(7);
+    expect(summary.wpCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
+    expect(summary.limits).toEqual([
+      { key: "power", label: "Power", provided: 10, used: 0 },
+    ]);
+  });
+});
