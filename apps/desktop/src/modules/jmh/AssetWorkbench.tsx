@@ -33,7 +33,6 @@ import {
   updateJumpAsset,
   reorderJumpAssets,
   upsertEntity,
-  loadFormatterSettings,
   type JumpAssetRecord,
   type JumpAssetType,
 } from "../../db/dao";
@@ -49,6 +48,7 @@ import {
   type StipendFrequency,
   type StipendMetadata,
 } from "./assetUtils";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 
@@ -114,10 +114,7 @@ export const AssetWorkbench: React.FC = () => {
     [jumps, selectedJumpId],
   );
 
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const budgetQuery = useQuery({
     queryKey: ["jump-budget", selectedJumpId],
