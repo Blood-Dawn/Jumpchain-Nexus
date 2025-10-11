@@ -37,6 +37,7 @@ import {
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
+import { QuickAssetEditor } from "../jmh/components/QuickAssetEditor";
 
 interface JumpFormState {
   title: string;
@@ -177,6 +178,25 @@ const JumpRow: React.FC<{
         </div>
       </div>
       <JumpBudget jumpId={jump.id} expanded={expanded} formatBudgetValue={formatBudgetValue} />
+      {expanded && (
+        <div className="jump-hub__panels">
+          <QuickAssetEditor
+            jumpId={jump.id}
+            title="Origins"
+            assetTypes={["origin"]}
+            enabled={expanded}
+            formatCurrency={formatBudgetValue}
+          />
+          <QuickAssetEditor
+            jumpId={jump.id}
+            title="Purchases"
+            assetTypes={["perk", "item", "companion"]}
+            allowTypeSelection
+            enabled={expanded}
+            formatCurrency={formatBudgetValue}
+          />
+        </div>
+      )}
     </article>
   );
 };
