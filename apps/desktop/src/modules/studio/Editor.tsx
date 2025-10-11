@@ -36,6 +36,7 @@ import type {
   ChapterSnapshotRecord,
   StoryWithChapters,
   EntityRecord,
+  ChapterTextRecord,
 } from "../../db/dao";
 import {
   getChapterText,
@@ -441,7 +442,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     if (!chapter || !draft) return;
     setSaving(true);
     try {
-      await saveChapterText({
+      const savedText: ChapterTextRecord = await saveChapterText({
         chapter_id: chapter.id,
         json: draft.json,
         plain: draft.plain,
@@ -455,6 +456,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
       setDirty(false);
       setDraftBackup(null);
       setLastAutosave(new Date().toISOString());
+      queryClient.setQueryData(["chapterText", chapter.id], savedText);
       await queryClient.invalidateQueries({ queryKey: ["stories"] });
     } catch (error) {
       console.error("Failed to save chapter", error);
