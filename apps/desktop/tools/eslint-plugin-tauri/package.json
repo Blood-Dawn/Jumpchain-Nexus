@@ -1,0 +1,9 @@
+{
+  "name": "eslint-plugin-tauri",
+  "version": "0.0.0",
+  "main": "index.cjs",
+  "type": "commonjs",
+  "peerDependencies": {
+    "eslint": ">=8"
+  }
+}
