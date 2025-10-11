@@ -1,0 +1,38 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "devtools-shell",
+  "description": "Allow running npm run test:full from the developer tools module",
+  "windows": ["main"],
+  "permissions": [
+    {
+      "identifier": "shell:allow-spawn",
+      "scope": {
+        "allow": [
+          {
+            "name": "npm-test-full",
+            "cmd": "npm",
+            "args": ["run", "test:full"]
+          }
+        ]
+      }
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "scope": {
+        "allow": [
+          {
+            "name": "npm-test-full",
+            "cmd": "npm",
+            "args": ["run", "test:full"]
+          }
+        ]
+      }
+    },
+    {
+      "identifier": "shell:allow-kill"
+    },
+    {
+      "identifier": "shell:allow-stdin-write"
+    }
+  ]
+}
