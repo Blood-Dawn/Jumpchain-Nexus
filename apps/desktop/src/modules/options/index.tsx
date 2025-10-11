@@ -151,6 +151,18 @@ const LIMITER_OPTIONS: Array<{ value: EssentialLimiter; label: string }> = [
   { value: "vanishing", label: "Vanishing" },
 ];
 
+const SUPPLEMENT_TOGGLE_FIELDS: Array<{ key: keyof SupplementToggleSettings; label: string }> = [
+  { key: "enableDrawbackSupplement", label: "Enable Drawback Supplement" },
+  { key: "enableUniversalDrawbacks", label: "Unlock Universal Drawback options" },
+  { key: "enableEssentialBodyMod", label: "Include Essential Body Mod upgrades" },
+  { key: "allowCompanionBodyMod", label: "Allow companions to share body-mod perks" },
+];
+
+const WAREHOUSE_MODE_OPTIONS: Array<{ value: WarehouseModeOption; label: string }> = [
+  { value: "generic", label: "Generic Storage" },
+  { value: "personal-reality", label: "Personal Reality Focus" },
+];
+
 const JumpchainOptions: React.FC = () => {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: ["app-settings"], queryFn: listAppSettings });
@@ -778,38 +790,16 @@ const JumpchainOptions: React.FC = () => {
             <p>Toggle supplement layers used across Warehouse, Locker, and Drawback tools.</p>
           </header>
           <div className="options__list">
-            <label>
-              <input
-                type="checkbox"
-                checked={supplements.enableDrawbackSupplement}
-                onChange={(event) => handleSupplementToggle("enableDrawbackSupplement", event.target.checked)}
-              />
-              Enable Drawback Supplement
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={supplements.enableUniversalDrawbacks}
-                onChange={(event) => handleSupplementToggle("enableUniversalDrawbacks", event.target.checked)}
-              />
-              Unlock Universal Drawback options
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={supplements.enableEssentialBodyMod}
-                onChange={(event) => handleSupplementToggle("enableEssentialBodyMod", event.target.checked)}
-              />
-              Include Essential Body Mod upgrades
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={supplements.allowCompanionBodyMod}
-                onChange={(event) => handleSupplementToggle("allowCompanionBodyMod", event.target.checked)}
-              />
-              Allow companions to share body-mod perks
-            </label>
+            {SUPPLEMENT_TOGGLE_FIELDS.map(({ key, label }) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={supplements[key]}
+                  onChange={(event) => handleSupplementToggle(key, event.target.checked)}
+                />
+                {label}
+              </label>
+            ))}
           </div>
           {sectionMessage("supplements")}
         </section>
@@ -1271,26 +1261,18 @@ const JumpchainOptions: React.FC = () => {
             <p>Adjust the analytics profile used in Cosmic Warehouse.</p>
           </header>
           <div className="options__list options__list--radio">
-            <label>
-              <input
-                type="radio"
-                name="warehouse-mode"
-                value="generic"
-                checked={warehouseMode === "generic"}
-                onChange={() => handleWarehouseModeChange("generic")}
-              />
-              Generic Storage
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="warehouse-mode"
-                value="personal-reality"
-                checked={warehouseMode === "personal-reality"}
-                onChange={() => handleWarehouseModeChange("personal-reality")}
-              />
-              Personal Reality Focus
-            </label>
+            {WAREHOUSE_MODE_OPTIONS.map((option) => (
+              <label key={option.value}>
+                <input
+                  type="radio"
+                  name="warehouse-mode"
+                  value={option.value}
+                  checked={warehouseMode === option.value}
+                  onChange={() => handleWarehouseModeChange(option.value)}
+                />
+                {option.label}
+              </label>
+            ))}
           </div>
           {sectionMessage("warehouse-mode")}
         </section>
