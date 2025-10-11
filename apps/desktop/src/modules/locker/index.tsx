@@ -24,16 +24,28 @@ SOFTWARE.
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_SUPPLEMENT_SETTINGS,
   createInventoryItem,
   deleteInventoryItem,
   listInventoryItems,
+  loadSupplementSettings,
   moveInventoryItem,
   updateInventoryItem,
   type InventoryScope,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-type LockerPriority = "essential" | "standard" | "luxury";
+import {
+  type BodyModType,
+  type LockerFilters,
+  type LockerMetadata,
+  type LockerWarning,
+  collectLockerTags,
+  computeLockerWarnings,
+  filterLockerItems,
+  mapLockerItems,
+  parseLockerMetadata,
+} from "./lockerUtils";
 
 interface LockerFormState {
   id: string;
@@ -44,48 +56,27 @@ interface LockerFormState {
   notes: string;
   tags: string[];
   packed: boolean;
-  priority: LockerPriority;
-}
-
-interface ReadinessFilter {
-  packed: "all" | "packed" | "unpacked";
-  priority: "all" | LockerPriority;
+  priority: "essential" | "standard" | "luxury";
+  metadata: LockerMetadata;
+  bodyModType: BodyModType | null;
 }
 
 const LOCKER_SCOPE_KEY = ["locker-items"] as const;
 
-const parseTags = (raw: string | null): string[] => {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.map((tag) => String(tag));
-    }
-  } catch {
-    // fallback
-  }
-  return raw
-    .split(/[,;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-};
-
-const parseMetadata = (raw: string | null): { packed?: boolean; priority?: LockerPriority } => {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return (parsed ?? {}) as { packed?: boolean; priority?: LockerPriority };
-  } catch {
-    return {};
-  }
-};
-
 const CosmicLocker: React.FC = () => {
   const queryClient = useQueryClient();
   const itemsQuery = useQuery({ queryKey: LOCKER_SCOPE_KEY, queryFn: () => listInventoryItems("locker") });
+  const supplementsQuery = useQuery({ queryKey: ["supplement-settings"], queryFn: loadSupplementSettings });
+  const supplements = supplementsQuery.data ?? DEFAULT_SUPPLEMENT_SETTINGS;
 
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<ReadinessFilter>({ packed: "all", priority: "all" });
+  const [filters, setFilters] = useState<LockerFilters>({
+    packed: "all",
+    priority: "all",
+    bodyMod: "all",
+    booster: "all",
+    tag: "all",
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const createMutation = useMutation({
@@ -127,42 +118,6 @@ const CosmicLocker: React.FC = () => {
     },
   });
 
-  useEffect(() => {
-    if (!itemsQuery.data?.length) {
-      setSelectedId(null);
-      return;
-    }
-    if (!selectedId || !itemsQuery.data.some((item) => item.id === selectedId)) {
-      setSelectedId(itemsQuery.data[0].id);
-    }
-  }, [itemsQuery.data, selectedId]);
-
-  const selectedItem = useMemo(
-    () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,
-    [itemsQuery.data, selectedId]
-  );
-
-  const [formState, setFormState] = useState<LockerFormState | null>(null);
-
-  useEffect(() => {
-    if (!selectedItem) {
-      setFormState(null);
-      return;
-    }
-    const metadata = parseMetadata(selectedItem.metadata);
-    setFormState({
-      id: selectedItem.id,
-      name: selectedItem.name,
-      category: selectedItem.category ?? "",
-      quantity: selectedItem.quantity ?? 1,
-      slot: selectedItem.slot ?? "",
-      notes: selectedItem.notes ?? "",
-      tags: parseTags(selectedItem.tags),
-      packed: metadata.packed ?? false,
-      priority: metadata.priority ?? "standard",
-    });
-  }, [selectedItem?.id, selectedItem?.updated_at]);
-
   const categories = useMemo(() => {
     const set = new Set<string>();
     itemsQuery.data?.forEach((item) => {
@@ -173,34 +128,72 @@ const CosmicLocker: React.FC = () => {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [itemsQuery.data]);
 
-  const readinessBuckets = useMemo(() => {
-    const base = (itemsQuery.data ?? []).map((item) => {
-      const metadata = parseMetadata(item.metadata);
-      const priorityValue = metadata.priority;
-      const priority: LockerPriority = priorityValue === "essential" || priorityValue === "luxury"
-        ? priorityValue
-        : "standard";
-      return {
-        item,
-        packed: metadata.packed ?? false,
-        priority,
-      };
+  const analyzedItems = useMemo(() => mapLockerItems(itemsQuery.data ?? []), [itemsQuery.data]);
+  const tagOptions = useMemo(() => collectLockerTags(analyzedItems), [analyzedItems]);
+  const filteredItems = useMemo(
+    () => filterLockerItems(analyzedItems, filters, search),
+    [analyzedItems, filters, search]
+  );
+  useEffect(() => {
+    if (!filteredItems.length) {
+      setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !filteredItems.some((entry) => entry.item.id === selectedId)) {
+      setSelectedId(filteredItems[0].item.id);
+    }
+  }, [filteredItems, selectedId]);
+  const warningsById = useMemo(
+    () =>
+      computeLockerWarnings(analyzedItems, {
+        essentialEnabled: supplements.enableEssentialBodyMod,
+        universalEnabled: supplements.allowCompanionBodyMod,
+      }),
+    [analyzedItems, supplements.enableEssentialBodyMod, supplements.allowCompanionBodyMod]
+  );
+  const selectedAnalysis = useMemo(
+    () => analyzedItems.find((entry) => entry.item.id === selectedId) ?? null,
+    [analyzedItems, selectedId]
+  );
+  const selectedWarnings = useMemo<LockerWarning[]>(
+    () => (selectedId ? warningsById[selectedId] ?? [] : []),
+    [selectedId, warningsById]
+  );
+
+  const [formState, setFormState] = useState<LockerFormState | null>(null);
+
+  useEffect(() => {
+    if (!selectedAnalysis) {
+      setFormState(null);
+      return;
+    }
+    setFormState({
+      id: selectedAnalysis.item.id,
+      name: selectedAnalysis.item.name,
+      category: selectedAnalysis.item.category ?? "",
+      quantity: selectedAnalysis.item.quantity ?? 1,
+      slot: selectedAnalysis.item.slot ?? "",
+      notes: selectedAnalysis.item.notes ?? "",
+      tags: [...selectedAnalysis.tags],
+      packed: selectedAnalysis.packed,
+      priority: selectedAnalysis.priority,
+      metadata: { ...selectedAnalysis.metadata },
+      bodyModType: selectedAnalysis.bodyModType,
     });
-    return base.filter(({ item, packed, priority }) => {
-      const matchesSearch = !search
-        ? true
-        : [item.name, item.category, item.slot, item.notes]
-            .filter(Boolean)
-            .some((value) => value!.toLowerCase().includes(search.toLowerCase()));
-      const matchesPacked =
-        filters.packed === "all" || (filters.packed === "packed" ? packed : !packed);
-      const matchesPriority = filters.priority === "all" || filters.priority === priority;
-      return matchesSearch && matchesPacked && matchesPriority;
-    });
-  }, [itemsQuery.data, search, filters]);
+  }, [selectedAnalysis]);
 
   const handleSave = () => {
     if (!formState) return;
+    const nextMetadata: LockerMetadata = {
+      ...formState.metadata,
+      packed: formState.packed,
+      priority: formState.priority,
+    };
+    if (formState.bodyModType) {
+      nextMetadata.bodyMod = formState.bodyModType;
+    } else if ("bodyMod" in nextMetadata) {
+      delete nextMetadata.bodyMod;
+    }
     updateMutation.mutate({
       id: formState.id,
       updates: {
@@ -210,10 +203,7 @@ const CosmicLocker: React.FC = () => {
         slot: formState.slot,
         notes: formState.notes,
         tags: formState.tags,
-        metadata: {
-          packed: formState.packed,
-          priority: formState.priority,
-        },
+        metadata: nextMetadata,
       },
     });
   };
@@ -221,7 +211,8 @@ const CosmicLocker: React.FC = () => {
   const togglePacked = (id: string, packed: boolean) => {
     const existing = itemsQuery.data?.find((item) => item.id === id);
     if (!existing) return;
-    const metadata = { ...parseMetadata(existing.metadata), packed };
+    const metadata = parseLockerMetadata(existing.metadata);
+    metadata.packed = packed;
     updateMutation.mutate({ id, updates: { metadata } });
   };
 
@@ -269,7 +260,7 @@ const CosmicLocker: React.FC = () => {
                   key={option.value}
                   type="button"
                   className={filters.packed === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
-                  onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as ReadinessFilter["packed"] }))}
+                  onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as LockerFilters["packed"] }))}
                 >
                   {option.label}
                 </button>
@@ -292,7 +283,7 @@ const CosmicLocker: React.FC = () => {
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
-                      priority: option.value as ReadinessFilter["priority"],
+                      priority: option.value as LockerFilters["priority"],
                     }))
                   }
                 >
@@ -301,7 +292,89 @@ const CosmicLocker: React.FC = () => {
               ))}
             </div>
           </div>
+          <div className="locker__filter-group">
+            <span>Body Mod</span>
+            <div>
+              {[
+                { label: "All", value: "all" },
+                { label: "Universal", value: "universal" },
+                { label: "Essential", value: "essential" },
+                { label: "Unflagged", value: "none" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={filters.bodyMod === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      bodyMod: option.value as LockerFilters["bodyMod"],
+                    }))
+                  }
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="locker__filter-group">
+            <span>Item Type</span>
+            <div>
+              {[
+                { label: "All", value: "all" },
+                { label: "Boosters", value: "booster" },
+                { label: "Non-boosters", value: "non-booster" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={filters.booster === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      booster: option.value as LockerFilters["booster"],
+                    }))
+                  }
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="locker__filter-group locker__filter-group--select">
+            <label>
+              <span>Tag</span>
+              <select
+                value={filters.tag}
+                onChange={(event) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    tag: event.target.value as LockerFilters["tag"],
+                  }))
+                }
+              >
+                <option value="all">All tags</option>
+                {tagOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
+      </div>
+
+      <div className="locker__supplement-status">
+        <span className={supplements.enableEssentialBodyMod ? "locker__status locker__status--ok" : "locker__status locker__status--warning"}>
+          Essential Body Mod {supplements.enableEssentialBodyMod ? "enabled" : "disabled"}
+        </span>
+        <span className={supplements.allowCompanionBodyMod ? "locker__status locker__status--ok" : "locker__status locker__status--warning"}>
+          Universal sharing {supplements.allowCompanionBodyMod ? "enabled" : "disabled"}
+        </span>
+        {supplementsQuery.isError ? (
+          <span className="locker__status locker__status--warning">Unable to load supplement settings. Defaults applied.</span>
+        ) : null}
       </div>
 
       <div className="locker__layout">
@@ -315,36 +388,52 @@ const CosmicLocker: React.FC = () => {
           )}
           {itemsQuery.isLoading && <p className="locker__empty">Loading locker inventory…</p>}
           {itemsQuery.isError && <p className="locker__empty">Failed to load locker inventory.</p>}
-          {!itemsQuery.isLoading && readinessBuckets.length === 0 && (
+          {!itemsQuery.isLoading && filteredItems.length === 0 && (
             <p className="locker__empty">No items match the active filters.</p>
           )}
           <ul>
-            {readinessBuckets.map(({ item, packed, priority }) => (
-              <li key={item.id}>
+            {filteredItems.map((entry) => (
+              <li key={entry.item.id}>
                 <button
                   type="button"
-                  className={item.id === selectedId ? "locker__item locker__item--active" : "locker__item"}
-                  onClick={() => setSelectedId(item.id)}
+                  className={entry.item.id === selectedId ? "locker__item locker__item--active" : "locker__item"}
+                  onClick={() => setSelectedId(entry.item.id)}
                 >
                   <div className="locker__item-header">
-                    <strong>{item.name}</strong>
+                    <strong>{entry.item.name}</strong>
                     <label>
                       <input
                         type="checkbox"
-                        checked={packed}
-                        onChange={(event) => togglePacked(item.id, event.target.checked)}
+                        checked={entry.packed}
+                        onChange={(event) => togglePacked(entry.item.id, event.target.checked)}
                       />
                       Packed
                     </label>
                   </div>
                   <div className="locker__item-meta">
-                    <span>{item.category ?? "General"}</span>
-                    <span>Qty {item.quantity ?? 1}</span>
-                    <span className={`locker__badge locker__badge--${priority}`}>{priority}</span>
+                    <span>{entry.item.category ?? "General"}</span>
+                    <span>Qty {entry.item.quantity ?? 1}</span>
+                    <span className={`locker__badge locker__badge--${entry.priority}`}>{entry.priority}</span>
+                    {entry.bodyModType && (
+                      <span
+                        className={`locker__badge locker__badge--bodymod locker__badge--bodymod-${entry.bodyModType}${
+                          (entry.bodyModType === "essential" && !supplements.enableEssentialBodyMod) ||
+                          (entry.bodyModType === "universal" && !supplements.allowCompanionBodyMod)
+                            ? " locker__badge--inactive"
+                            : ""
+                        }`}
+                      >
+                        {entry.bodyModType === "essential" ? "Essential" : "Universal"}
+                      </span>
+                    )}
+                    {entry.hasBooster && <span className="locker__badge locker__badge--booster">Booster</span>}
+                    {(warningsById[entry.item.id]?.length ?? 0) > 0 && (
+                      <span className="locker__item-warning">Needs attention</span>
+                    )}
                   </div>
-                  {item.tags && (
+                  {entry.tags.length > 0 && (
                     <div className="locker__item-tags">
-                      {parseTags(item.tags).map((tag) => (
+                      {entry.tags.map((tag) => (
                         <span key={tag}>{tag}</span>
                       ))}
                     </div>
@@ -364,6 +453,17 @@ const CosmicLocker: React.FC = () => {
                 handleSave();
               }}
             >
+              {selectedWarnings.length > 0 && (
+                <div className="locker__warnings">
+                  <strong>Needs attention</strong>
+                  <ul>
+                    {selectedWarnings.map((warning, index) => (
+                      <li key={`${warning.type}-${index}`}>{warning.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="locker__grid">
                 <label>
                   <span>Name</span>
