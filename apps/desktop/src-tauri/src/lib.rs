@@ -22,6 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tauri::{path::BaseDirectory, AppHandle, Window};
 use tauri_plugin_dialog::{DialogExt, FilePath};
@@ -127,18 +128,29 @@ fn locate_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
         candidates.push(resource_parent);
     }
 
-    let mut expanded = Vec::new();
-    for path in candidates {
-        expanded.push(path.clone());
-        if let Some(parent) = path.parent() {
-            expanded.push(parent.to_path_buf());
-        }
-    }
+    let mut visited: HashSet<PathBuf> = HashSet::new();
 
-    for candidate in expanded {
-        let package = candidate.join("package.json");
-        if package.is_file() {
-            return Ok(candidate);
+    for mut candidate in candidates {
+        loop {
+            if !visited.insert(candidate.clone()) {
+                match candidate.parent() {
+                    Some(parent) => {
+                        candidate = parent.to_path_buf();
+                        continue;
+                    }
+                    None => break,
+                }
+            }
+
+            let package = candidate.join("package.json");
+            if package.is_file() {
+                return Ok(candidate);
+            }
+
+            match candidate.parent() {
+                Some(parent) => candidate = parent.to_path_buf(),
+                None => break,
+            }
         }
     }
 
