@@ -59,7 +59,9 @@ const baseAsset: JumpAssetRecord = {
   discounted: 0,
   freebie: 0,
   notes: null,
-  metadata: null,
+  metadata: JSON.stringify({
+    attributes: [{ key: "Strength", value: "+2" }],
+  }),
   sort_order: 0,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -150,6 +152,37 @@ describe("QuickAssetEditor", () => {
     await user.type(screen.getByLabelText("Quantity"), "2");
     await user.click(screen.getByLabelText("Discounted"));
 
+    const attributeKeyInputs = await screen.findAllByLabelText("Attribute Key");
+    expect(attributeKeyInputs[0]).toHaveValue("Strength");
+    const attributeValueInputs = screen.getAllByLabelText("Attribute Value");
+    await user.clear(attributeValueInputs[0]);
+    await user.type(attributeValueInputs[0], "+4");
+
+    await user.click(screen.getByTestId("quick-asset-attribute-add"));
+    let keys = screen.getAllByLabelText("Attribute Key");
+    let values = screen.getAllByLabelText("Attribute Value");
+    const secondIndex = keys.length - 1;
+    await user.type(keys[secondIndex], "Dexterity");
+    await user.type(values[secondIndex], "+1");
+
+    await user.click(screen.getByTestId("quick-asset-attribute-add"));
+    keys = screen.getAllByLabelText("Attribute Key");
+    values = screen.getAllByLabelText("Attribute Value");
+    const thirdIndex = keys.length - 1;
+    await user.type(keys[thirdIndex], "Wisdom");
+    await user.type(values[thirdIndex], "+3");
+
+    await user.click(screen.getByRole("button", { name: "Remove attribute 2" }));
+
+    keys = screen.getAllByLabelText("Attribute Key");
+    values = screen.getAllByLabelText("Attribute Value");
+    expect(keys).toHaveLength(2);
+    expect(values).toHaveLength(2);
+    expect(keys[0]).toHaveValue("Strength");
+    expect(values[0]).toHaveValue("+4");
+    expect(keys[1]).toHaveValue("Wisdom");
+    expect(values[1]).toHaveValue("+3");
+
     await user.type(screen.getByTestId("quick-asset-tag-input"), "Arcane");
     await user.keyboard("{Enter}");
 
@@ -171,6 +204,10 @@ describe("QuickAssetEditor", () => {
     expect(metadata.stipend?.base).toBe(50);
     expect(metadata.stipend?.periods).toBe(3);
     expect(metadata.stipend?.total).toBe(150);
+    expect(metadata.attributes).toEqual([
+      { key: "Strength", value: "+4" },
+      { key: "Wisdom", value: "+3" },
+    ]);
     expect(payload.discounted).toBe(true);
     expect(screen.getByText("Saved.")).toBeInTheDocument();
   });
