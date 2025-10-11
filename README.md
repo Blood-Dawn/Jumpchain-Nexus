@@ -134,7 +134,7 @@ Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are main
 Manage randomizer data directly from the React desktop app—no manual editing of `JumpList.txt` required:
 
 - Open the **Jump Randomizer** module and select **Manage Lists** to create, rename, or delete weighted lists.
-- Within a list, use **Groups** to organize jumps into thematic buckets. Groups can be reordered, hidden, or removed without losing the entries assigned to them.
+- Within a list, use **Groups** to organize jumps into thematic buckets. You can create, rename, and delete groups; deleting a group also deletes the entries assigned to it, and the current UI does not support reordering or hiding groups.
 - Add new jumps with **Add Entry**, providing the jump name, optional link, and a weight. Existing entries can be edited inline; changes persist immediately.
 - Import an existing `JumpList.txt` once to seed the database, then continue managing through the UI. The Tauri layer keeps list, group, and entry records synchronized with the local SQLite database.
 
