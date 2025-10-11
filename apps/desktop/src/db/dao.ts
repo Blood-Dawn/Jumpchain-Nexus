@@ -4171,12 +4171,27 @@ export function parseCategoryPresets(record: AppSettingRecord | null): CategoryP
   const perkCategories = coerceStringArray(value.perkCategories);
   const itemCategories = coerceStringArray(value.itemCategories);
 
-  const unique = (entries: string[]) =>
-    Array.from(new Set(entries.map((entry) => entry.trim()))).filter((entry) => entry.length > 0);
+  const unique = (entries: string[]) => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const entry of entries) {
+      const trimmed = entry.trim();
+      if (!trimmed.length) {
+        continue;
+      }
+      const normalized = trimmed.toLowerCase();
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      ordered.push(trimmed);
+    }
+    return ordered;
+  };
 
   return {
-    perkCategories: unique(perkCategories).sort((a, b) => a.localeCompare(b)),
-    itemCategories: unique(itemCategories).sort((a, b) => a.localeCompare(b)),
+    perkCategories: unique(perkCategories),
+    itemCategories: unique(itemCategories),
   };
 }
 
