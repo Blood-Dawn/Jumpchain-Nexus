@@ -36,6 +36,10 @@ Migration & DB scripts (SQLite via `@tauri-apps/plugin-sql`):
 ```powershell
 .\npm.cmd run migrate
 ```
+After pulling dependency updates, re-run the install step to prune removed packages and refresh local binaries. Optional browser bundles for Playwright-based tests are not installed automatically; fetch them when needed with:
+```powershell
+npx playwright install --with-deps
+```
 See `apps/desktop/README.md` (if present) for module details, schema evolution, and test commands.
 
 ## Feature List
@@ -133,7 +137,8 @@ Saves are XML files in `Saves/`. On overwrite, up to 10 rolling backups are main
 - PDF placeholder (future indexing): `pdfjs-dist`
 - Packaging + Native Bridges: Tauri 2, plugins (dialog, fs, sql, opener)
 - Local DB: SQLite via `@tauri-apps/plugin-sql` + migration scripts
-- Utility: `jszip`, `zod` validation, `react-window` virtualization
+- Utility: `zod` validation, `react-window` virtualization
+- PDF tooling is now loaded on demand so the default UI bundle stays leaner while still supporting import/index workflows when invoked.
 - Rust Crate Dependencies: `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`, `tauri-plugin-sql`, `serde`, `serde_json`
 
 ## Dependencies Summary (Top Level)
