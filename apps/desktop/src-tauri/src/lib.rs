@@ -237,25 +237,17 @@ async fn run_full_test_suite(
         .env("FORCE_COLOR", "0")
         .env("npm_config_color", "false");
 
-    {
-        let mut guard = state
-            .child
-            .lock()
-            .map_err(|_| "Unable to access test runner state".to_string())?;
-        if guard.is_some() {
-            return Err("Test suite is already running".into());
-        }
+    let mut guard = state
+        .child
+        .lock()
+        .map_err(|_| "Unable to access test runner state".to_string())?;
+    if guard.is_some() {
+        return Err("Test suite is already running".into());
     }
 
     let (mut rx, child) = command.spawn().map_err(|err| err.to_string())?;
-
-    {
-        let mut guard = state
-            .child
-            .lock()
-            .map_err(|_| "Unable to access test runner state".to_string())?;
-        *guard = Some(child);
-    }
+    *guard = Some(child);
+    drop(guard);
 
     let _ = window.emit(TEST_RUN_EVENT, &TestRunPayload::Started);
 
