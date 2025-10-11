@@ -165,6 +165,22 @@ describe("computeBudget", () => {
       netCost: 275,
     });
   });
+
+  it("clamps negative costs before aggregating", async () => {
+    loadMock.mockResolvedValue(new FakeDb());
+    const { computeBudget } = await importDao();
+    const purchases: PurchaseCostInput[] = [
+      { cost: -50 },
+      { cost: -25, discount: true },
+      { cost: -10, freebie: true },
+    ];
+    expect(computeBudget(purchases)).toEqual({
+      totalCost: 0,
+      discounted: 0,
+      freebies: 0,
+      netCost: 0,
+    });
+  });
 });
 
 describe("jump asset dao", () => {
@@ -307,6 +323,32 @@ describe("jump asset dao", () => {
     const listCall = fakeDb.selectCalls.find((call) => call.sql.includes("asset_type IN"));
     expect(listCall?.sql).toContain("asset_type IN ($2, $3)");
     expect(listCall?.params).toEqual(["jump-1", "perk", "item"]);
+  });
+
+  it("reorders jump assets inside a transaction", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { reorderJumpAssets } = await importDao();
+    await reorderJumpAssets("jump-9", "item", ["asset-a", "asset-b"]);
+
+    const executedSql = fakeDb.executeCalls.map((entry) => entry.sql.trim());
+    expect(executedSql.some((sql) => sql === "BEGIN TRANSACTION")).toBe(true);
+    expect(executedSql.some((sql) => sql === "COMMIT")).toBe(true);
+    const updateCalls = fakeDb.executeCalls.filter((entry) =>
+      entry.sql.replace(/\s+/g, " ").toUpperCase().includes("UPDATE JUMP_ASSETS SET SORT_ORDER")
+    );
+    expect(updateCalls).toHaveLength(2);
+    expect(updateCalls[0]?.params?.[0]).toBe(0);
+    expect(typeof updateCalls[0]?.params?.[1]).toBe("string");
+    expect(updateCalls[0]?.params?.[2]).toBe("asset-a");
+    expect(updateCalls[0]?.params?.[3]).toBe("jump-9");
+    expect(updateCalls[0]?.params?.[4]).toBe("item");
+    expect(updateCalls[1]?.params?.[0]).toBe(1);
+    expect(typeof updateCalls[1]?.params?.[1]).toBe("string");
+    expect(updateCalls[1]?.params?.[2]).toBe("asset-b");
+    expect(updateCalls[1]?.params?.[3]).toBe("jump-9");
+    expect(updateCalls[1]?.params?.[4]).toBe("item");
   });
 });
 
