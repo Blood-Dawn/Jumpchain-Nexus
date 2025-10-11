@@ -165,6 +165,20 @@ export interface JumpAssetRecord {
   updated_at: string;
 }
 
+interface JumpStipendToggleRow {
+  asset_id: string;
+  enabled: number;
+  override_total: number | null;
+}
+
+interface CompanionImportRow {
+  id: string;
+  asset_id: string;
+  companion_name: string;
+  option_value: number | null;
+  selected: number;
+}
+
 export interface CreateJumpAssetInput {
   jump_id: string;
   asset_type: JumpAssetType;
@@ -456,6 +470,7 @@ export interface FormatterSettings {
   removeAllLineBreaks: boolean;
   leaveDoubleLineBreaks: boolean;
   thousandsSeparator: ThousandsSeparatorOption;
+  spellcheckEnabled: boolean;
 }
 
 export interface JumpDefaultsSettings {
@@ -550,6 +565,19 @@ export type WarehouseModeOption = "generic" | "personal-reality";
 
 export interface WarehouseModeSettings {
   mode: WarehouseModeOption;
+}
+
+export interface WarehousePersonalRealityLimitCounter {
+  key: string;
+  label: string;
+  provided: number;
+  used: number;
+}
+
+export interface WarehousePersonalRealitySummary {
+  wpTotal: number;
+  wpCap: number | null;
+  limits: WarehousePersonalRealityLimitCounter[];
 }
 
 export interface CategoryPresetSettings {
@@ -1957,9 +1985,32 @@ export interface BudgetComputation {
   netCost: number;
 }
 
+export interface JumpStipendToggleSummaryEntry {
+  assetId: string;
+  assetName: string | null;
+  enabled: boolean;
+  amount: number;
+  potentialAmount: number;
+}
+
+export interface CompanionImportSummaryEntry {
+  id: string;
+  assetId: string;
+  assetName: string | null;
+  companionName: string;
+  optionValue: number;
+  selected: boolean;
+}
+
 export interface JumpBudgetSummary extends BudgetComputation {
   drawbackCredit: number;
   balance: number;
+  purchasesNetCost: number;
+  stipendAdjustments: number;
+  stipendPotential: number;
+  stipendToggles: JumpStipendToggleSummaryEntry[];
+  companionImportCost: number;
+  companionImportSelections: CompanionImportSummaryEntry[];
 }
 
 export function computeBudget(purchases: PurchaseCostInput[]): BudgetComputation {
@@ -2024,6 +2075,8 @@ export async function clearAllData(): Promise<void> {
     await db.execute("DELETE FROM next_actions");
     await db.execute("DELETE FROM entities");
     await db.execute("DELETE FROM knowledge_articles");
+    await db.execute("DELETE FROM companion_imports");
+    await db.execute("DELETE FROM jump_stipend_toggles");
     await db.execute("DELETE FROM jumps");
   });
   knowledgeSeedInitialized = false;
@@ -2093,35 +2146,122 @@ export async function deleteNextAction(id: string): Promise<void> {
 }
 
 async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
-  const rows = (await db.select<JumpAssetRecord[]>(
-    `SELECT asset_type, cost, quantity, discounted, freebie
+  const assetRows = (await db.select<JumpAssetRecord[]>(
+    `SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata
      FROM jump_assets
      WHERE jump_id = $1`,
     [jumpId]
   )) as JumpAssetRecord[];
 
-  const purchases: PurchaseCostInput[] = [];
-  let drawbackCredit = 0;
+  const toggleRows = (await db.select<JumpStipendToggleRow[]>(
+    `SELECT asset_id, enabled, override_total
+     FROM jump_stipend_toggles
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpStipendToggleRow[];
 
-  for (const row of rows) {
-    const quantity = Math.max(row.quantity ?? 1, 1);
-    const cost = Math.max(row.cost ?? 0, 0) * quantity;
-    if (row.asset_type === "drawback") {
-      drawbackCredit += cost;
-      continue;
-    }
-    purchases.push({
-      cost,
-      discount: row.discounted === 1,
-      freebie: row.freebie === 1,
-    });
+  const companionImportRows = (await db.select<CompanionImportRow[]>(
+    `SELECT id, asset_id, companion_name, option_value, selected
+     FROM companion_imports
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as CompanionImportRow[];
+
+  const toggleMap = new Map<string, JumpStipendToggleRow>();
+  for (const row of toggleRows) {
+    toggleMap.set(row.asset_id, row);
   }
 
+  const assetNameMap = new Map<string, string | null>();
+  const purchases: PurchaseCostInput[] = [];
+  const stipendToggles: JumpStipendToggleSummaryEntry[] = [];
+  let stipendAdjustments = 0;
+  let stipendPotential = 0;
+  let drawbackCredit = 0;
+
+  for (const row of assetRows) {
+    const quantity = Math.max(row.quantity ?? 1, 1);
+    const cost = Math.max(row.cost ?? 0, 0) * quantity;
+    assetNameMap.set(row.id, row.name ?? null);
+
+    if (row.asset_type === "drawback") {
+      drawbackCredit += cost;
+    } else {
+      purchases.push({
+        cost,
+        discount: row.discounted === 1,
+        freebie: row.freebie === 1,
+      });
+    }
+
+    const metadata = parseAssetMetadata(row.metadata);
+    if (metadata.stipend) {
+      const baseAmount = Number.isFinite(metadata.stipend.total)
+        ? Number(metadata.stipend.total)
+        : 0;
+      const toggle = toggleMap.get(row.id);
+      const override = toggle?.override_total;
+      const overrideAmount =
+        override !== null && override !== undefined && Number.isFinite(override)
+          ? Number(override)
+          : null;
+      const appliedAmount = overrideAmount ?? baseAmount;
+      const enabled = toggle ? toggle.enabled === 1 : true;
+
+      stipendPotential += baseAmount;
+      if (enabled) {
+        stipendAdjustments += appliedAmount;
+      }
+
+      stipendToggles.push({
+        assetId: row.id,
+        assetName: row.name ?? null,
+        enabled,
+        amount: appliedAmount,
+        potentialAmount: baseAmount,
+      });
+    }
+  }
+
+  const companionImportSelections: CompanionImportSummaryEntry[] = companionImportRows.map((row) => {
+    const optionValueRaw = row.option_value ?? 0;
+    const optionValue = Number.isFinite(optionValueRaw) ? Number(optionValueRaw) : 0;
+    return {
+      id: row.id,
+      assetId: row.asset_id,
+      assetName: assetNameMap.get(row.asset_id) ?? null,
+      companionName: row.companion_name,
+      optionValue,
+      selected: row.selected === 1,
+    } satisfies CompanionImportSummaryEntry;
+  });
+
+  const companionImportCost = companionImportSelections.reduce((total, entry) => {
+    if (!entry.selected) {
+      return total;
+    }
+    const normalized = Number.isFinite(entry.optionValue) ? entry.optionValue : 0;
+    return total + normalized;
+  }, 0);
+
   const computation = computeBudget(purchases);
+  const purchasesNetCost = computation.netCost;
+  const netCost = purchasesNetCost + companionImportCost;
+  const balance = drawbackCredit + stipendAdjustments - netCost;
+
   return {
-    ...computation,
+    totalCost: computation.totalCost,
+    discounted: computation.discounted,
+    freebies: computation.freebies,
+    netCost,
+    purchasesNetCost,
     drawbackCredit,
-    balance: drawbackCredit - computation.netCost,
+    balance,
+    stipendAdjustments,
+    stipendPotential,
+    stipendToggles,
+    companionImportCost,
+    companionImportSelections,
   };
 }
 
@@ -2129,15 +2269,62 @@ export async function summarizeJumpBudget(jumpId: string): Promise<JumpBudgetSum
   return withInit((db) => summarizeJumpBudgetWithDb(db, jumpId));
 }
 
-async function updateJumpCostSummary(jumpId: string): Promise<void> {
+export async function setJumpStipendToggle(
+  jumpId: string,
+  assetId: string,
+  enabled: boolean,
+  overrideTotal?: number | null
+): Promise<void> {
   await withInit(async (db) => {
-    const summary = await summarizeJumpBudgetWithDb(db, jumpId);
-    await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
-      summary.netCost,
-      summary.drawbackCredit,
-      jumpId,
-    ]);
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO jump_stipend_toggles (jump_id, asset_id, enabled, override_total, updated_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(jump_id, asset_id) DO UPDATE SET
+         enabled = excluded.enabled,
+         override_total = excluded.override_total,
+         updated_at = excluded.updated_at`,
+      [jumpId, assetId, boolToInt(enabled), overrideTotal ?? null, now]
+    );
+    await updateJumpCostSummaryWithDb(db, jumpId);
   });
+}
+
+export async function setCompanionImportSelection(importId: string, selected: boolean): Promise<void> {
+  await withInit(async (db) => {
+    const rows = (await db.select<{ jump_id: string }[]>(
+      `SELECT jump_id FROM companion_imports WHERE id = $1`,
+      [importId]
+    )) as { jump_id: string }[];
+
+    if (!rows.length) {
+      return;
+    }
+
+    const jumpId = rows[0].jump_id;
+    const now = new Date().toISOString();
+    await db.execute(
+      `UPDATE companion_imports
+       SET selected = $2, updated_at = $3
+       WHERE id = $1`,
+      [importId, boolToInt(selected), now]
+    );
+
+    await updateJumpCostSummaryWithDb(db, jumpId);
+  });
+}
+
+async function updateJumpCostSummaryWithDb(db: Database, jumpId: string): Promise<void> {
+  const summary = await summarizeJumpBudgetWithDb(db, jumpId);
+  await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
+    summary.netCost,
+    summary.drawbackCredit + summary.stipendAdjustments,
+    jumpId,
+  ]);
+}
+
+async function updateJumpCostSummary(jumpId: string): Promise<void> {
+  await withInit((db) => updateJumpCostSummaryWithDb(db, jumpId));
 }
 
 export async function listJumpAssets(
@@ -2490,6 +2677,223 @@ export async function moveInventoryItem(
       `UPDATE inventory_items SET scope = $1, sort_order = $2, updated_at = $3 WHERE id = $4`,
       [scope, typeof sortOrder === "number" ? sortOrder : newOrder + 1, new Date().toISOString(), id]
     );
+  });
+}
+
+interface PersonalRealityContribution {
+  wpCost: number;
+  provides: Record<string, number>;
+  consumes: Record<string, number>;
+}
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeLimitEntries = (value: unknown): Record<string, number> => {
+  const result: Record<string, number> = {};
+  if (!value) {
+    return result;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const record = entry as Record<string, unknown>;
+      const keyRaw = record.key ?? record.name ?? record.type ?? record.label;
+      if (keyRaw == null) {
+        return;
+      }
+      const key = String(keyRaw).trim();
+      if (!key.length) {
+        return;
+      }
+      const numberValue =
+        toFiniteNumber(record.value ?? record.amount ?? record.count ?? record.quantity ?? record.capacity) ?? 0;
+      if (!numberValue) {
+        return;
+      }
+      result[key] = (result[key] ?? 0) + numberValue;
+    });
+    return result;
+  }
+  if (typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([rawKey, rawValue]) => {
+      const key = rawKey.trim();
+      if (!key.length) {
+        return;
+      }
+      if (typeof rawValue === "object" && rawValue !== null) {
+        const nested = rawValue as Record<string, unknown>;
+        const numberValue = toFiniteNumber(nested.value ?? nested.amount ?? nested.count ?? nested.quantity);
+        if (numberValue !== null && numberValue !== 0) {
+          result[key] = (result[key] ?? 0) + numberValue;
+        }
+        return;
+      }
+      const numberValue = toFiniteNumber(rawValue);
+      if (numberValue !== null && numberValue !== 0) {
+        result[key] = (result[key] ?? 0) + numberValue;
+      }
+    });
+  }
+  return result;
+};
+
+const parsePersonalRealityContribution = (raw: string | null): PersonalRealityContribution | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const personalRealityRaw =
+      (record.personalReality as Record<string, unknown> | undefined) ??
+      (record.personal_reality as Record<string, unknown> | undefined) ??
+      (record.pr as Record<string, unknown> | undefined) ??
+      null;
+    const container = personalRealityRaw ?? record;
+
+    const wpValue =
+      toFiniteNumber(container.wp ?? container.wpCost ?? record.wp ?? record.warehouseWp ?? record.wp_cost) ?? 0;
+
+    const providesRaw = container.provides ?? container.capacity ?? container.slots ?? record.provides;
+    const consumesRaw = container.consumes ?? container.uses ?? container.requirements ?? record.consumes;
+    const capsRaw = container.caps ?? container.cap ?? container.limits;
+
+    const provides = normalizeLimitEntries(providesRaw);
+    const consumes = normalizeLimitEntries(consumesRaw);
+    const caps = normalizeLimitEntries(capsRaw);
+
+    Object.entries(caps).forEach(([key, value]) => {
+      provides[key] = (provides[key] ?? 0) + value;
+    });
+
+    if (!wpValue && !Object.keys(provides).length && !Object.keys(consumes).length) {
+      return null;
+    }
+
+    return {
+      wpCost: wpValue,
+      provides,
+      consumes,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const formatLimitLabel = (key: string): string => {
+  return key
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+};
+
+const aggregatePersonalReality = (
+  items: InventoryItemRecord[]
+): { wpTotal: number; limits: WarehousePersonalRealityLimitCounter[] } => {
+  let wpTotal = 0;
+  const limitMap = new Map<string, WarehousePersonalRealityLimitCounter>();
+
+  const ensureEntry = (key: string): WarehousePersonalRealityLimitCounter => {
+    const normalizedKey = key.trim().toLowerCase();
+    const existing = limitMap.get(normalizedKey);
+    if (existing) {
+      return existing;
+    }
+    const entry: WarehousePersonalRealityLimitCounter = {
+      key: normalizedKey,
+      label: formatLimitLabel(key),
+      provided: 0,
+      used: 0,
+    };
+    limitMap.set(normalizedKey, entry);
+    return entry;
+  };
+
+  items.forEach((item) => {
+    const contribution = parsePersonalRealityContribution(item.metadata ?? null);
+    if (!contribution) {
+      return;
+    }
+    const quantityRaw = typeof item.quantity === "number" ? item.quantity : 1;
+    const normalizedQuantity = Number.isFinite(quantityRaw) ? (quantityRaw as number) : 1;
+    const multiplier = normalizedQuantity > 0 ? normalizedQuantity : 0;
+    if (contribution.wpCost && multiplier > 0) {
+      wpTotal += contribution.wpCost * multiplier;
+    }
+
+    Object.entries(contribution.provides).forEach(([key, value]) => {
+      if (!Number.isFinite(value) || value === 0 || multiplier === 0) {
+        return;
+      }
+      const entry = ensureEntry(key);
+      entry.provided += value * multiplier;
+    });
+
+    Object.entries(contribution.consumes).forEach(([key, value]) => {
+      if (!Number.isFinite(value) || value === 0 || multiplier === 0) {
+        return;
+      }
+      const entry = ensureEntry(key);
+      entry.used += value * multiplier;
+    });
+  });
+
+  const limits = Array.from(limitMap.values())
+    .filter((entry) => entry.provided !== 0 || entry.used !== 0)
+    .map((entry) => ({
+      ...entry,
+      provided: Number.isFinite(entry.provided) ? entry.provided : 0,
+      used: Number.isFinite(entry.used) ? entry.used : 0,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+
+  return { wpTotal, limits };
+};
+
+export async function loadWarehousePersonalRealitySummary(): Promise<WarehousePersonalRealitySummary> {
+  return withInit(async (db) => {
+    const [itemRows, universalRows] = await Promise.all([
+      db.select<InventoryItemRecord[]>(
+        `SELECT * FROM inventory_items WHERE scope = $1 ORDER BY sort_order ASC, created_at ASC`,
+        ["warehouse"]
+      ),
+      db.select<UniversalDrawbackSettingsRow[]>(
+        `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+        [UNIVERSAL_DRAWBACK_SETTING_ID]
+      ),
+    ]);
+
+    const { wpTotal, limits } = aggregatePersonalReality(itemRows as InventoryItemRecord[]);
+    const universalSettings = mapUniversalSettings(universalRows[0]);
+
+    const cap = Number.isFinite(universalSettings.warehouseWP)
+      ? (universalSettings.warehouseWP as number)
+      : DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP;
+
+    return {
+      wpTotal,
+      wpCap: Number.isFinite(cap) ? cap : null,
+      limits,
+    };
   });
 }
 
@@ -3323,6 +3727,7 @@ export async function deleteAppSetting(key: string): Promise<void> {
 const FORMATTER_REMOVE_ALL_KEY = "formatter.deleteAllLineBreaks";
 const FORMATTER_LEAVE_DOUBLE_KEY = "formatter.leaveDoubleLineBreaks";
 const FORMATTER_SEPARATOR_KEY = "formatter.thousandsSeparator";
+const FORMATTER_SPELLCHECK_KEY = "formatter.spellcheckEnabled";
 
 export const JUMP_DEFAULTS_SETTING_KEY = "options.jumpDefaults";
 export const SUPPLEMENT_SETTING_KEY = "options.supplements";
@@ -3393,6 +3798,7 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   removeAllLineBreaks: false,
   leaveDoubleLineBreaks: false,
   thousandsSeparator: "none",
+  spellcheckEnabled: true,
 };
 
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
@@ -4125,10 +4531,11 @@ export async function loadExportPreferences(): Promise<ExportPreferenceSettings>
 }
 
 export async function loadFormatterSettings(): Promise<FormatterSettings> {
-  const [removeAllRecord, leaveDoubleRecord, separatorRecord] = await Promise.all([
+  const [removeAllRecord, leaveDoubleRecord, separatorRecord, spellcheckRecord] = await Promise.all([
     getAppSetting(FORMATTER_REMOVE_ALL_KEY),
     getAppSetting(FORMATTER_LEAVE_DOUBLE_KEY),
     getAppSetting(FORMATTER_SEPARATOR_KEY),
+    getAppSetting(FORMATTER_SPELLCHECK_KEY),
   ]);
 
   return {
@@ -4138,6 +4545,7 @@ export async function loadFormatterSettings(): Promise<FormatterSettings> {
       separatorRecord,
       DEFAULT_FORMATTER_SETTINGS.thousandsSeparator
     ),
+    spellcheckEnabled: parseBooleanSetting(spellcheckRecord, DEFAULT_FORMATTER_SETTINGS.spellcheckEnabled),
   };
 }
 
@@ -4154,6 +4562,7 @@ export async function updateFormatterSettings(
     setAppSetting(FORMATTER_REMOVE_ALL_KEY, next.removeAllLineBreaks),
     setAppSetting(FORMATTER_LEAVE_DOUBLE_KEY, next.leaveDoubleLineBreaks),
     setAppSetting(FORMATTER_SEPARATOR_KEY, next.thousandsSeparator),
+    setAppSetting(FORMATTER_SPELLCHECK_KEY, next.spellcheckEnabled),
   ]);
 
   return next;

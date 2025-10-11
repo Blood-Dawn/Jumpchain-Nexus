@@ -42,6 +42,7 @@ import StudioSettings from "./StudioSettings";
 import StudioEditor from "./Editor";
 import { loadSnapshot } from "../jmh/data";
 import { NotesEditor } from "../jmh/NotesEditor";
+import { useJmhStore } from "../jmh/store";
 
 const StoryComposerShell: React.FC = () => {
   const queryClient = useQueryClient();
