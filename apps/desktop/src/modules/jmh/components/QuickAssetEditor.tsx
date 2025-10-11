@@ -307,6 +307,53 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
     });
   }, [formState]);
 
+  const handleAttributeAdd = () => {
+    setFormState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        attributes: [
+          ...current.attributes,
+          { key: "", value: "", numericValue: null },
+        ],
+      } satisfies AssetFormState;
+    });
+  };
+
+  const handleAttributeRemove = (index: number) => {
+    setFormState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        attributes: current.attributes.filter((_, attrIndex) => attrIndex !== index),
+      } satisfies AssetFormState;
+    });
+  };
+
+  const handleAttributeChange = (index: number, field: "key" | "value", value: string) => {
+    setFormState((current) => {
+      if (!current) return current;
+      const nextAttributes = current.attributes.map((attribute, attrIndex) => {
+        if (attrIndex !== index) {
+          return attribute;
+        }
+        if (field === "key") {
+          return { ...attribute, key: value };
+        }
+        const numericCandidate = Number(value);
+        return {
+          ...attribute,
+          value,
+          numericValue: Number.isFinite(numericCandidate) ? numericCandidate : null,
+        };
+      });
+      return {
+        ...current,
+        attributes: nextAttributes,
+      } satisfies AssetFormState;
+    });
+  };
+
   const handleSave = () => {
     if (!formState) return;
     const trimmedName = formState.name.trim() || "Unnamed Asset";
@@ -544,6 +591,43 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
                   />
                   <span>Freebie</span>
                 </label>
+
+                <fieldset className="quick-asset__fieldset">
+                  <legend>Attributes</legend>
+                  {formState.attributes.map((attribute, index) => (
+                    <div key={`attribute-${index}`} className="quick-asset__attribute-row">
+                      <label>
+                        <span>Attribute Key</span>
+                        <input
+                          value={attribute.key}
+                          onChange={(event) => handleAttributeChange(index, "key", event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>Attribute Value</span>
+                        <input
+                          value={attribute.value}
+                          onChange={(event) => handleAttributeChange(index, "value", event.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="quick-asset__danger"
+                        aria-label={`Remove attribute ${index + 1}`}
+                        onClick={() => handleAttributeRemove(index)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    data-testid="quick-asset-attribute-add"
+                    onClick={handleAttributeAdd}
+                  >
+                    Add attribute
+                  </button>
+                </fieldset>
 
                 <fieldset className="quick-asset__fieldset">
                   <legend>Trait Tags</legend>
