@@ -15,7 +15,9 @@
     "test": "npm run test --prefix apps/desktop",
     "test:smoke": "npm run test:smoke --prefix apps/desktop",
     "test:full": "npm run test:full --prefix apps/desktop",
-    "tests:full": "npm run test:full --prefix apps/desktop"
+    "tests:full": "npm run test:full --prefix apps/desktop",
+    "lint": "npm run lint --prefix apps/desktop",
+    "format": "npm run format --prefix apps/desktop"
   },
   "overrides": {
     "@wdio/mocha-framework@9.20.0": {

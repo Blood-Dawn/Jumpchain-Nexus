@@ -22,8 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { readFile } from "@tauri-apps/plugin-fs";
 import type { PdfIndexComplete, PdfIndexProgress, PdfWorkerOutbound } from "../pdf/types";
+import { getPlatform } from "./platform";
 
 export interface ReadPdfTextOptions {
   onProgress?: (progress: PdfIndexProgress) => void;
@@ -47,7 +47,8 @@ export async function readPdfText(
   filePath: string,
   options: ReadPdfTextOptions = {}
 ): Promise<PdfIndexComplete> {
-  const data = await readFile(filePath);
+  const platform = await getPlatform();
+  const data = await platform.fs.readBinaryFile(filePath);
   const worker = new Worker(new URL("../pdf/pdf-worker.ts", import.meta.url), { type: "module" });
   const fileId = randomId();
   const fileName = filePath.split(/[/\\]/).pop() ?? filePath;

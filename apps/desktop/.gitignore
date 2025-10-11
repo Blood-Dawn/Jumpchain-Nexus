@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# Test and runtime artifacts
+coverage/
+test-results/
+playwright-report/
+app.db
+app.db-journal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -21,4 +32,5 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
+!legacy/**/*.sln
 *.sw?

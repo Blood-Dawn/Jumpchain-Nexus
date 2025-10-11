@@ -17,7 +17,7 @@ export interface ModuleDef {
 
 const lazyModule = (loader: () => Promise<{ default: ComponentType }>) => lazy(loader);
 
-export const modules: ModuleDef[] = [
+const moduleList: ModuleDef[] = [
   {
     id: "jump-hub",
     title: "Jump Hub",
@@ -127,6 +127,22 @@ export const modules: ModuleDef[] = [
     requiredPermissions: ["story-studio-sql"],
   },
 ];
+
+const devToolsEnabled = import.meta.env.VITE_DEVTOOLS_ENABLED === "true";
+
+if (devToolsEnabled) {
+  moduleList.push({
+    id: "devtools-test-runner",
+    title: "Developer Tools",
+    description: "Run npm test suite",
+    path: "devtools",
+    section: "tools",
+    element: lazyModule(() => import("./devtools")),
+    requiredPermissions: ["devtools-shell"],
+  });
+}
+
+export const modules: ModuleDef[] = moduleList;
 
 export const defaultModuleId = "jump-hub";
 

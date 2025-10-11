@@ -41,6 +41,7 @@ import type {
 import {
   getChapterText,
   listChapterSnapshots,
+  loadFormatterSettings,
   recordChapterSnapshot,
   reorderChapters,
   saveChapterText,
@@ -245,6 +246,13 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
 
   const chapterId = chapter?.id;
 
+  const formatterSettingsQuery = useQuery({
+    queryKey: ["app-settings", "formatter"],
+    queryFn: loadFormatterSettings,
+  });
+
+  const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
+
   const chapterTextQuery = useQuery({
     queryKey: ["chapterText", chapterId],
     queryFn: async () => (chapterId ? await getChapterText(chapterId) : null),
@@ -291,6 +299,14 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
       })();
     });
   }, [chapterId, draft, grammarEnabled, grammarMode, editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    const dom = editor.view.dom as HTMLElement;
+    dom.setAttribute("spellcheck", spellcheckEnabled ? "true" : "false");
+  }, [editor, spellcheckEnabled]);
 
   useEffect(() => {
     if (!grammarEnabled || !draft) {

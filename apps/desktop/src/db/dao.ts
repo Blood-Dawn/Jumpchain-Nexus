@@ -165,6 +165,20 @@ export interface JumpAssetRecord {
   updated_at: string;
 }
 
+interface JumpStipendToggleRow {
+  asset_id: string;
+  enabled: number;
+  override_total: number | null;
+}
+
+interface CompanionImportRow {
+  id: string;
+  asset_id: string;
+  companion_name: string;
+  option_value: number | null;
+  selected: number;
+}
+
 export interface CreateJumpAssetInput {
   jump_id: string;
   asset_type: JumpAssetType;
@@ -182,6 +196,7 @@ export interface CreateJumpAssetInput {
 
 export interface UpdateJumpAssetInput {
   name?: string;
+  asset_type?: JumpAssetType;
   category?: string | null;
   subcategory?: string | null;
   cost?: number;
@@ -456,6 +471,7 @@ export interface FormatterSettings {
   removeAllLineBreaks: boolean;
   leaveDoubleLineBreaks: boolean;
   thousandsSeparator: ThousandsSeparatorOption;
+  spellcheckEnabled: boolean;
 }
 
 export interface JumpDefaultsSettings {
@@ -550,6 +566,19 @@ export type WarehouseModeOption = "generic" | "personal-reality";
 
 export interface WarehouseModeSettings {
   mode: WarehouseModeOption;
+}
+
+export interface WarehousePersonalRealityLimitCounter {
+  key: string;
+  label: string;
+  provided: number;
+  used: number;
+}
+
+export interface WarehousePersonalRealitySummary {
+  wpTotal: number;
+  wpCap: number | null;
+  limits: WarehousePersonalRealityLimitCounter[];
 }
 
 export interface CategoryPresetSettings {
@@ -1957,9 +1986,32 @@ export interface BudgetComputation {
   netCost: number;
 }
 
+export interface JumpStipendToggleSummaryEntry {
+  assetId: string;
+  assetName: string | null;
+  enabled: boolean;
+  amount: number;
+  potentialAmount: number;
+}
+
+export interface CompanionImportSummaryEntry {
+  id: string;
+  assetId: string;
+  assetName: string | null;
+  companionName: string;
+  optionValue: number;
+  selected: boolean;
+}
+
 export interface JumpBudgetSummary extends BudgetComputation {
   drawbackCredit: number;
   balance: number;
+  purchasesNetCost: number;
+  stipendAdjustments: number;
+  stipendPotential: number;
+  stipendToggles: JumpStipendToggleSummaryEntry[];
+  companionImportCost: number;
+  companionImportSelections: CompanionImportSummaryEntry[];
 }
 
 export function computeBudget(purchases: PurchaseCostInput[]): BudgetComputation {
@@ -2024,6 +2076,8 @@ export async function clearAllData(): Promise<void> {
     await db.execute("DELETE FROM next_actions");
     await db.execute("DELETE FROM entities");
     await db.execute("DELETE FROM knowledge_articles");
+    await db.execute("DELETE FROM companion_imports");
+    await db.execute("DELETE FROM jump_stipend_toggles");
     await db.execute("DELETE FROM jumps");
   });
   knowledgeSeedInitialized = false;
@@ -2093,35 +2147,122 @@ export async function deleteNextAction(id: string): Promise<void> {
 }
 
 async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
-  const rows = (await db.select<JumpAssetRecord[]>(
-    `SELECT asset_type, cost, quantity, discounted, freebie
+  const assetRows = (await db.select<JumpAssetRecord[]>(
+    `SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata
      FROM jump_assets
      WHERE jump_id = $1`,
     [jumpId]
   )) as JumpAssetRecord[];
 
-  const purchases: PurchaseCostInput[] = [];
-  let drawbackCredit = 0;
+  const toggleRows = (await db.select<JumpStipendToggleRow[]>(
+    `SELECT asset_id, enabled, override_total
+     FROM jump_stipend_toggles
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpStipendToggleRow[];
 
-  for (const row of rows) {
-    const quantity = Math.max(row.quantity ?? 1, 1);
-    const cost = Math.max(row.cost ?? 0, 0) * quantity;
-    if (row.asset_type === "drawback") {
-      drawbackCredit += cost;
-      continue;
-    }
-    purchases.push({
-      cost,
-      discount: row.discounted === 1,
-      freebie: row.freebie === 1,
-    });
+  const companionImportRows = (await db.select<CompanionImportRow[]>(
+    `SELECT id, asset_id, companion_name, option_value, selected
+     FROM companion_imports
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as CompanionImportRow[];
+
+  const toggleMap = new Map<string, JumpStipendToggleRow>();
+  for (const row of toggleRows) {
+    toggleMap.set(row.asset_id, row);
   }
 
+  const assetNameMap = new Map<string, string | null>();
+  const purchases: PurchaseCostInput[] = [];
+  const stipendToggles: JumpStipendToggleSummaryEntry[] = [];
+  let stipendAdjustments = 0;
+  let stipendPotential = 0;
+  let drawbackCredit = 0;
+
+  for (const row of assetRows) {
+    const quantity = Math.max(row.quantity ?? 1, 1);
+    const cost = Math.max(row.cost ?? 0, 0) * quantity;
+    assetNameMap.set(row.id, row.name ?? null);
+
+    if (row.asset_type === "drawback") {
+      drawbackCredit += cost;
+    } else {
+      purchases.push({
+        cost,
+        discount: row.discounted === 1,
+        freebie: row.freebie === 1,
+      });
+    }
+
+    const metadata = parseAssetMetadata(row.metadata);
+    if (metadata.stipend) {
+      const baseAmount = Number.isFinite(metadata.stipend.total)
+        ? Number(metadata.stipend.total)
+        : 0;
+      const toggle = toggleMap.get(row.id);
+      const override = toggle?.override_total;
+      const overrideAmount =
+        override !== null && override !== undefined && Number.isFinite(override)
+          ? Number(override)
+          : null;
+      const appliedAmount = overrideAmount ?? baseAmount;
+      const enabled = toggle ? toggle.enabled === 1 : true;
+
+      stipendPotential += baseAmount;
+      if (enabled) {
+        stipendAdjustments += appliedAmount;
+      }
+
+      stipendToggles.push({
+        assetId: row.id,
+        assetName: row.name ?? null,
+        enabled,
+        amount: appliedAmount,
+        potentialAmount: baseAmount,
+      });
+    }
+  }
+
+  const companionImportSelections: CompanionImportSummaryEntry[] = companionImportRows.map((row) => {
+    const optionValueRaw = row.option_value ?? 0;
+    const optionValue = Number.isFinite(optionValueRaw) ? Number(optionValueRaw) : 0;
+    return {
+      id: row.id,
+      assetId: row.asset_id,
+      assetName: assetNameMap.get(row.asset_id) ?? null,
+      companionName: row.companion_name,
+      optionValue,
+      selected: row.selected === 1,
+    } satisfies CompanionImportSummaryEntry;
+  });
+
+  const companionImportCost = companionImportSelections.reduce((total, entry) => {
+    if (!entry.selected) {
+      return total;
+    }
+    const normalized = Number.isFinite(entry.optionValue) ? entry.optionValue : 0;
+    return total + normalized;
+  }, 0);
+
   const computation = computeBudget(purchases);
+  const purchasesNetCost = computation.netCost;
+  const netCost = purchasesNetCost + companionImportCost;
+  const balance = drawbackCredit + stipendAdjustments - netCost;
+
   return {
-    ...computation,
+    totalCost: computation.totalCost,
+    discounted: computation.discounted,
+    freebies: computation.freebies,
+    netCost,
+    purchasesNetCost,
     drawbackCredit,
-    balance: drawbackCredit - computation.netCost,
+    balance,
+    stipendAdjustments,
+    stipendPotential,
+    stipendToggles,
+    companionImportCost,
+    companionImportSelections,
   };
 }
 
@@ -2129,15 +2270,62 @@ export async function summarizeJumpBudget(jumpId: string): Promise<JumpBudgetSum
   return withInit((db) => summarizeJumpBudgetWithDb(db, jumpId));
 }
 
-async function updateJumpCostSummary(jumpId: string): Promise<void> {
+export async function setJumpStipendToggle(
+  jumpId: string,
+  assetId: string,
+  enabled: boolean,
+  overrideTotal?: number | null
+): Promise<void> {
   await withInit(async (db) => {
-    const summary = await summarizeJumpBudgetWithDb(db, jumpId);
-    await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
-      summary.netCost,
-      summary.drawbackCredit,
-      jumpId,
-    ]);
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO jump_stipend_toggles (jump_id, asset_id, enabled, override_total, updated_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(jump_id, asset_id) DO UPDATE SET
+         enabled = excluded.enabled,
+         override_total = excluded.override_total,
+         updated_at = excluded.updated_at`,
+      [jumpId, assetId, boolToInt(enabled), overrideTotal ?? null, now]
+    );
+    await updateJumpCostSummaryWithDb(db, jumpId);
   });
+}
+
+export async function setCompanionImportSelection(importId: string, selected: boolean): Promise<void> {
+  await withInit(async (db) => {
+    const rows = (await db.select<{ jump_id: string }[]>(
+      `SELECT jump_id FROM companion_imports WHERE id = $1`,
+      [importId]
+    )) as { jump_id: string }[];
+
+    if (!rows.length) {
+      return;
+    }
+
+    const jumpId = rows[0].jump_id;
+    const now = new Date().toISOString();
+    await db.execute(
+      `UPDATE companion_imports
+       SET selected = $2, updated_at = $3
+       WHERE id = $1`,
+      [importId, boolToInt(selected), now]
+    );
+
+    await updateJumpCostSummaryWithDb(db, jumpId);
+  });
+}
+
+async function updateJumpCostSummaryWithDb(db: Database, jumpId: string): Promise<void> {
+  const summary = await summarizeJumpBudgetWithDb(db, jumpId);
+  await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
+    summary.netCost,
+    summary.drawbackCredit + summary.stipendAdjustments,
+    jumpId,
+  ]);
+}
+
+async function updateJumpCostSummary(jumpId: string): Promise<void> {
+  await withInit((db) => updateJumpCostSummaryWithDb(db, jumpId));
 }
 
 export async function listJumpAssets(
@@ -2229,6 +2417,10 @@ export async function updateJumpAsset(
     if (updates.name !== undefined) {
       sets.push(`name = $${index++}`);
       values.push(updates.name);
+    }
+    if (updates.asset_type !== undefined) {
+      sets.push(`asset_type = $${index++}`);
+      values.push(updates.asset_type);
     }
     if (updates.category !== undefined) {
       sets.push(`category = $${index++}`);
@@ -2490,6 +2682,223 @@ export async function moveInventoryItem(
       `UPDATE inventory_items SET scope = $1, sort_order = $2, updated_at = $3 WHERE id = $4`,
       [scope, typeof sortOrder === "number" ? sortOrder : newOrder + 1, new Date().toISOString(), id]
     );
+  });
+}
+
+interface PersonalRealityContribution {
+  wpCost: number;
+  provides: Record<string, number>;
+  consumes: Record<string, number>;
+}
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeLimitEntries = (value: unknown): Record<string, number> => {
+  const result: Record<string, number> = {};
+  if (!value) {
+    return result;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const record = entry as Record<string, unknown>;
+      const keyRaw = record.key ?? record.name ?? record.type ?? record.label;
+      if (keyRaw == null) {
+        return;
+      }
+      const key = String(keyRaw).trim();
+      if (!key.length) {
+        return;
+      }
+      const numberValue =
+        toFiniteNumber(record.value ?? record.amount ?? record.count ?? record.quantity ?? record.capacity) ?? 0;
+      if (!numberValue) {
+        return;
+      }
+      result[key] = (result[key] ?? 0) + numberValue;
+    });
+    return result;
+  }
+  if (typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([rawKey, rawValue]) => {
+      const key = rawKey.trim();
+      if (!key.length) {
+        return;
+      }
+      if (typeof rawValue === "object" && rawValue !== null) {
+        const nested = rawValue as Record<string, unknown>;
+        const numberValue = toFiniteNumber(nested.value ?? nested.amount ?? nested.count ?? nested.quantity);
+        if (numberValue !== null && numberValue !== 0) {
+          result[key] = (result[key] ?? 0) + numberValue;
+        }
+        return;
+      }
+      const numberValue = toFiniteNumber(rawValue);
+      if (numberValue !== null && numberValue !== 0) {
+        result[key] = (result[key] ?? 0) + numberValue;
+      }
+    });
+  }
+  return result;
+};
+
+const parsePersonalRealityContribution = (raw: string | null): PersonalRealityContribution | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const personalRealityRaw =
+      (record.personalReality as Record<string, unknown> | undefined) ??
+      (record.personal_reality as Record<string, unknown> | undefined) ??
+      (record.pr as Record<string, unknown> | undefined) ??
+      null;
+    const container = personalRealityRaw ?? record;
+
+    const wpValue =
+      toFiniteNumber(container.wp ?? container.wpCost ?? record.wp ?? record.warehouseWp ?? record.wp_cost) ?? 0;
+
+    const providesRaw = container.provides ?? container.capacity ?? container.slots ?? record.provides;
+    const consumesRaw = container.consumes ?? container.uses ?? container.requirements ?? record.consumes;
+    const capsRaw = container.caps ?? container.cap ?? container.limits;
+
+    const provides = normalizeLimitEntries(providesRaw);
+    const consumes = normalizeLimitEntries(consumesRaw);
+    const caps = normalizeLimitEntries(capsRaw);
+
+    Object.entries(caps).forEach(([key, value]) => {
+      provides[key] = (provides[key] ?? 0) + value;
+    });
+
+    if (!wpValue && !Object.keys(provides).length && !Object.keys(consumes).length) {
+      return null;
+    }
+
+    return {
+      wpCost: wpValue,
+      provides,
+      consumes,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const formatLimitLabel = (key: string): string => {
+  return key
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+};
+
+const aggregatePersonalReality = (
+  items: InventoryItemRecord[]
+): { wpTotal: number; limits: WarehousePersonalRealityLimitCounter[] } => {
+  let wpTotal = 0;
+  const limitMap = new Map<string, WarehousePersonalRealityLimitCounter>();
+
+  const ensureEntry = (key: string): WarehousePersonalRealityLimitCounter => {
+    const normalizedKey = key.trim().toLowerCase();
+    const existing = limitMap.get(normalizedKey);
+    if (existing) {
+      return existing;
+    }
+    const entry: WarehousePersonalRealityLimitCounter = {
+      key: normalizedKey,
+      label: formatLimitLabel(key),
+      provided: 0,
+      used: 0,
+    };
+    limitMap.set(normalizedKey, entry);
+    return entry;
+  };
+
+  items.forEach((item) => {
+    const contribution = parsePersonalRealityContribution(item.metadata ?? null);
+    if (!contribution) {
+      return;
+    }
+    const quantityRaw = typeof item.quantity === "number" ? item.quantity : 1;
+    const normalizedQuantity = Number.isFinite(quantityRaw) ? (quantityRaw as number) : 1;
+    const multiplier = normalizedQuantity > 0 ? normalizedQuantity : 0;
+    if (contribution.wpCost && multiplier > 0) {
+      wpTotal += contribution.wpCost * multiplier;
+    }
+
+    Object.entries(contribution.provides).forEach(([key, value]) => {
+      if (!Number.isFinite(value) || value === 0 || multiplier === 0) {
+        return;
+      }
+      const entry = ensureEntry(key);
+      entry.provided += value * multiplier;
+    });
+
+    Object.entries(contribution.consumes).forEach(([key, value]) => {
+      if (!Number.isFinite(value) || value === 0 || multiplier === 0) {
+        return;
+      }
+      const entry = ensureEntry(key);
+      entry.used += value * multiplier;
+    });
+  });
+
+  const limits = Array.from(limitMap.values())
+    .filter((entry) => entry.provided !== 0 || entry.used !== 0)
+    .map((entry) => ({
+      ...entry,
+      provided: Number.isFinite(entry.provided) ? entry.provided : 0,
+      used: Number.isFinite(entry.used) ? entry.used : 0,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+
+  return { wpTotal, limits };
+};
+
+export async function loadWarehousePersonalRealitySummary(): Promise<WarehousePersonalRealitySummary> {
+  return withInit(async (db) => {
+    const [itemRows, universalRows] = await Promise.all([
+      db.select<InventoryItemRecord[]>(
+        `SELECT * FROM inventory_items WHERE scope = $1 ORDER BY sort_order ASC, created_at ASC`,
+        ["warehouse"]
+      ),
+      db.select<UniversalDrawbackSettingsRow[]>(
+        `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+        [UNIVERSAL_DRAWBACK_SETTING_ID]
+      ),
+    ]);
+
+    const { wpTotal, limits } = aggregatePersonalReality(itemRows as InventoryItemRecord[]);
+    const universalSettings = mapUniversalSettings(universalRows[0]);
+
+    const cap = Number.isFinite(universalSettings.warehouseWP)
+      ? (universalSettings.warehouseWP as number)
+      : DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP;
+
+    return {
+      wpTotal,
+      wpCap: Number.isFinite(cap) ? cap : null,
+      limits,
+    };
   });
 }
 
@@ -3323,6 +3732,7 @@ export async function deleteAppSetting(key: string): Promise<void> {
 const FORMATTER_REMOVE_ALL_KEY = "formatter.deleteAllLineBreaks";
 const FORMATTER_LEAVE_DOUBLE_KEY = "formatter.leaveDoubleLineBreaks";
 const FORMATTER_SEPARATOR_KEY = "formatter.thousandsSeparator";
+const FORMATTER_SPELLCHECK_KEY = "formatter.spellcheckEnabled";
 
 export const JUMP_DEFAULTS_SETTING_KEY = "options.jumpDefaults";
 export const SUPPLEMENT_SETTING_KEY = "options.supplements";
@@ -3393,6 +3803,7 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   removeAllLineBreaks: false,
   leaveDoubleLineBreaks: false,
   thousandsSeparator: "none",
+  spellcheckEnabled: true,
 };
 
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
@@ -4125,10 +4536,11 @@ export async function loadExportPreferences(): Promise<ExportPreferenceSettings>
 }
 
 export async function loadFormatterSettings(): Promise<FormatterSettings> {
-  const [removeAllRecord, leaveDoubleRecord, separatorRecord] = await Promise.all([
+  const [removeAllRecord, leaveDoubleRecord, separatorRecord, spellcheckRecord] = await Promise.all([
     getAppSetting(FORMATTER_REMOVE_ALL_KEY),
     getAppSetting(FORMATTER_LEAVE_DOUBLE_KEY),
     getAppSetting(FORMATTER_SEPARATOR_KEY),
+    getAppSetting(FORMATTER_SPELLCHECK_KEY),
   ]);
 
   return {
@@ -4138,6 +4550,7 @@ export async function loadFormatterSettings(): Promise<FormatterSettings> {
       separatorRecord,
       DEFAULT_FORMATTER_SETTINGS.thousandsSeparator
     ),
+    spellcheckEnabled: parseBooleanSetting(spellcheckRecord, DEFAULT_FORMATTER_SETTINGS.spellcheckEnabled),
   };
 }
 
@@ -4154,6 +4567,7 @@ export async function updateFormatterSettings(
     setAppSetting(FORMATTER_REMOVE_ALL_KEY, next.removeAllLineBreaks),
     setAppSetting(FORMATTER_LEAVE_DOUBLE_KEY, next.leaveDoubleLineBreaks),
     setAppSetting(FORMATTER_SEPARATOR_KEY, next.thousandsSeparator),
+    setAppSetting(FORMATTER_SPELLCHECK_KEY, next.spellcheckEnabled),
   ]);
 
   return next;
@@ -4367,4 +4781,571 @@ export async function loadExportSnapshot(): Promise<ExportSnapshot> {
     settings,
     presets,
   };
+}
+
+interface JumpCpRow {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+}
+
+interface AssetTypeAggregateRow {
+  asset_type: JumpAssetType;
+  item_count: number | null;
+  gross_cost: number | null;
+  net_cost: number | null;
+  credit: number | null;
+  discounted_count: number | null;
+  freebie_count: number | null;
+}
+
+interface InventoryCategoryAggregateRow {
+  category: string | null;
+  item_count: number | null;
+  total_quantity: number | null;
+  warehouse_count: number | null;
+  locker_count: number | null;
+}
+
+interface GauntletAggregateRow {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+}
+
+interface BoosterSourceRow {
+  id: string;
+  name: string;
+  attributes_json: string | null;
+  traits_json: string | null;
+}
+
+export interface CpSpendEarnRow {
+  jumpId: string;
+  title: string;
+  status: string | null;
+  budget: number;
+  spent: number;
+  earned: number;
+  net: number;
+}
+
+export interface CpAssetTypeBreakdown {
+  assetType: JumpAssetType;
+  itemCount: number;
+  gross: number;
+  netCost: number;
+  credit: number;
+  discounted: number;
+  freebies: number;
+}
+
+export interface CpSpendEarnSummary {
+  totals: {
+    budget: number;
+    spent: number;
+    earned: number;
+    net: number;
+  };
+  byJump: CpSpendEarnRow[];
+  byAssetType: CpAssetTypeBreakdown[];
+}
+
+export interface InventoryCategorySummary {
+  category: string;
+  itemCount: number;
+  totalQuantity: number;
+  warehouseCount: number;
+  lockerCount: number;
+}
+
+export interface GauntletProgressRow {
+  jumpId: string;
+  title: string;
+  status: string | null;
+  budget: number;
+  spent: number;
+  earned: number;
+  progress: number;
+}
+
+export interface GauntletProgressSummary {
+  allowGauntlet: boolean;
+  gauntletHalved: boolean;
+  totalGauntlets: number;
+  completedGauntlets: number;
+  rows: GauntletProgressRow[];
+}
+
+export interface BoosterUsageEntry {
+  booster: string;
+  count: number;
+  characters: Array<{ id: string; name: string }>;
+}
+
+export interface BoosterUsageSummary {
+  totalCharacters: number;
+  charactersWithBoosters: number;
+  totalBoosters: number;
+  uniqueBoosters: number;
+  entries: BoosterUsageEntry[];
+}
+
+export interface StatisticsSnapshot {
+  cp: CpSpendEarnSummary;
+  inventory: {
+    totalItems: number;
+    totalQuantity: number;
+    categories: InventoryCategorySummary[];
+  };
+  gauntlet: GauntletProgressSummary;
+  boosters: BoosterUsageSummary;
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
+function normalizeCategory(value: string | null): string {
+  if (!value) {
+    return "Uncategorized";
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : "Uncategorized";
+}
+
+function safeJsonParse(value: string | null): unknown {
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+const BOOSTER_META_KEYS = new Set([
+  "rank",
+  "notes",
+  "description",
+  "value",
+  "amount",
+  "type",
+  "category",
+  "level",
+  "rating",
+]);
+
+function collectBoosterNames(value: unknown, contextIsBooster: boolean, result: Set<string>): void {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    if (contextIsBooster) {
+      value
+        .split(/[,;\n]+/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .forEach((entry) => result.add(entry));
+    }
+    return;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        if (contextIsBooster) {
+          const trimmed = entry.trim();
+          if (trimmed.length) {
+            result.add(trimmed);
+          }
+        }
+        continue;
+      }
+      if (entry && typeof entry === "object") {
+        const record = entry as Record<string, unknown>;
+        if (contextIsBooster) {
+          const nameRaw = record.name ?? record.title ?? record.label;
+          if (typeof nameRaw === "string") {
+            const trimmed = nameRaw.trim();
+            if (trimmed.length) {
+              result.add(trimmed);
+            }
+          }
+        }
+        for (const [key, nested] of Object.entries(record)) {
+          const keyIsBooster = key.toLowerCase().includes("boost");
+          collectBoosterNames(nested, contextIsBooster || keyIsBooster, result);
+        }
+      }
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (contextIsBooster) {
+      for (const [key, nested] of entries) {
+        const normalized = key.trim();
+        if (!normalized.length) {
+          continue;
+        }
+        const isMeta = BOOSTER_META_KEYS.has(normalized.toLowerCase());
+        if (!isMeta) {
+          result.add(normalized);
+          collectBoosterNames(nested, true, result);
+          continue;
+        }
+        if (nested && typeof nested === "object") {
+          collectBoosterNames(nested, true, result);
+        }
+      }
+      return;
+    }
+
+    for (const [key, nested] of entries) {
+      const keyIsBooster = key.toLowerCase().includes("boost");
+      if (keyIsBooster && typeof nested === "string") {
+        const trimmed = nested.trim();
+        if (trimmed.length) {
+          result.add(trimmed);
+        }
+      }
+      collectBoosterNames(nested, keyIsBooster, result);
+    }
+  }
+}
+
+function extractBoosters(record: BoosterSourceRow): string[] {
+  const names = new Set<string>();
+  const attributes = safeJsonParse(record.attributes_json);
+  collectBoosterNames(attributes, false, names);
+
+  const traits = safeJsonParse(record.traits_json);
+  if (Array.isArray(traits)) {
+    for (const entry of traits) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const trait = entry as Record<string, unknown>;
+      const type = typeof trait.type === "string" ? trait.type.toLowerCase() : "";
+      const categories = Array.isArray(trait.categories)
+        ? (trait.categories as unknown[]).map((value) =>
+            typeof value === "string" ? value.toLowerCase() : ""
+          )
+        : [];
+      if (type.includes("booster") || categories.some((category) => category.includes("booster"))) {
+        const nameRaw = trait.name ?? trait.title ?? trait.label;
+        if (typeof nameRaw === "string") {
+          const trimmed = nameRaw.trim();
+          if (trimmed.length) {
+            names.add(trimmed);
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+export async function loadStatisticsSnapshot(): Promise<StatisticsSnapshot> {
+  return withInit(async (db) => {
+    const [cpRows, assetRows, inventoryRows, gauntletRows, universalRows, boosterRows] = await Promise.all([
+      db.select<JumpCpRow[]>(
+        `SELECT
+           j.id AS jump_id,
+           j.title AS title,
+           j.status AS status,
+           j.cp_budget AS cp_budget,
+           COALESCE(SUM(
+             CASE
+               WHEN a.asset_type = 'drawback' THEN 0
+               WHEN COALESCE(a.freebie, 0) = 1 THEN 0
+               WHEN COALESCE(a.discounted, 0) = 1 THEN COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END / 2.0
+               ELSE COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END
+             END
+           ), 0) AS spent,
+           COALESCE(SUM(
+             CASE
+               WHEN a.asset_type = 'drawback' THEN COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END
+               ELSE 0
+             END
+           ), 0) AS earned
+         FROM jumps j
+         LEFT JOIN jump_assets a ON a.jump_id = j.id
+         GROUP BY j.id
+         ORDER BY j.sort_order ASC, j.created_at ASC`
+      ),
+      db.select<AssetTypeAggregateRow[]>(
+        `SELECT
+           asset_type,
+           COUNT(*) AS item_count,
+           COALESCE(SUM(COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END), 0) AS gross_cost,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN 0
+               WHEN COALESCE(freebie, 0) = 1 THEN 0
+               WHEN COALESCE(discounted, 0) = 1 THEN COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END / 2.0
+               ELSE COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END
+             END
+           ), 0) AS net_cost,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END
+               ELSE 0
+             END
+           ), 0) AS credit,
+           COALESCE(SUM(CASE WHEN asset_type <> 'drawback' AND COALESCE(discounted, 0) = 1 AND COALESCE(freebie, 0) = 0 THEN 1 ELSE 0 END), 0) AS discounted_count,
+           COALESCE(SUM(CASE WHEN COALESCE(freebie, 0) = 1 THEN 1 ELSE 0 END), 0) AS freebie_count
+         FROM jump_assets
+         GROUP BY asset_type`
+      ),
+      db.select<InventoryCategoryAggregateRow[]>(
+        `WITH normalized_inventory AS (
+           SELECT
+             CASE
+               WHEN category IS NULL OR TRIM(category) = '' THEN 'Uncategorized'
+               ELSE TRIM(category)
+             END AS category,
+             scope,
+             CASE
+               WHEN quantity IS NULL OR quantity < 0 THEN 0
+               ELSE quantity
+             END AS quantity
+           FROM inventory_items
+         )
+         SELECT
+           category,
+           COUNT(*) AS item_count,
+           COALESCE(SUM(quantity), 0) AS total_quantity,
+           COALESCE(SUM(CASE WHEN scope = 'warehouse' THEN 1 ELSE 0 END), 0) AS warehouse_count,
+           COALESCE(SUM(CASE WHEN scope = 'locker' THEN 1 ELSE 0 END), 0) AS locker_count
+         FROM normalized_inventory
+         GROUP BY category
+         ORDER BY item_count DESC, category COLLATE NOCASE`
+      ),
+      db.select<GauntletAggregateRow[]>(
+        `WITH gauntlet_jumps AS (
+           SELECT
+             j.id,
+             j.title,
+             j.status,
+             COALESCE(j.cp_budget, 0) AS cp_budget,
+             j.sort_order,
+             j.created_at,
+             a.asset_type,
+             COALESCE(a.cost, 0) AS cost,
+             CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END AS quantity,
+             COALESCE(a.discounted, 0) AS discounted,
+             COALESCE(a.freebie, 0) AS freebie
+           FROM jumps j
+           LEFT JOIN jump_assets a ON a.jump_id = j.id
+           WHERE LOWER(COALESCE(j.status, '')) LIKE '%gauntlet%'
+         )
+         SELECT
+           id AS jump_id,
+           title,
+           status,
+           cp_budget,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN 0
+               WHEN freebie = 1 THEN 0
+               WHEN discounted = 1 THEN cost * quantity / 2.0
+               ELSE cost * quantity
+             END
+           ), 0) AS spent,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN cost * quantity
+               ELSE 0
+             END
+           ), 0) AS earned
+         FROM gauntlet_jumps
+         GROUP BY id
+         ORDER BY MIN(sort_order) ASC, MIN(created_at) ASC, title COLLATE NOCASE`
+      ),
+      db.select<UniversalDrawbackSettingsRow[]>(
+        `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+        [UNIVERSAL_DRAWBACK_SETTING_ID]
+      ),
+      db.select<BoosterSourceRow[]>(
+        `SELECT id, name, attributes_json, traits_json FROM character_profiles ORDER BY created_at ASC`
+      ),
+    ]);
+
+    const cpByJump: CpSpendEarnRow[] = (cpRows as JumpCpRow[]).map((row) => {
+      const budget = Math.max(0, toNumber(row.cp_budget));
+      const spent = Math.max(0, toNumber(row.spent));
+      const earned = Math.max(0, toNumber(row.earned));
+      return {
+        jumpId: row.jump_id,
+        title: row.title,
+        status: row.status,
+        budget,
+        spent,
+        earned,
+        net: earned - spent,
+      } satisfies CpSpendEarnRow;
+    });
+
+    const cpTotals = cpByJump.reduce(
+      (totals, row) => {
+        totals.budget += row.budget;
+        totals.spent += row.spent;
+        totals.earned += row.earned;
+        totals.net += row.net;
+        return totals;
+      },
+      { budget: 0, spent: 0, earned: 0, net: 0 }
+    );
+
+    const cpByAssetType: CpAssetTypeBreakdown[] = (assetRows as AssetTypeAggregateRow[])
+      .map((row) => ({
+        assetType: row.asset_type,
+        itemCount: Math.max(0, Math.floor(toNumber(row.item_count))),
+        gross: Math.max(0, toNumber(row.gross_cost)),
+        netCost: Math.max(0, toNumber(row.net_cost)),
+        credit: Math.max(0, toNumber(row.credit)),
+        discounted: Math.max(0, Math.floor(toNumber(row.discounted_count))),
+        freebies: Math.max(0, Math.floor(toNumber(row.freebie_count))),
+      }))
+      .sort((a, b) => {
+        if (a.assetType === b.assetType) {
+          return 0;
+        }
+        return a.assetType.localeCompare(b.assetType);
+      });
+
+    const inventoryCategories: InventoryCategorySummary[] = (inventoryRows as InventoryCategoryAggregateRow[])
+      .map((row) => ({
+        category: normalizeCategory(row.category ?? null),
+        itemCount: Math.max(0, Math.floor(toNumber(row.item_count))),
+        totalQuantity: Math.max(0, toNumber(row.total_quantity)),
+        warehouseCount: Math.max(0, Math.floor(toNumber(row.warehouse_count))),
+        lockerCount: Math.max(0, Math.floor(toNumber(row.locker_count))),
+      }))
+      .sort((a, b) => {
+        if (a.itemCount === b.itemCount) {
+          return a.category.localeCompare(b.category, undefined, { sensitivity: "base" });
+        }
+        return b.itemCount - a.itemCount;
+      });
+
+    const inventoryTotals = inventoryCategories.reduce(
+      (totals, row) => {
+        totals.totalItems += row.itemCount;
+        totals.totalQuantity += row.totalQuantity;
+        return totals;
+      },
+      { totalItems: 0, totalQuantity: 0 }
+    );
+
+    const gauntletSummaryRows: GauntletProgressRow[] = (gauntletRows as GauntletAggregateRow[]).map((row) => {
+      const budget = Math.max(0, toNumber(row.cp_budget));
+      const spent = Math.max(0, toNumber(row.spent));
+      const earned = Math.max(0, toNumber(row.earned));
+      const progress = budget > 0 ? spent / budget : 0;
+      return {
+        jumpId: row.jump_id,
+        title: row.title,
+        status: row.status,
+        budget,
+        spent,
+        earned,
+        progress,
+      } satisfies GauntletProgressRow;
+    });
+
+    const completedGauntlets = gauntletSummaryRows.filter((row) => row.budget > 0 && row.spent >= row.budget).length;
+
+    const universalSettings = mapUniversalSettings((universalRows as UniversalDrawbackSettingsRow[])[0]);
+
+    const boosterSources = boosterRows as BoosterSourceRow[];
+    const boosterMap = new Map<string, BoosterUsageEntry>();
+    let totalBoosters = 0;
+    let charactersWithBoosters = 0;
+
+    for (const profile of boosterSources) {
+      const boosters = extractBoosters(profile);
+      if (boosters.length > 0) {
+        charactersWithBoosters += 1;
+      }
+      totalBoosters += boosters.length;
+      for (const booster of boosters) {
+        const existing = boosterMap.get(booster);
+        if (existing) {
+          existing.count += 1;
+          existing.characters.push({ id: profile.id, name: profile.name });
+        } else {
+          boosterMap.set(booster, {
+            booster,
+            count: 1,
+            characters: [{ id: profile.id, name: profile.name }],
+          });
+        }
+      }
+    }
+
+    const boosterEntries = Array.from(boosterMap.values()).map((entry) => ({
+      ...entry,
+      characters: entry.characters.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    }));
+
+    boosterEntries.sort((a, b) => {
+      if (b.count === a.count) {
+        return a.booster.localeCompare(b.booster, undefined, { sensitivity: "base" });
+      }
+      return b.count - a.count;
+    });
+
+    return {
+      cp: {
+        totals: cpTotals,
+        byJump: cpByJump,
+        byAssetType: cpByAssetType,
+      },
+      inventory: {
+        totalItems: inventoryTotals.totalItems,
+        totalQuantity: inventoryTotals.totalQuantity,
+        categories: inventoryCategories,
+      },
+      gauntlet: {
+        allowGauntlet: universalSettings.allowGauntlet,
+        gauntletHalved: universalSettings.gauntletHalved,
+        totalGauntlets: gauntletSummaryRows.length,
+        completedGauntlets,
+        rows: gauntletSummaryRows,
+      },
+      boosters: {
+        totalCharacters: boosterSources.length,
+        charactersWithBoosters,
+        totalBoosters,
+        uniqueBoosters: boosterEntries.length,
+        entries: boosterEntries,
+      },
+    } satisfies StatisticsSnapshot;
+  });
 }

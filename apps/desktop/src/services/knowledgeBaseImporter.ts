@@ -22,9 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { readTextFile } from "@tauri-apps/plugin-fs";
 import type { UpsertKnowledgeArticleInput } from "../db/dao";
-import { readPdfText } from "./pdfText";
 import {
   buildArticleDraft,
   extractFileName,
@@ -32,6 +30,7 @@ import {
 } from "./knowledgeBaseImportUtils";
 import type { KnowledgeArticleRecord } from "../db/dao";
 import { openFileDialog } from "./dialogService";
+import { getPlatform } from "./platform";
 
 export interface KnowledgeBaseImportError {
   path: string;
@@ -58,13 +57,15 @@ async function buildDraftFromFile(path: string): Promise<KnowledgeBaseArticleDra
   const ext = getExtension(path);
 
   if (ext === "pdf") {
+    const { readPdfText } = await import("./pdfText");
     const result = await readPdfText(path);
     const text = result.text;
     return buildArticleDraft(path, text, "Imported");
   }
 
   if (SUPPORTED_TEXT_EXTENSIONS.has(ext)) {
-    const raw = await readTextFile(path);
+    const platform = await getPlatform();
+    const raw = await platform.fs.readTextFile(path);
     return buildArticleDraft(path, raw, "Imported");
   }
 

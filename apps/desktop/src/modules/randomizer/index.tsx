@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clearRandomizerRolls,
@@ -45,17 +45,176 @@ import {
   type RandomizerListRecord,
   type RandomizerRollRecord,
 } from "../../db/dao";
-import { drawWeightedWithoutReplacement, type WeightedEntry } from "./weightedPicker";
-// Add import for SavedRandomizerPreset type
-import type { SavedRandomizerPreset } from "../../db/dao";
+import {
+  createHistoryExportPayload,
+  drawWeightedWithoutReplacement,
+  formatWeightedDrawForClipboard,
+  formatWeightedHistoryForClipboard,
+  formatWeightedPickSummary,
+  type WeightedEntry,
+  type WeightedHistoryRun,
+} from "./weightedPicker";
 
 const LISTS_QUERY_KEY = ["randomizer", "lists"] as const;
 const groupsQueryKey = (listId: string) => ["randomizer", "groups", listId] as const;
 const entriesQueryKey = (listId: string) => ["randomizer", "entries", listId] as const;
 const historyQueryKey = (listId: string) => ["randomizer", "history", listId] as const;
 const HISTORY_DISPLAY_LIMIT = 20;
+const PRESETS_STORAGE_KEY = "jumpchain.randomizer.presets.v1";
+const MAX_PRESETS_PER_LIST = 12;
 
 type DrawScope = "all" | "group";
+type ToastTone = "info" | "success" | "error";
+
+interface ToastMessage {
+  id: string;
+  message: string;
+  tone: ToastTone;
+}
+
+interface PresetSnapshot {
+  listId: string;
+  drawCount: number;
+  scope: DrawScope;
+  tags: string[];
+  minWeight: number;
+  groupId: string | "all";
+  seed?: string;
+}
+
+interface SavedRandomizerPreset extends PresetSnapshot {
+  id: string;
+  createdAt: string;
+  signature: string;
+}
+
+type PresetStore = Record<string, SavedRandomizerPreset[]>;
+
+function createId(prefix: string): string {
+  const globalCrypto =
+    typeof globalThis !== "undefined" ? (globalThis as { crypto?: Crypto }).crypto : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
+    return `${prefix}-${globalCrypto.randomUUID()}`;
+  }
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
+}
+
+function normalizeTags(tags: string[]): string[] {
+  return Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
+}
+
+function computePresetSignature(snapshot: PresetSnapshot): string {
+  const tagKey = normalizeTags(snapshot.tags).join("|");
+  const seedKey = snapshot.seed ?? "";
+  return [snapshot.listId, snapshot.drawCount, snapshot.scope, snapshot.groupId, snapshot.minWeight, seedKey, tagKey]
+    .map((value) => String(value ?? ""))
+    .join("::");
+}
+
+function sanitizePresetCandidate(listId: string, candidate: unknown): SavedRandomizerPreset | null {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+  const value = candidate as Partial<SavedRandomizerPreset>;
+  const drawCountRaw = typeof value.drawCount === "number" ? value.drawCount : Number(value.drawCount);
+  const drawCount = Number.isFinite(drawCountRaw) && drawCountRaw > 0 ? Math.floor(drawCountRaw) : 1;
+  const scope: DrawScope = value.scope === "group" ? "group" : "all";
+  const tags = Array.isArray(value.tags)
+    ? value.tags.filter((tag): tag is string => typeof tag === "string")
+    : [];
+  const minWeightRaw = typeof value.minWeight === "number" ? value.minWeight : Number(value.minWeight);
+  const minWeight = Number.isFinite(minWeightRaw) && minWeightRaw >= 0 ? minWeightRaw : 0;
+  const groupId =
+    typeof value.groupId === "string" && value.groupId.length ? (value.groupId as string) : "all";
+  const seed = typeof value.seed === "string" && value.seed.length ? value.seed : undefined;
+  const snapshot: PresetSnapshot = {
+    listId,
+    drawCount,
+    scope,
+    tags: normalizeTags(tags),
+    minWeight,
+    groupId,
+    seed,
+  };
+  const id = typeof value.id === "string" && value.id.length ? value.id : createId("preset");
+  const createdAt =
+    typeof value.createdAt === "string" && value.createdAt.length
+      ? value.createdAt
+      : new Date().toISOString();
+  const signature =
+    typeof value.signature === "string" && value.signature.length
+      ? value.signature
+      : computePresetSignature(snapshot);
+  return {
+    ...snapshot,
+    id,
+    createdAt,
+    signature,
+  };
+}
+
+function loadPresetStore(): PresetStore {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(PRESETS_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const store: PresetStore = {};
+    for (const [listId, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(value)) {
+        continue;
+      }
+      const sanitized = value
+        .map((item) => sanitizePresetCandidate(listId, item))
+        .filter((item): item is SavedRandomizerPreset => Boolean(item));
+      if (sanitized.length) {
+        store[listId] = sanitized.slice(0, MAX_PRESETS_PER_LIST);
+      }
+    }
+    return store;
+  } catch (error) {
+    console.warn("Failed to load randomizer presets", error);
+    return {};
+  }
+}
+
+function parseRollParams(
+  params: Record<string, unknown> | undefined
+): { drawCount: number | null; scope: DrawScope; tags: string[]; minWeight: number | null; groupId: string | "all" } {
+  if (!params || typeof params !== "object") {
+    return { drawCount: null, scope: "all", tags: [], minWeight: null, groupId: "all" };
+  }
+  const drawCountValue =
+    typeof (params as { drawCount?: unknown }).drawCount === "number"
+      ? (params as { drawCount?: number }).drawCount
+      : Number((params as { drawCount?: unknown }).drawCount);
+  const scopeValue = (params as { scope?: unknown }).scope === "group" ? "group" : "all";
+  const tagsValue = Array.isArray((params as { tags?: unknown }).tags)
+    ? ((params as { tags?: unknown }).tags as unknown[]).filter((tag): tag is string => typeof tag === "string")
+    : [];
+  const minWeightValue =
+    typeof (params as { minWeight?: unknown }).minWeight === "number"
+      ? (params as { minWeight?: number }).minWeight
+      : Number((params as { minWeight?: unknown }).minWeight);
+  const groupIdValue =
+    typeof (params as { groupId?: unknown }).groupId === "string"
+      ? ((params as { groupId?: unknown }).groupId as string)
+      : "all";
+  return {
+    drawCount: Number.isFinite(drawCountValue) ? Number(drawCountValue) : null,
+    scope: scopeValue,
+    tags: normalizeTags(tagsValue),
+    minWeight: Number.isFinite(minWeightValue) ? Number(minWeightValue) : null,
+    groupId: groupIdValue && groupIdValue.length ? groupIdValue : "all",
+  };
+}
 
 interface EntryFormState {
   id: string;
@@ -196,10 +355,48 @@ const JumpRandomizer: React.FC = () => {
   const [minWeightInput, setMinWeightInput] = useState("0");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [drawScope, setDrawScope] = useState<DrawScope>("all");
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [drawError, setDrawError] = useState<string | null>(null);
   const [drawResults, setDrawResults] = useState<RandomizerEntryRecord[]>([]);
   const [lastDrawSummary, setLastDrawSummary] = useState<DrawSummary | null>(null);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupNameDraft, setGroupNameDraft] = useState("");
+  const [presetStore, setPresetStore] = useState<PresetStore>(() => loadPresetStore());
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const toastTimers = useRef<Map<string, number>>(new Map());
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timerId = toastTimers.current.get(id);
+    if (typeof timerId === "number" && typeof window !== "undefined") {
+      window.clearTimeout(timerId);
+    }
+    toastTimers.current.delete(id);
+  }, []);
+
+  const showToast = useCallback(
+    (message: string, tone: ToastTone = "info") => {
+      const toastId = createId("toast");
+      setToasts((prev) => [...prev, { id: toastId, message, tone }]);
+      if (typeof window !== "undefined") {
+        const timeout = window.setTimeout(() => {
+          removeToast(toastId);
+        }, 3200);
+        toastTimers.current.set(toastId, timeout);
+      }
+    },
+    [removeToast]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        for (const timerId of toastTimers.current.values()) {
+          window.clearTimeout(timerId);
+        }
+      }
+      toastTimers.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!lists.length) {
@@ -210,6 +407,98 @@ const JumpRandomizer: React.FC = () => {
       setSelectedListId(lists[0]!.id);
     }
   }, [lists, selectedListId]);
+
+  const recentPresets = useMemo(
+    () => (selectedListId ? presetStore[selectedListId] ?? [] : []),
+    [presetStore, selectedListId]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presetStore));
+    } catch (error) {
+      console.warn("Failed to persist randomizer presets", error);
+    }
+  }, [presetStore]);
+
+  const rememberPreset = useCallback(
+    (snapshot: PresetSnapshot) => {
+      if (!snapshot.listId) {
+        return;
+      }
+      setPresetStore((prev) => {
+        const current = prev[snapshot.listId] ?? [];
+        const signature = computePresetSignature(snapshot);
+        const nextList = [
+          {
+            ...snapshot,
+            id: createId("preset"),
+            createdAt: new Date().toISOString(),
+            signature,
+            tags: normalizeTags(snapshot.tags),
+          },
+          ...current.filter((item) => item.signature !== signature),
+        ].slice(0, MAX_PRESETS_PER_LIST);
+        return {
+          ...prev,
+          [snapshot.listId]: nextList,
+        };
+      });
+    },
+    []
+  );
+
+  const removePreset = useCallback((presetId: string) => {
+    setPresetStore((prev) => {
+      let changed = false;
+      const next: PresetStore = {};
+      for (const [listId, presets] of Object.entries(prev)) {
+        const filtered = presets.filter((preset) => preset.id !== presetId);
+        if (filtered.length !== presets.length) {
+          changed = true;
+        }
+        if (filtered.length) {
+          next[listId] = filtered;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const clearPresets = useCallback(() => {
+    if (!selectedListId) {
+      return;
+    }
+    setPresetStore((prev) => {
+      if (!(selectedListId in prev)) {
+        return prev;
+      }
+      const { [selectedListId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, [selectedListId]);
+
+  const applyPreset = useCallback(
+    (preset: SavedRandomizerPreset, options?: { silent?: boolean }) => {
+      setDrawCountInput(String(preset.drawCount));
+      setSeedInput(preset.seed ?? "");
+      setDrawScope(preset.scope);
+      setMinWeightInput(String(preset.minWeight));
+      setSelectedTags([...preset.tags]);
+      if (preset.scope === "group") {
+        setSelectedGroupId(preset.groupId);
+      } else {
+        setSelectedGroupId("all");
+      }
+      if (!options?.silent) {
+        showToast("Configuration loaded.", "success");
+      }
+    },
+    [setDrawCountInput, setSeedInput, setDrawScope, setMinWeightInput, setSelectedTags, setSelectedGroupId, showToast]
+  );
 
   const selectedList = useMemo(
     () => lists.find((list) => list.id === selectedListId) ?? null,
@@ -279,6 +568,14 @@ const JumpRandomizer: React.FC = () => {
       setSelectedEntryId(entries[0]!.id);
     }
   }, [entries, selectedEntryId]);
+
+  useEffect(() => {
+    if (!selectedGroup) {
+      setGroupNameDraft("");
+      return;
+    }
+    setGroupNameDraft(selectedGroup.name ?? "");
+  }, [selectedGroup?.id, selectedGroup?.name]);
 
   useEffect(() => {
     if (selectedGroupId === "all") {
@@ -386,6 +683,26 @@ const JumpRandomizer: React.FC = () => {
     enabled: Boolean(selectedListId),
   });
   const historyRecords = historyQuery.data ?? [];
+  const historySnapshots = useMemo<WeightedHistoryRun[]>(
+    () =>
+      historyRecords.map((run) => ({
+        id: run.id,
+        listId: run.list_id,
+        createdAt: run.created_at,
+        seed: run.seed,
+        params: run.params,
+        picks: run.picks.map((pick) => ({
+          id: pick.id,
+          entryId: pick.entry_id,
+          position: pick.position,
+          name: pick.name,
+          weight: pick.weight,
+          link: pick.link,
+          tags: pick.tags,
+        })),
+      })),
+    [historyRecords]
+  );
 
   const createListMutation = useMutation({
     mutationFn: (input: Parameters<typeof createRandomizerList>[0]) => createRandomizerList(input ?? {}),
@@ -499,6 +816,10 @@ const JumpRandomizer: React.FC = () => {
       if (selectedListId) {
         queryClient.invalidateQueries({ queryKey: historyQueryKey(selectedListId) }).catch(() => undefined);
       }
+      showToast("History cleared.", "success");
+    },
+    onError: () => {
+      showToast("Failed to clear history.", "error");
     },
   });
 
@@ -539,6 +860,7 @@ const JumpRandomizer: React.FC = () => {
   const handleCreateGroup = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     if (!selectedListId) {
+      showToast("Select a list before creating groups.", "info");
       return;
     }
     createGroupMutation.mutate({
@@ -564,7 +886,7 @@ const JumpRandomizer: React.FC = () => {
       return;
     }
     if (groups.length <= 1) {
-      setCopyMessage("At least one group is required.");
+      showToast("At least one group is required.", "error");
       return;
     }
     const confirmDelete =
@@ -590,6 +912,21 @@ const JumpRandomizer: React.FC = () => {
       group_id: targetGroup,
     });
   };
+
+  const handleEntryFieldChange =
+    (field: keyof EntryFormState) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const value = event.target.value;
+      setEntryForm((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [field]: value,
+        };
+      });
+    };
 
   const handleEntrySubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -676,6 +1013,14 @@ const JumpRandomizer: React.FC = () => {
     });
   };
 
+  const getGroupName = (groupId: string | "all"): string => {
+    if (groupId === "all") {
+      return "All groups";
+    }
+    const group = groups.find((item) => item.id === groupId);
+    return group?.name ?? "Unknown group";
+  };
+
   const handleDraw = async (): Promise<void> => {
     if (!selectedListId) {
       return;
@@ -745,75 +1090,87 @@ const JumpRandomizer: React.FC = () => {
           tags: entry.tags,
         })),
       });
+      if (selectedListId) {
+        rememberPreset({
+          listId: selectedListId,
+          drawCount,
+          scope: filters.scope,
+          tags: filters.tags,
+          minWeight: filters.minWeight,
+          groupId: filters.scope === "group" ? filters.groupId : "all",
+          seed: normalizedSeed,
+        });
+      }
     } catch (error) {
       console.warn("Failed to record randomizer roll", error);
       const message =
         error instanceof Error ? error.message : typeof error === "string" ? error : "Failed to record randomizer roll.";
       setDrawError(message);
-      setCopyMessage("Roll failed to record.");
+      showToast("Roll failed to record.", "error");
     }
   };
 
   const handleCopyResult = async (entry: RandomizerEntryRecord, mode: "name" | "link" | "full") => {
     if (typeof navigator === "undefined" || !navigator.clipboard) {
-      setCopyMessage("Clipboard unavailable");
+      showToast("Clipboard unavailable.", "error");
       return;
     }
     if (mode === "link" && !entry.link) {
-      setCopyMessage("Entry has no link to copy.");
+      showToast("Entry has no link to copy.", "info");
       return;
     }
     let text = entry.name;
     if (mode === "link") {
       text = entry.link ?? "";
     } else if (mode === "full") {
-      const parts = [entry.name];
-      if (entry.link) {
-        parts.push(`(${entry.link})`);
-      }
-      parts.push(`w${entry.weight}`);
-      if (entry.tags.length) {
-        parts.push(`[${entry.tags.join(", ")}]`);
-      }
-      text = parts.join(" ");
+      text = formatWeightedPickSummary({
+        id: entry.id,
+        entryId: entry.id,
+        name: entry.name,
+        weight: entry.weight,
+        link: entry.link,
+        tags: entry.tags,
+      });
     }
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMessage("Copied to clipboard.");
+      showToast("Copied to clipboard.", "success");
     } catch (error) {
       console.warn("Failed to copy result", error);
-      setCopyMessage("Clipboard copy failed.");
+      showToast("Clipboard copy failed.", "error");
     }
   };
 
   const handleCopyDrawResults = async (): Promise<void> => {
     if (!drawResults.length) {
-      setCopyMessage("No results available to copy.");
+      showToast("No results available to copy.", "info");
       return;
     }
     if (typeof navigator === "undefined" || !navigator.clipboard) {
-      setCopyMessage("Clipboard unavailable");
+      showToast("Clipboard unavailable.", "error");
       return;
     }
-    const text = drawResults
-      .map((entry, index) => {
-        const segments = [`${index + 1}. ${entry.name}`];
-        if (entry.link) {
-          segments.push(`(${entry.link})`);
-        }
-        segments.push(`w${entry.weight}`);
-        if (entry.tags.length) {
-          segments.push(`[${entry.tags.join(", ")}]`);
-        }
-        return segments.join(" ");
-      })
-      .join("\n");
+    const text = formatWeightedDrawForClipboard(
+      drawResults.map((entry, index) => ({
+        id: entry.id,
+        entryId: entry.id,
+        position: index + 1,
+        name: entry.name,
+        weight: entry.weight,
+        link: entry.link,
+        tags: entry.tags,
+      }))
+    );
+    if (!text.length) {
+      setCopyMessage("No results available to copy.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMessage("Results copied to clipboard.");
+      showToast("Results copied to clipboard.", "success");
     } catch (error) {
       console.warn("Failed to copy results", error);
-      setCopyMessage("Clipboard copy failed.");
+      showToast("Clipboard copy failed.", "error");
     }
   };
 
@@ -833,6 +1190,31 @@ const JumpRandomizer: React.FC = () => {
     }
     clearPresets();
     showToast("Preset list cleared.", "info");
+  };
+
+  const handleSavePreset = () => {
+    if (!selectedListId) {
+      showToast("Select a list before saving a configuration.", "info");
+      return;
+    }
+    const drawCount = Number.parseInt(drawCountInput, 10);
+    if (Number.isNaN(drawCount) || drawCount <= 0) {
+      showToast("Enter a valid draw count before saving.", "error");
+      return;
+    }
+    const normalizedSeed = seedInput.trim();
+    const normalizedMinWeight = Number.parseInt(minWeightInput, 10);
+    const presetGroupId = drawScope === "group" && selectedGroupId !== "all" ? selectedGroupId : "all";
+    rememberPreset({
+      listId: selectedListId,
+      drawCount,
+      scope: drawScope,
+      tags: selectedTags,
+      minWeight: Number.isNaN(normalizedMinWeight) ? 0 : Math.max(normalizedMinWeight, 0),
+      groupId: presetGroupId,
+      seed: normalizedSeed.length ? normalizedSeed : undefined,
+    });
+    showToast("Configuration saved.", "success");
   };
 
   const handleApplyPresetAndDraw = async (preset: SavedRandomizerPreset) => {
@@ -860,39 +1242,20 @@ const JumpRandomizer: React.FC = () => {
 
   const handleCopyHistory = async (): Promise<void> => {
     if (!historyRecords.length || typeof navigator === "undefined" || !navigator.clipboard) {
-      setCopyMessage("Clipboard unavailable");
+      showToast("Clipboard unavailable.", "error");
       return;
     }
-    const text = historyRecords
-      .map((run, index) => {
-        const parts = [`Roll ${index + 1} ΓÇö ${formatTimestamp(run.created_at)}`];
-        if (run.seed) {
-          parts.push(`Seed: ${run.seed}`);
-        }
-        const header = parts.join(" | ");
-        if (!run.picks.length) {
-          return header;
-        }
-        const lines = run.picks.map((pick, idx) => {
-          const segments = [`${idx + 1}. ${pick.name}`];
-          if (pick.link) {
-            segments.push(`(${pick.link})`);
-          }
-          segments.push(`w${pick.weight}`);
-          if (pick.tags.length) {
-            segments.push(`[${pick.tags.join(", ")}]`);
-          }
-          return segments.join(" ");
-        });
-        return [header, ...lines].join("\n");
-      })
-      .join("\n\n");
+    const text = formatWeightedHistoryForClipboard(historySnapshots, { formatTimestamp });
+    if (!text.length) {
+      setCopyMessage("No history available to copy.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
-      setCopyMessage("Results copied to clipboard.");
+      showToast("History copied to clipboard.", "success");
     } catch (error) {
       console.warn("Failed to copy results", error);
-      setCopyMessage("Clipboard copy failed.");
+      showToast("Clipboard copy failed.", "error");
     }
   };
 
@@ -900,22 +1263,7 @@ const JumpRandomizer: React.FC = () => {
     if (!historyRecords.length || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
-    const payload = historyRecords.map((run) => ({
-      id: run.id,
-      list_id: run.list_id,
-      created_at: run.created_at,
-      seed: run.seed,
-      params: run.params,
-      picks: run.picks.map((pick) => ({
-        id: pick.id,
-        entry_id: pick.entry_id,
-        name: pick.name,
-        weight: pick.weight,
-        link: pick.link,
-        tags: pick.tags,
-        position: pick.position,
-      })),
-    }));
+    const payload = createHistoryExportPayload(historySnapshots);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -924,7 +1272,7 @@ const JumpRandomizer: React.FC = () => {
     anchor.rel = "noopener";
     anchor.click();
     window.URL.revokeObjectURL(url);
-    setCopyMessage("Export downloaded.");
+    showToast("Export downloaded.", "success");
   };
 
   const listControlsDisabled =
@@ -1425,58 +1773,166 @@ const JumpRandomizer: React.FC = () => {
           </div>
 
           <div className="randomizer-panel">
-            <h2>History</h2>
-            {historyRecords.length ? (
-              <ul className="history-list">
-                {historyRecords.map((run) => (
-                  <li key={run.id}>
-                    <div className="history-header">
-                      <strong>{formatTimestamp(run.created_at)}</strong>
-                      {run.seed ? <span>{` · Seed: ${run.seed}`}</span> : null}
+            <div className="panel-heading">
+              <h2>Recent Configurations</h2>
+              <div className="panel-heading__actions">
+                <button type="button" onClick={handleSavePreset} disabled={!selectedListId}>
+                  Save Current
+                </button>
+                <button type="button" onClick={handleClearPresetList} disabled={!recentPresets.length}>
+                  Clear Saved
+                </button>
+              </div>
+            </div>
+            {recentPresets.length ? (
+              <ul className="preset-list">
+                {recentPresets.map((preset) => (
+                  <li key={preset.id} className="preset-card">
+                    <div className="preset-card__header">
+                      <div>
+                        <time dateTime={preset.createdAt}>{formatTimestamp(preset.createdAt)}</time>
+                        <span className="preset-card__seed">
+                          {preset.seed ? `Seed: ${preset.seed}` : "Random seed"}
+                        </span>
+                      </div>
+                      <span className="preset-card__scope">
+                        {preset.scope === "group" ? "Group draw" : "Full list"}
+                      </span>
                     </div>
-                    <div className="history-meta">
-                      Draw {run.params.drawCount} · Scope {run.params.scope}
-                      {Array.isArray(run.params.tags) && run.params.tags.length
-                        ? ` · Tags ${run.params.tags.join(", ")}`
-                        : ""}
-                      {typeof run.params.minWeight === "number" ? ` · Min w${run.params.minWeight}` : ""}
+                    <div className="preset-card__meta">
+                      <span>{`Draw ${preset.drawCount}`}</span>
+                      <span>{`Group: ${getGroupName(preset.groupId)}`}</span>
+                      <span>{`Min w${preset.minWeight}`}</span>
+                      {preset.tags.length ? <span>{`Tags: ${preset.tags.join(", ")}`}</span> : null}
                     </div>
-                    {run.picks.length ? (
-                      <ol className="history-picks">
-                        {run.picks.map((pick) => (
-                          <li key={pick.id}>
-                            {pick.name}
-                            <span>{` w${pick.weight}`}</span>
-                            {pick.tags.length ? <span>{` [${pick.tags.join(", ")}]`}</span> : null}
-                          </li>
-                        ))}
-                      </ol>
-                    ) : (
-                      <p className="empty-state">No picks recorded.</p>
-                    )}
+                    <div className="preset-card__actions form-actions">
+                      <button type="button" onClick={() => handleApplyPreset(preset)}>
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyPresetAndDraw(preset)}
+                        disabled={drawInProgress}
+                      >
+                        Load &amp; Draw
+                      </button>
+                      <button type="button" onClick={() => handleRemovePreset(preset.id)}>
+                        Remove
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
             ) : (
+              <p className="empty-state">Saved configurations will appear here after you draw.</p>
+            )}
+          </div>
+
+          <div className="randomizer-panel">
+            <div className="panel-heading">
+              <h2>History</h2>
+              <div className="panel-heading__actions">
+                <button type="button" onClick={handleCopyHistory} disabled={!historyRecords.length}>
+                  Copy History
+                </button>
+                <button type="button" onClick={handleExportHistory} disabled={!historyRecords.length}>
+                  Export History
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetHistory}
+                  disabled={!historyRecords.length || historyBusy}
+                >
+                  {historyBusy ? "Clearing…" : "Clear History"}
+                </button>
+              </div>
+            </div>
+            {historyRecords.length ? (
+              <div className="history-timeline">
+                {historyRecords.map((run, index) => {
+                  const params = parseRollParams(run.params);
+                  const sequence = historyRecords.length - index;
+                  return (
+                    <article key={run.id} className="history-timeline__item">
+                      <div className="history-timeline__marker" aria-hidden="true" />
+                      <div className="history-timeline__content">
+                        <header className="history-timeline__header">
+                          <div>
+                            <time dateTime={run.created_at}>{formatTimestamp(run.created_at)}</time>
+                            <span className="history-timeline__seed">
+                              {run.seed ? `Seed: ${run.seed}` : "Random seed"}
+                            </span>
+                          </div>
+                          <span className="history-timeline__run">{`#${sequence}`}</span>
+                        </header>
+                        <div className="history-timeline__meta">
+                          {params.drawCount !== null ? <span>{`Draw ${params.drawCount}`}</span> : null}
+                          <span>{`Scope: ${params.scope === "group" ? "Selected group" : "Entire list"}`}</span>
+                          <span>{`Group: ${getGroupName(params.groupId)}`}</span>
+                          {params.minWeight !== null ? <span>{`Min w${params.minWeight}`}</span> : null}
+                          {params.tags.length ? <span>{`Tags: ${params.tags.join(", ")}`}</span> : null}
+                        </div>
+                        {run.picks.length ? (
+                          <table className="history-picks-table">
+                            <thead>
+                              <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">Pick</th>
+                                <th scope="col">Weight</th>
+                                <th scope="col">Tags</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {run.picks.map((pick, pickIndex) => (
+                                <tr key={pick.id}>
+                                  <td>{pickIndex + 1}</td>
+                                  <td>{pick.name}</td>
+                                  <td>{`w${pick.weight}`}</td>
+                                  <td>{pick.tags.length ? pick.tags.join(", ") : "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <p className="empty-state">No picks recorded.</p>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
               <p className="empty-state">No history yet.</p>
             )}
-            <div className="form-actions">
-              <button type="button" onClick={handleCopyHistory} disabled={!historyRecords.length}>
-                Copy History
-              </button>
-              <button type="button" onClick={handleExportHistory} disabled={!historyRecords.length}>
-                Export History
-              </button>
-              <button type="button" onClick={handleResetHistory} disabled={!historyRecords.length || historyBusy}>
-                {historyBusy ? "Clearing…" : "Clear History"}
-              </button>
-            </div>
           </div>
         </div>
       </div>
 
-      {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
+      <ToastViewport toasts={toasts} onDismiss={removeToast} />
     </section>
+  );
+};
+
+interface ToastViewportProps {
+  toasts: ToastMessage[];
+  onDismiss: (id: string) => void;
+}
+
+const ToastViewport: React.FC<ToastViewportProps> = ({ toasts, onDismiss }) => {
+  if (!toasts.length) {
+    return null;
+  }
+  return (
+    <div className="toast-viewport" role="status" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast--${toast.tone}`}>
+          <span>{toast.message}</span>
+          <button type="button" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
   );
 };
 

@@ -21,6 +21,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "test"],
+  "include": ["src", "test", "src-tauri/platformAdapter.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
