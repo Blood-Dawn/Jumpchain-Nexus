@@ -3,6 +3,7 @@ import {
   composeDocument,
   createDefaultOptions,
   createDefaultSectionPreferences,
+  createPreviewSections,
   generateSections,
   useExportConfigStore,
   type ExportSectionContent,
@@ -251,6 +252,26 @@ describe("useExportConfigStore", () => {
   });
 });
 
+describe("generateSections", () => {
+  test("respects asset toggles", () => {
+    const withPerks = generateSections(SAMPLE_SNAPSHOT, createDefaultOptions());
+    const jumpMarkdown = withPerks.find((section) => section.key === "jumps")?.markdown ?? "";
+    expect(jumpMarkdown).toContain("### Perks");
+
+    const optionsWithoutPerks = {
+      ...createDefaultOptions(),
+      includeAssets: {
+        ...createDefaultOptions().includeAssets,
+        perk: false,
+      },
+    };
+
+    const withoutPerks = generateSections(SAMPLE_SNAPSHOT, optionsWithoutPerks);
+    const toggledMarkdown = withoutPerks.find((section) => section.key === "jumps")?.markdown ?? "";
+    expect(toggledMarkdown).not.toContain("### Perks");
+  });
+});
+
 describe("composeDocument", () => {
   const options = {
     ...createDefaultOptions(),
@@ -466,5 +487,32 @@ describe("composeDocument", () => {
     const bbcode = composeDocument("bbcode", sections, preferences);
     expect(bbcode).toContain("[spoiler=Notes Overview]");
     expect(bbcode).toContain("[/spoiler]");
+  });
+});
+
+describe("createPreviewSections", () => {
+  const baseSection: ExportSectionContent = {
+    key: "notes",
+    title: "Notes Overview",
+    markdown: "## Notes\n\n- Entry",
+    text: "Notes",
+  };
+
+  test("wraps html preview with spoilers when enabled", () => {
+    const preferences = createDefaultSectionPreferences();
+    preferences.notes = { ...preferences.notes, spoiler: true };
+
+    const previews = createPreviewSections([baseSection], preferences);
+    expect(previews[0].htmlPreview).toContain("<details");
+    expect(previews[0].bbcode).toContain("[spoiler=Notes Overview]");
+  });
+
+  test("renders plain preview when spoilers are disabled", () => {
+    const preferences = createDefaultSectionPreferences();
+    preferences.notes = { ...preferences.notes, spoiler: false };
+
+    const previews = createPreviewSections([baseSection], preferences);
+    expect(previews[0].htmlPreview).not.toContain("<details");
+    expect(previews[0].bbcode).not.toContain("[spoiler=Notes Overview]");
   });
 });
