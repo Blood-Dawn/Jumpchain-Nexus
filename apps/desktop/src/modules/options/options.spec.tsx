@@ -36,6 +36,7 @@ import {
   SUPPLEMENT_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 import type {
   AppSettingRecord,
   EssentialBodyModEssenceRecord,
@@ -133,7 +134,7 @@ describe("JumpchainOptions", () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["app-settings"], []);
     queryClient.setQueryData(["export-presets"], []);
-    queryClient.setQueryData(["app-settings", "formatter"], {
+    queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, {
       removeAllLineBreaks: false,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "none",

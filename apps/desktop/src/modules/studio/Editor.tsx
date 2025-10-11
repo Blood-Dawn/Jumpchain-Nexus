@@ -41,7 +41,6 @@ import type {
 import {
   getChapterText,
   listChapterSnapshots,
-  loadFormatterSettings,
   recordChapterSnapshot,
   reorderChapters,
   saveChapterText,
@@ -53,6 +52,7 @@ import { checkGrammar, createGrammarDebouncer, type GrammarSuggestion } from "..
 import { syncChapterMetadata } from "./indexer";
 import { exportChapter, exportStory, type StoryExportFormat } from "./exporters";
 import { confirmDialog } from "../../services/dialogService";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -246,10 +246,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
 
   const chapterId = chapter?.id;
 
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
 
