@@ -3507,6 +3507,130 @@ a:hover {
   gap: 1rem;
 }
 
+.stats__table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stats__table-header {
+  display: grid;
+  gap: 0.75rem;
+  align-items: center;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(240, 247, 255, 0.55);
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.75rem;
+  background: rgba(16, 26, 42, 0.7);
+}
+
+.stats__table-row {
+  display: grid;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.85rem;
+  background: rgba(12, 20, 34, 0.65);
+  color: rgba(240, 247, 255, 0.82);
+}
+
+.stats__table-row--cp {
+  grid-template-columns: minmax(160px, 2fr) minmax(120px, 1fr) repeat(4, minmax(110px, 1fr));
+}
+
+.stats__table-row--inventory {
+  grid-template-columns: minmax(150px, 2fr) repeat(4, minmax(90px, 1fr));
+}
+
+.stats__table-row--gauntlet {
+  grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(110px, 1fr)) minmax(160px, 1.5fr);
+}
+
+.stats__table-row--booster {
+  grid-template-columns: minmax(160px, 2fr) minmax(80px, 0.9fr) minmax(180px, 2fr);
+}
+
+.stats__cell-primary {
+  font-weight: 600;
+  color: #f0f7ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats__cell-primary--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  white-space: normal;
+}
+
+.stats__cell-primary--stacked strong {
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.stats__cell-primary--stacked span {
+  font-size: 0.75rem;
+  color: rgba(240, 247, 255, 0.6);
+}
+
+.stats__table-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats__table-row--booster span:last-child {
+  white-space: normal;
+}
+
+.stats__value-positive {
+  color: #7ce5a3;
+  font-weight: 600;
+}
+
+.stats__value-negative {
+  color: #ff9cab;
+  font-weight: 600;
+}
+
+.stats__progress-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stats__progress-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(240, 247, 255, 0.75);
+}
+
+.stats__progress {
+  position: relative;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(60, 90, 120, 0.4);
+  overflow: hidden;
+}
+
+.stats__progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(122, 203, 255, 0.85), rgba(64, 148, 255, 0.95));
+  transition: width 0.3s ease;
+}
+
+.stats__progress-bar--complete {
+  background: linear-gradient(90deg, rgba(126, 229, 163, 0.9), rgba(78, 190, 140, 0.95));
+}
+
 .stats__panel-header {
   display: flex;
   justify-content: space-between;

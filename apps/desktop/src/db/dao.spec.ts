@@ -356,6 +356,173 @@ describe("summarizeJumpBudget", () => {
   });
 });
 
+describe("statistics snapshot", () => {
+  it("aggregates cp, inventory, gauntlet, and boosters", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jumps j") && sql.includes("GROUP BY j.id") && !sql.includes("gauntlet_jumps"),
+      () => [
+        {
+          jump_id: "jump-1",
+          title: "Arc One",
+          status: "Gauntlet",
+          cp_budget: 1500,
+          spent: 600,
+          earned: 400,
+        },
+        {
+          jump_id: "jump-2",
+          title: "World Two",
+          status: "Completed",
+          cp_budget: 1000,
+          spent: 850,
+          earned: 50,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("GROUP BY asset_type"),
+      () => [
+        {
+          asset_type: "perk",
+          item_count: 4,
+          gross_cost: 1000,
+          net_cost: 900,
+          credit: 0,
+          discounted_count: 2,
+          freebie_count: 1,
+        },
+        {
+          asset_type: "item",
+          item_count: 3,
+          gross_cost: 600,
+          net_cost: 550,
+          credit: 0,
+          discounted_count: 0,
+          freebie_count: 0,
+        },
+        {
+          asset_type: "drawback",
+          item_count: 2,
+          gross_cost: 450,
+          net_cost: 0,
+          credit: 450,
+          discounted_count: 0,
+          freebie_count: 0,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM normalized_inventory"),
+      () => [
+        {
+          category: "Weapons",
+          item_count: 4,
+          total_quantity: 8,
+          warehouse_count: 3,
+          locker_count: 1,
+        },
+        {
+          category: null,
+          item_count: 1,
+          total_quantity: 1,
+          warehouse_count: 0,
+          locker_count: 1,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM gauntlet_jumps"),
+      () => [
+        {
+          jump_id: "jump-1",
+          title: "Arc One",
+          status: "Gauntlet",
+          cp_budget: 1500,
+          spent: 600,
+          earned: 400,
+        },
+        {
+          jump_id: "jump-3",
+          title: "Trial of Courage",
+          status: "GAUNTLET-PHASE",
+          cp_budget: 1200,
+          spent: 1300,
+          earned: 200,
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 500,
+          companion_cp: 200,
+          item_cp: 150,
+          warehouse_wp: 50,
+          allow_gauntlet: 1,
+          gauntlet_halved: 0,
+          created_at: "2025-02-03T04:05:06.000Z",
+          updated_at: "2025-02-03T04:05:06.000Z",
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM character_profiles"),
+      () => [
+        {
+          id: "char-1",
+          name: "Alicia Storm",
+          attributes_json: JSON.stringify({ boosters: ["Regeneration", { name: "Speed Burst" }] }),
+          traits_json: JSON.stringify([{ name: "Courage", type: "virtue" }]),
+        },
+        {
+          id: "char-2",
+          name: "Borin Flame",
+          attributes_json: JSON.stringify({ boosters: { "Fire Core": { rank: "A" } } }),
+          traits_json: JSON.stringify([{ name: "Fire Core", type: "booster" }]),
+        },
+        {
+          id: "char-3",
+          name: "Cara Shade",
+          attributes_json: null,
+          traits_json: JSON.stringify([{ name: "Shadow Blend", type: "booster" }]),
+        },
+      ]
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+    const { loadStatisticsSnapshot } = await importDao();
+    const snapshot = await loadStatisticsSnapshot();
+
+    expect(snapshot.cp.totals).toEqual({ budget: 2500, spent: 1450, earned: 450, net: -1000 });
+    expect(snapshot.cp.byAssetType.find((entry) => entry.assetType === "perk")).toMatchObject({
+      itemCount: 4,
+      netCost: 900,
+      discounted: 2,
+      freebies: 1,
+    });
+    expect(snapshot.inventory.totalItems).toBe(5);
+    expect(snapshot.inventory.totalQuantity).toBe(9);
+    expect(snapshot.inventory.categories[0]).toMatchObject({ category: "Weapons", itemCount: 4 });
+    expect(snapshot.gauntlet.allowGauntlet).toBe(true);
+    expect(snapshot.gauntlet.totalGauntlets).toBe(2);
+    expect(snapshot.gauntlet.completedGauntlets).toBe(1);
+    expect(snapshot.gauntlet.rows[1]).toMatchObject({ jumpId: "jump-3", spent: 1300 });
+    expect(snapshot.boosters.totalCharacters).toBe(3);
+    expect(snapshot.boosters.totalBoosters).toBe(4);
+    expect(snapshot.boosters.entries.map((entry) => entry.booster)).toEqual([
+      "Fire Core",
+      "Regeneration",
+      "Shadow Blend",
+      "Speed Burst",
+    ]);
+    const fireCore = snapshot.boosters.entries[0];
+    expect(fireCore.characters.map((character) => character.name)).toEqual(["Borin Flame"]);
+  });
+});
+
 describe("jump asset dao", () => {
   it("@smoke creates jump assets with derived defaults and summary updates", async () => {
     const fakeDb = new FakeDb();
