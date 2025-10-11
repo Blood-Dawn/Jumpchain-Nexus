@@ -61,6 +61,7 @@ export interface PlatformFsAdapter {
   exists(path: string): Promise<boolean>;
   readBinaryFile(path: string): Promise<Uint8Array>;
   readTextFile(path: string): Promise<string>;
+  writeTextFile(path: string, contents: string): Promise<void>;
 }
 
 export interface PlatformDialogAdapter {
@@ -176,6 +177,9 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
           return decoder.decode(payload);
         }
         throw new Error(`File not found: ${path}`);
+      },
+      async writeTextFile(path: string, contents: string) {
+        files.set(path, contents);
       },
     },
     dialog: {
