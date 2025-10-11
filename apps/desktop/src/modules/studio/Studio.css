@@ -290,3 +290,108 @@ SOFTWARE.
 .studio-empty-state button {
   margin-top: 1rem;
 }
+
+.story-studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.story-studio__tabs {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem 0;
+}
+
+.story-studio__tab {
+  border: 1px solid rgba(122, 203, 255, 0.18);
+  background: rgba(12, 18, 28, 0.8);
+  color: rgba(240, 247, 255, 0.85);
+  padding: 0.55rem 1.4rem;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, border 0.2s ease;
+}
+
+.story-studio__tab:hover {
+  transform: translateY(-1px);
+  background: rgba(18, 26, 38, 0.85);
+}
+
+.story-studio__tab--active {
+  background: linear-gradient(135deg, rgba(122, 203, 255, 0.35), rgba(78, 205, 196, 0.5));
+  color: #020304;
+  border-color: rgba(122, 203, 255, 0.6);
+}
+
+.story-studio__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 1.5rem;
+}
+
+.story-studio__content > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.studio-notes-shell {
+  background: rgba(10, 16, 24, 0.85);
+  border: 1px solid rgba(122, 203, 255, 0.08);
+  border-radius: 1.25rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  padding: 1.5rem;
+  display: flex;
+}
+
+.studio-notes-shell .notes-editor {
+  flex: 1;
+}
+
+.studio-notes-state {
+  background: rgba(10, 16, 24, 0.85);
+  border: 1px solid rgba(122, 203, 255, 0.08);
+  border-radius: 1.25rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: rgba(240, 247, 255, 0.75);
+}
+
+.studio-notes-state button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.6rem 1.4rem;
+  background: rgba(122, 203, 255, 0.32);
+  color: #f0f7ff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.studio-notes-state button:hover {
+  transform: translateY(-1px);
+  background: rgba(122, 203, 255, 0.45);
+}
+
+@media (max-width: 900px) {
+  .story-studio__tabs {
+    flex-wrap: wrap;
+  }
+
+  .story-studio__content {
+    padding: 1rem;
+  }
+
+  .studio-notes-shell {
+    padding: 1rem;
+  }
+}

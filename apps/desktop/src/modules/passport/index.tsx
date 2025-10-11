@@ -22,37 +22,696 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deleteCharacterProfile,
+  DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS,
+  listEssentialBodyModEssences,
   listCharacterProfiles,
+  loadEssentialBodyModSettings,
   loadPassportDerivedSnapshot,
   type CharacterProfileRecord,
+  type EssentialBodyModEssenceRecord,
+  type EssentialBodyModSettings,
   type PassportDerivedSnapshot,
   type UpsertCharacterProfileInput,
   upsertCharacterProfile,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  EntityRecord,
+  JumpAssetType,
+  PassportDerivedAttributeEntry,
+  PassportDerivedSource,
+} from "../../db/dao";
+import { useJmhStore } from "../jmh/store";
 
-interface AttributeEntry {
+export interface AttributeMatrixRow {
+  key: string;
+  manualEntries: Array<AttributeEntry & { numericValue: number | null }>;
+  derivedEntries: PassportDerivedAttributeEntry[];
+  manualNumericTotal: number;
+  manualNumericCount: number;
+  derivedNumericTotal: number;
+  derivedNumericCount: number;
+  numericTotal: number;
+  numericCount: number;
+  average: number;
+}
+
+export interface SkillMatrixRow {
+  name: string;
+  manualEntries: TraitEntry[];
+  derivedSources: PassportDerivedSource[];
+  manualCount: number;
+  derivedCount: number;
+  totalCount: number;
+}
+
+export interface EssenceSummaryEntry {
+  name: string;
+  derivedCount: number;
+  recorded: boolean;
+  missing: boolean;
+  trackedOnly: boolean;
+}
+
+interface AttributeMatrixOptions {
+  enabledAssetTypes: Set<JumpAssetType>;
+}
+
+interface SkillMatrixOptions {
+  enabledAssetTypes: Set<JumpAssetType>;
+}
+
+interface EssenceSummaryOptions {
+  essenceMode: EssentialBodyModSettings["essenceMode"];
+}
+
+function coerceNumber(value: string): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function getAttributeKeyLabel(sourceKey: string, fallback: string | null): string {
+  const trimmed = sourceKey.trim();
+  if (trimmed.length) {
+    return trimmed;
+  }
+  return fallback ?? "Unknown";
+}
+
+function normalizeAttributeKey(key: string): string {
+  return key.trim().toLowerCase();
+}
+
+function normalizeTraitName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function ensureAttributeRow(
+  map: Map<string, AttributeMatrixRow>,
+  label: string
+): AttributeMatrixRow {
+  const normalized = normalizeAttributeKey(label);
+  const existing = map.get(normalized);
+  if (existing) {
+    if (!existing.key.trim().length) {
+      existing.key = label.trim();
+    }
+    return existing;
+  }
+  const row: AttributeMatrixRow = {
+    key: label.trim() || "Unknown",
+    manualEntries: [],
+    derivedEntries: [],
+    manualNumericTotal: 0,
+    manualNumericCount: 0,
+    derivedNumericTotal: 0,
+    derivedNumericCount: 0,
+    numericTotal: 0,
+    numericCount: 0,
+    average: 0,
+  };
+  map.set(normalized, row);
+  return row;
+}
+
+function ensureSkillRow(map: Map<string, SkillMatrixRow>, label: string): SkillMatrixRow {
+  const normalized = normalizeTraitName(label);
+  const existing = map.get(normalized);
+  if (existing) {
+    if (!existing.name.trim().length) {
+      existing.name = label.trim();
+    }
+    return existing;
+  }
+  const row: SkillMatrixRow = {
+    name: label.trim() || "Unknown",
+    manualEntries: [],
+    derivedSources: [],
+    manualCount: 0,
+    derivedCount: 0,
+    totalCount: 0,
+  };
+  map.set(normalized, row);
+  return row;
+}
+
+export function buildAttributeMatrix(
+  form: ProfileFormState | null,
+  derived: PassportDerivedSnapshot | undefined,
+  options: AttributeMatrixOptions
+): AttributeMatrixRow[] {
+  const map = new Map<string, AttributeMatrixRow>();
+
+  const manualEntries = form?.attributes ?? [];
+  for (const entry of manualEntries) {
+    const keyLabel = getAttributeKeyLabel(entry.key, null);
+    if (!keyLabel.trim().length) {
+      continue;
+    }
+    const row = ensureAttributeRow(map, keyLabel);
+    const numericValue = coerceNumber(entry.value);
+    row.manualEntries.push({ ...entry, numericValue });
+    if (numericValue !== null) {
+      row.manualNumericTotal += numericValue;
+      row.manualNumericCount += 1;
+    }
+  }
+
+  const derivedAttributes = derived?.attributes ?? [];
+  for (const attribute of derivedAttributes) {
+    const row = ensureAttributeRow(map, attribute.key);
+    const relevantEntries = attribute.entries.filter((entry) =>
+      options.enabledAssetTypes.has(entry.assetType)
+    );
+    row.derivedEntries.push(...relevantEntries);
+    for (const entry of relevantEntries) {
+      if (entry.numericValue !== null && Number.isFinite(entry.numericValue)) {
+        row.derivedNumericTotal += entry.numericValue;
+        row.derivedNumericCount += 1;
+      }
+    }
+  }
+
+  for (const row of map.values()) {
+    row.numericTotal = row.manualNumericTotal + row.derivedNumericTotal;
+    row.numericCount = row.manualNumericCount + row.derivedNumericCount;
+    row.average = row.numericCount
+      ? Math.round((row.numericTotal / row.numericCount) * 100) / 100
+      : 0;
+    // Prefer a display key from manual entries if present, otherwise keep derived label
+    if (!row.key.trim().length) {
+      const manualMatch = row.manualEntries.find((entry) => entry.key.trim().length);
+      if (manualMatch) {
+        row.key = manualMatch.key.trim();
+      } else if (row.derivedEntries.length) {
+        row.key = row.derivedEntries[0]?.value ?? "Unknown";
+      } else {
+        row.key = "Unknown";
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.key.localeCompare(b.key, undefined, { sensitivity: "base" })
+  );
+}
+
+export function buildSkillMatrix(
+  form: ProfileFormState | null,
+  derived: PassportDerivedSnapshot | undefined,
+  options: SkillMatrixOptions
+): SkillMatrixRow[] {
+  const map = new Map<string, SkillMatrixRow>();
+
+  const manualTraits = form?.traits ?? [];
+  for (const trait of manualTraits) {
+    const label = trait.name.trim();
+    if (!label.length) {
+      continue;
+    }
+    const row = ensureSkillRow(map, label);
+    row.manualEntries.push(trait);
+  }
+
+  const derivedTraits = derived?.traits ?? [];
+  for (const trait of derivedTraits) {
+    const filteredSources = trait.sources.filter((source) =>
+      options.enabledAssetTypes.has(source.assetType)
+    );
+    if (!filteredSources.length) {
+      continue;
+    }
+    const row = ensureSkillRow(map, trait.name);
+    row.derivedSources.push(...filteredSources);
+  }
+
+  for (const row of map.values()) {
+    row.manualCount = row.manualEntries.length;
+    row.derivedCount = row.derivedSources.length;
+    row.totalCount = row.manualCount + row.derivedCount;
+    if (!row.name.trim().length) {
+      if (row.manualEntries.length) {
+        row.name = row.manualEntries[0]?.name.trim() ?? "Unknown";
+      } else if (row.derivedSources.length) {
+        row.name = row.derivedSources[0]?.assetName ?? "Unknown";
+      } else {
+        row.name = "Unknown";
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+}
+
+function extractEssenceName(label: string): string | null {
+  const trimmed = label.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  const colonMatch = /^essence\s*[:\-]\s*(.+)$/i.exec(trimmed);
+  if (colonMatch) {
+    return colonMatch[1]?.trim() ?? null;
+  }
+  const ofMatch = /^essence\s+of\s+(.+)$/i.exec(trimmed);
+  if (ofMatch) {
+    return ofMatch[1]?.trim() ?? null;
+  }
+  const suffixMatch = /^(.+?)\s+essence$/i.exec(trimmed);
+  if (suffixMatch) {
+    return suffixMatch[1]?.trim() ?? null;
+  }
+  if (/essence/i.test(trimmed)) {
+    return trimmed.replace(/essence/i, "").trim() || trimmed;
+  }
+  return null;
+}
+
+export function buildEssenceSummary(
+  skillMatrix: SkillMatrixRow[],
+  essences: EssentialBodyModEssenceRecord[],
+  options: EssenceSummaryOptions
+): EssenceSummaryEntry[] {
+  const map = new Map<string, EssenceSummaryEntry>();
+
+  for (const row of skillMatrix) {
+    const essenceName = extractEssenceName(row.name);
+    if (!essenceName) {
+      continue;
+    }
+    const normalized = essenceName.toLowerCase();
+    const existing = map.get(normalized);
+    if (existing) {
+      existing.derivedCount += row.derivedCount;
+    } else {
+      map.set(normalized, {
+        name: essenceName,
+        derivedCount: row.derivedCount,
+        recorded: false,
+        missing: false,
+        trackedOnly: false,
+      });
+    }
+  }
+
+  for (const essence of essences) {
+    const normalized = essence.name.trim().toLowerCase();
+    if (!normalized.length) {
+      continue;
+    }
+    const existing = map.get(normalized);
+    if (existing) {
+      existing.recorded = true;
+    } else {
+      map.set(normalized, {
+        name: essence.name.trim(),
+        derivedCount: 0,
+        recorded: true,
+        missing: false,
+        trackedOnly: true,
+      });
+    }
+  }
+
+  for (const entry of map.values()) {
+    entry.missing = options.essenceMode !== "none" && entry.derivedCount > 0 && !entry.recorded;
+    entry.trackedOnly = entry.recorded && entry.derivedCount === 0;
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+}
+
+interface CompanionStatusEntry {
+  id: string;
+  name: string;
+  jumpTitle: string | null;
+  synced: boolean;
+}
+
+interface PassportAggregationsProps {
+  form: ProfileFormState | null;
+  derived: PassportDerivedSnapshot | undefined;
+  derivedLoading: boolean;
+  essenceSettings: EssentialBodyModSettings;
+  essences: EssentialBodyModEssenceRecord[];
+  companionStatuses: CompanionStatusEntry[];
+  onSyncAltForms: () => void;
+  onSyncCompanions: () => void;
+}
+
+type BoosterFilterKey = "perk" | "item" | "companion";
+
+const BOOSTER_LABELS: Record<BoosterFilterKey, string> = {
+  perk: "Perk Boosters",
+  item: "Item Boosters",
+  companion: "Companion Boosters",
+};
+
+const ALWAYS_INCLUDED_TYPES: JumpAssetType[] = ["origin", "drawback"];
+
+export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
+  form,
+  derived,
+  derivedLoading,
+  essenceSettings,
+  essences,
+  companionStatuses,
+  onSyncAltForms,
+  onSyncCompanions,
+}) => {
+  const [filters, setFilters] = useState<Record<BoosterFilterKey, boolean>>({
+    perk: true,
+    item: true,
+    companion: true,
+  });
+
+  const enabledAssetTypes = useMemo(() => {
+    const set = new Set<JumpAssetType>();
+    (Object.keys(filters) as BoosterFilterKey[]).forEach((key) => {
+      if (filters[key]) {
+        set.add(key);
+      }
+    });
+    for (const type of ALWAYS_INCLUDED_TYPES) {
+      set.add(type);
+    }
+    return set;
+  }, [filters]);
+
+  const attributeMatrix = useMemo(
+    () => buildAttributeMatrix(form, derived, { enabledAssetTypes }),
+    [form, derived, enabledAssetTypes]
+  );
+
+  const skillMatrix = useMemo(
+    () => buildSkillMatrix(form, derived, { enabledAssetTypes }),
+    [form, derived, enabledAssetTypes]
+  );
+
+  const essenceSummary = useMemo(
+    () => buildEssenceSummary(skillMatrix, essences, { essenceMode: essenceSettings.essenceMode }),
+    [skillMatrix, essences, essenceSettings.essenceMode]
+  );
+
+  const handleFilterToggle = (key: BoosterFilterKey) => {
+    setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const manualAltForms = form?.altForms ?? [];
+  const derivedAltForms = derived?.altForms ?? [];
+  const existingAltFormNames = new Set(
+    manualAltForms
+      .map((entry) => entry.name.trim().toLowerCase())
+      .filter((name) => name.length)
+  );
+  const missingAltForms = derivedAltForms.filter(
+    (entry) => !existingAltFormNames.has(entry.name.trim().toLowerCase())
+  );
+
+  const missingCompanions = companionStatuses.filter((entry) => !entry.synced);
+
+  return (
+    <div className="passport__aggregations">
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Booster Filters</h3>
+        </header>
+        <div className="passport__toggles" role="group" aria-label="Booster Filters">
+          {(Object.keys(filters) as BoosterFilterKey[]).map((key) => (
+            <label key={key} className="passport__toggle">
+              <input
+                type="checkbox"
+                checked={filters[key]}
+                onChange={() => handleFilterToggle(key)}
+              />
+              <span>{BOOSTER_LABELS[key]}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Attribute Matrix</h3>
+          <span>{attributeMatrix.length}</span>
+        </header>
+        {derivedLoading && !attributeMatrix.length ? (
+          <p className="passport__empty">Loading attribute totals…</p>
+        ) : attributeMatrix.length ? (
+          <table className="passport__matrix" data-testid="attribute-matrix">
+            <thead>
+              <tr>
+                <th scope="col">Attribute</th>
+                <th scope="col">Manual</th>
+                <th scope="col">Derived</th>
+                <th scope="col">Totals</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attributeMatrix.map((row) => (
+                <tr key={row.key}>
+                  <th scope="row">{row.key}</th>
+                  <td>
+                    {row.manualEntries.length ? (
+                      <ul>
+                        {row.manualEntries.map((entry) => (
+                          <li key={entry.id}>
+                            <strong>{entry.value || "—"}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="passport__empty">None</span>
+                    )}
+                  </td>
+                  <td>
+                    {row.derivedEntries.length ? (
+                      <ul>
+                        {row.derivedEntries.map((entry) => (
+                          <li key={`${entry.assetId}-${entry.value}`}>
+                            <strong>{entry.value || "—"}</strong>
+                            <span>
+                              {entry.assetName}
+                              {entry.jumpTitle ? ` (${entry.jumpTitle})` : ""}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="passport__empty">None</span>
+                    )}
+                  </td>
+                  <td data-testid={`attribute-total-${row.key.toLowerCase()}`}>
+                    <div className="passport__matrix-total">
+                      <span>
+                        Total: {Math.round(row.numericTotal * 100) / 100}
+                      </span>
+                      <span>
+                        Average: {Math.round(row.average * 100) / 100}
+                      </span>
+                    </div>
+                    {!!row.manualNumericCount && (
+                      <div className="passport__matrix-subtotal">
+                        Manual Σ {Math.round(row.manualNumericTotal * 100) / 100}
+                      </div>
+                    )}
+                    {!!row.derivedNumericCount && (
+                      <div className="passport__matrix-subtotal">
+                        Derived Σ {Math.round(row.derivedNumericTotal * 100) / 100}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="passport__empty">No attributes recorded yet.</p>
+        )}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Skill Matrix</h3>
+          <span>{skillMatrix.length}</span>
+        </header>
+        {derivedLoading && !skillMatrix.length ? (
+          <p className="passport__empty">Loading skill tallies…</p>
+        ) : skillMatrix.length ? (
+          <table className="passport__matrix" data-testid="skill-matrix">
+            <thead>
+              <tr>
+                <th scope="col">Skill / Trait</th>
+                <th scope="col">Manual</th>
+                <th scope="col">Derived Sources</th>
+                <th scope="col">Counts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {skillMatrix.map((row) => (
+                <tr key={row.name}>
+                  <th scope="row">{row.name}</th>
+                  <td>
+                    {row.manualEntries.length ? (
+                      <ul>
+                        {row.manualEntries.map((entry) => (
+                          <li key={entry.id}>
+                            <strong>{entry.name || "—"}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="passport__empty">None</span>
+                    )}
+                  </td>
+                  <td>
+                    {row.derivedSources.length ? (
+                      <ul>
+                        {row.derivedSources.map((entry) => (
+                          <li key={`${entry.assetId}-${entry.assetName}`}>
+                            <strong>{entry.assetName}</strong>
+                            <span>
+                              {entry.jumpTitle ? ` (${entry.jumpTitle})` : ""}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="passport__empty">None</span>
+                    )}
+                  </td>
+                  <td data-testid={`skill-total-${row.name.toLowerCase()}`}>
+                    <div className="passport__matrix-total">
+                      <span>Total: {row.totalCount}</span>
+                      {!!row.manualCount && <span>Manual: {row.manualCount}</span>}
+                      {!!row.derivedCount && (
+                        <span>Derived: {row.derivedCount}</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="passport__empty">No skills or traits captured yet.</p>
+        )}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Essential Essence Tracker</h3>
+          <span>{essenceSummary.length}</span>
+        </header>
+        {essenceSettings.essenceMode === "none" && !essenceSummary.length ? (
+          <p className="passport__empty">Essence tracking disabled in Essential Body Mod defaults.</p>
+        ) : essenceSummary.length ? (
+          <ul className="passport__essence-list">
+            {essenceSummary.map((entry) => (
+              <li key={entry.name}>
+                <div className="passport__essence-row">
+                  <strong>{entry.name}</strong>
+                  <span>
+                    Derived: {entry.derivedCount} · {entry.recorded ? "Recorded" : "Untracked"}
+                  </span>
+                </div>
+                {entry.missing ? (
+                  <span className="passport__essence-warning">Add this essence to Essential Body Mod records.</span>
+                ) : null}
+                {entry.trackedOnly ? (
+                  <span className="passport__essence-note">Tracked manually with no matching perk metadata.</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="passport__empty">No essences detected yet.</p>
+        )}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Alt-Form Synchronization</h3>
+          <button
+            type="button"
+            onClick={onSyncAltForms}
+            disabled={!missingAltForms.length}
+          >
+            {missingAltForms.length ? `Add ${missingAltForms.length} form(s)` : "All forms synced"}
+          </button>
+        </header>
+        <p>
+          Manual forms: {manualAltForms.length} · Derived forms: {derivedAltForms.length}
+        </p>
+        {!missingAltForms.length ? (
+          <p className="passport__hint">Manual alt-form list includes every detected form.</p>
+        ) : (
+          <p className="passport__hint">
+            Sync to copy missing derived forms into the manual profile for exports.
+          </p>
+        )}
+      </section>
+
+      <section className="passport__section passport__section--readonly">
+        <header>
+          <h3>Companion Synchronization</h3>
+          <button
+            type="button"
+            onClick={onSyncCompanions}
+            disabled={!missingCompanions.length}
+          >
+            {missingCompanions.length
+              ? `Sync ${missingCompanions.length} companion(s)`
+              : "Roster in sync"}
+          </button>
+        </header>
+        {companionStatuses.length ? (
+          <ul className="passport__companion-list">
+            {companionStatuses.map((entry) => (
+              <li key={entry.id} className={entry.synced ? "passport__companion passport__companion--synced" : "passport__companion passport__companion--missing"}>
+                <div className="passport__companion-row">
+                  <strong>{entry.name}</strong>
+                  {entry.jumpTitle ? <span>{entry.jumpTitle}</span> : null}
+                </div>
+                <span className="passport__companion-status">
+                  {entry.synced ? "Synced" : "Missing"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="passport__empty">No companions detected yet.</p>
+        )}
+      </section>
+    </div>
+  );
+};
+
+export interface AttributeEntry {
   id: string;
   key: string;
   value: string;
 }
 
-interface TraitEntry {
+export interface TraitEntry {
   id: string;
   name: string;
   description: string;
 }
 
-interface AltFormEntry {
+export interface AltFormEntry {
   id: string;
   name: string;
   summary: string;
 }
 
-interface ProfileFormState {
+export interface ProfileFormState {
   id: string | null;
   name: string;
   alias: string;
@@ -340,9 +999,38 @@ const CosmicPassport: React.FC = () => {
   const queryClient = useQueryClient();
   const profilesQuery = useQuery({ queryKey: ["passport-profiles"], queryFn: listCharacterProfiles });
   const derivedQuery = useQuery({ queryKey: ["passport-derived"], queryFn: loadPassportDerivedSnapshot });
+  const essentialSettingsQuery = useQuery({
+    queryKey: ["essential-body-mod-settings"],
+    queryFn: loadEssentialBodyModSettings,
+  });
+  const essenceListQuery = useQuery({
+    queryKey: ["essential-body-mod-essences"],
+    queryFn: listEssentialBodyModEssences,
+  });
+  const essentialSettings = essentialSettingsQuery.data ?? DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS;
+  const essenceList = essenceListQuery.data ?? [];
   const derivedLoading = derivedQuery.isPending || derivedQuery.isFetching;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formState, setFormState] = useState<ProfileFormState | null>(null);
+  const companionEntities = useJmhStore((state) => state.entities);
+  const setEntities = useJmhStore((state) => state.setEntities);
+  const derivedCompanions = derivedQuery.data?.companions ?? [];
+  const companionStatuses = useMemo(() => {
+    if (!derivedCompanions.length) {
+      return [] as CompanionStatusEntry[];
+    }
+    const existingNames = new Set(
+      companionEntities
+        .filter((entity) => entity.type === "companion")
+        .map((entity) => entity.name.trim().toLowerCase())
+    );
+    return derivedCompanions.map((companion) => ({
+      id: companion.id,
+      name: companion.name,
+      jumpTitle: companion.jumpTitle ?? null,
+      synced: existingNames.has(companion.name.trim().toLowerCase()),
+    }));
+  }, [companionEntities, derivedCompanions]);
 
   useEffect(() => {
     if (!profilesQuery.data?.length) {
@@ -445,6 +1133,67 @@ const CosmicPassport: React.FC = () => {
   const mutateAltForms = (updater: (current: AltFormEntry[]) => AltFormEntry[]) => {
     setFormState((prev) => (prev ? { ...prev, altForms: updater(prev.altForms) } : prev));
   };
+
+  const handleSyncAltForms = useCallback(() => {
+    if (!derivedQuery.data) {
+      return;
+    }
+    setFormState((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const derivedAltForms = derivedQuery.data?.altForms ?? [];
+      if (!derivedAltForms.length) {
+        return prev;
+      }
+      const existing = new Set(
+        prev.altForms
+          .map((entry) => entry.name.trim().toLowerCase())
+          .filter((name) => name.length)
+      );
+      const additions = derivedAltForms
+        .filter((alt) => alt.name.trim().length)
+        .filter((alt) => !existing.has(alt.name.trim().toLowerCase()))
+        .map((alt) => ({ id: createLocalId(), name: alt.name, summary: alt.summary ?? "" }));
+      if (!additions.length) {
+        return prev;
+      }
+      return { ...prev, altForms: [...prev.altForms, ...additions] };
+    });
+  }, [derivedQuery.data]);
+
+  const handleSyncCompanions = useCallback(() => {
+    if (!derivedCompanions.length) {
+      return;
+    }
+    const currentEntities = useJmhStore.getState().entities;
+    const existingNames = new Set(
+      currentEntities
+        .filter((entity) => entity.type === "companion")
+        .map((entity) => entity.name.trim().toLowerCase())
+    );
+    const additions: EntityRecord[] = derivedCompanions
+      .filter((companion) => companion.name.trim().length)
+      .filter((companion) => !existingNames.has(companion.name.trim().toLowerCase()))
+      .map((companion) => {
+        const searchTerms = companion.traitTags.join(" ").trim();
+        return {
+          id: `passport-${companion.id}`,
+          type: "companion",
+          name: companion.name,
+          meta_json: JSON.stringify({
+            source: "passport",
+            assetId: companion.id,
+            jumpId: companion.jumpId,
+          }),
+          search_terms: searchTerms.length ? searchTerms : null,
+        } satisfies EntityRecord;
+      });
+    if (!additions.length) {
+      return;
+    }
+    setEntities([...currentEntities, ...additions]);
+  }, [derivedCompanions, setEntities]);
 
   return (
     <section className="passport">
@@ -713,6 +1462,16 @@ const CosmicPassport: React.FC = () => {
               </form>
 
               <DerivedSummary form={formState} derived={derivedQuery.data} />
+              <PassportAggregations
+                form={formState}
+                derived={derivedQuery.data}
+                derivedLoading={derivedLoading}
+                essenceSettings={essentialSettings}
+                essences={essenceList}
+                companionStatuses={companionStatuses}
+                onSyncAltForms={handleSyncAltForms}
+                onSyncCompanions={handleSyncCompanions}
+              />
               <DerivedCollections derived={derivedQuery.data} isLoading={derivedLoading} />
             </>
           ) : (

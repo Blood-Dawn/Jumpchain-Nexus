@@ -338,6 +338,10 @@ const JumpRandomizer: React.FC = () => {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState<EntryFormState | null>(null);
   const [entryFormError, setEntryFormError] = useState<string | null>(null);
+  const [newListName, setNewListName] = useState("");
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupNameDraft, setGroupNameDraft] = useState("");
   const [drawCountInput, setDrawCountInput] = useState("1");
   const [seedInput, setSeedInput] = useState("");
   const [minWeightInput, setMinWeightInput] = useState("0");
@@ -493,6 +497,10 @@ const JumpRandomizer: React.FC = () => {
     [lists, selectedListId]
   );
 
+  useEffect(() => {
+    setListNameDraft(selectedList?.name ?? "");
+  }, [selectedList]);
+
   const groupsQuery = useQuery({
     queryKey: selectedListId ? groupsQueryKey(selectedListId) : ["randomizer", "groups", "none"],
     queryFn: () => listRandomizerGroups(selectedListId ?? ""),
@@ -501,20 +509,20 @@ const JumpRandomizer: React.FC = () => {
   const groups = groupsQuery.data ?? [];
 
   const selectedGroup = useMemo(
-    () => (selectedGroupId === "all" ? null : groups.find((group) => group.id === selectedGroupId) ?? null),
+    () =>
+      selectedGroupId === "all"
+        ? null
+        : groups.find((group) => group.id === selectedGroupId) ?? null,
     [groups, selectedGroupId]
   );
 
-  const getGroupName = useCallback(
-    (groupId: string | "all" | null | undefined) => {
-      if (!groupId || groupId === "all") {
-        return "All entries";
-      }
-      const group = groups.find((item) => item.id === groupId);
-      return group?.name ?? "Unknown group";
-    },
-    [groups]
-  );
+  useEffect(() => {
+    setGroupNameDraft(selectedGroup?.name ?? "");
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    setNewGroupName("");
+  }, [selectedListId]);
 
   useEffect(() => {
     if (!selectedListId) {
@@ -673,6 +681,7 @@ const JumpRandomizer: React.FC = () => {
     onSuccess: (record) => {
       setSelectedListId(record.id);
       setSelectedGroupId("all");
+      setNewListName("");
       queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
     },
   });
@@ -701,6 +710,7 @@ const JumpRandomizer: React.FC = () => {
     mutationFn: (input: Parameters<typeof createRandomizerGroup>[0]) => createRandomizerGroup(input),
     onSuccess: (record) => {
       setSelectedGroupId(record.id);
+      setNewGroupName("");
       queryClient.invalidateQueries({ queryKey: groupsQueryKey(record.list_id) }).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: entriesQueryKey(record.list_id) }).catch(() => undefined);
     },
@@ -785,19 +795,19 @@ const JumpRandomizer: React.FC = () => {
     },
   });
 
-  const handleCreateList = (): void => {
-    const name = typeof window !== "undefined" ? window.prompt("Name for the new list?") : null;
-    const trimmed = name?.trim();
-    createListMutation.mutate(trimmed ? { name: trimmed } : {});
+  const handleCreateList = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const trimmed = newListName.trim();
+    createListMutation.mutate(trimmed.length ? { name: trimmed } : {});
   };
 
-  const handleRenameList = (): void => {
+  const handleRenameList = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
     if (!selectedList) {
       return;
     }
-    const next = typeof window !== "undefined" ? window.prompt("Rename list", selectedList.name) : null;
-    const trimmed = next?.trim();
-    if (!trimmed || trimmed === selectedList.name) {
+    const trimmed = listNameDraft.trim();
+    if (!trimmed.length || trimmed === selectedList.name) {
       return;
     }
     updateListMutation.mutate({ id: selectedList.id, updates: { name: trimmed } });
@@ -825,72 +835,40 @@ const JumpRandomizer: React.FC = () => {
       showToast("Select a list before creating groups.", "info");
       return;
     }
-    const trimmed = newGroupName.trim();
-    createGroupMutation.mutate(
-      {
-        list_id: selectedListId,
-        name: trimmed.length ? trimmed : undefined,
-      },
-      {
-        onSuccess: () => {
-          setNewGroupName("");
-          showToast("Group created.", "success");
-        },
-      }
-    );
+    createGroupMutation.mutate({
+      list_id: selectedListId,
+      name: newGroupName.trim().length ? newGroupName.trim() : undefined,
+    });
   };
 
   const handleRenameGroup = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!selectedGroupId || selectedGroupId === "all") {
-      return;
-    }
-    const group = groups.find((item) => item.id === selectedGroupId);
-    if (!group) {
+    if (!selectedGroupId || selectedGroupId === "all" || !selectedGroup) {
       return;
     }
     const trimmed = groupNameDraft.trim();
-    if (!trimmed.length) {
-      showToast("Group name cannot be empty.", "error");
+    if (!trimmed.length || trimmed === selectedGroup.name) {
       return;
     }
-    if (trimmed === group.name) {
-      return;
-    }
-    updateGroupMutation.mutate(
-      { id: group.id, updates: { name: trimmed } },
-      {
-        onSuccess: () => {
-          showToast("Group renamed.", "success");
-        },
-      }
-    );
+    updateGroupMutation.mutate({ id: selectedGroup.id, updates: { name: trimmed } });
   };
 
   const handleDeleteGroup = (): void => {
-    if (!selectedGroupId || selectedGroupId === "all") {
+    if (!selectedGroupId || selectedGroupId === "all" || !selectedGroup) {
       return;
     }
     if (groups.length <= 1) {
       showToast("At least one group is required.", "error");
       return;
     }
-    const group = groups.find((item) => item.id === selectedGroupId);
-    if (!group) {
-      return;
-    }
     const confirmDelete =
       typeof window === "undefined"
         ? false
-        : window.confirm(`Delete group "${group.name}" and all entries in it?`);
+        : window.confirm(`Delete group "${selectedGroup.name}" and all entries in it?`);
     if (!confirmDelete) {
       return;
     }
-    deleteGroupMutation.mutate(group.id, {
-      onSuccess: () => {
-        showToast("Group deleted.", "success");
-      },
-    });
+    deleteGroupMutation.mutate(selectedGroup.id);
   };
 
   const handleAddEntry = (): void => {
@@ -949,26 +927,17 @@ const JumpRandomizer: React.FC = () => {
     deleteEntryMutation.mutate(selectedEntryId);
   };
 
-  const handleListChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    if (!value) {
-      setSelectedListId(null);
-      setSelectedGroupId("all");
-      setSelectedEntryId(null);
-      setSelectedTags([]);
-      setDrawResults([]);
-      setLastDrawSummary(null);
-      setDrawError(null);
-      return;
-    }
-    setSelectedListId(value);
+  const handleSelectList = (id: string): void => {
+    setSelectedListId(id);
+    setSelectedGroupId("all");
+    setSelectedEntryId(null);
+    setSelectedTags([]);
     setDrawResults([]);
     setLastDrawSummary(null);
     setDrawError(null);
   };
 
-  const handleGroupChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
+  const handleSelectGroup = (value: string | "all"): void => {
     if (value === "all") {
       setSelectedGroupId("all");
       return;
@@ -1005,7 +974,12 @@ const JumpRandomizer: React.FC = () => {
     if (!selectedListId) {
       return;
     }
+    if (recordRollMutation.isPending) {
+      setDrawError("A draw is already in progress.");
+      return;
+    }
     setDrawError(null);
+    setCopyMessage(null);
     const drawCount = Number.parseInt(drawCountInput, 10);
     if (Number.isNaN(drawCount)) {
       setDrawError("Draw count must be a number.");
@@ -1055,7 +1029,7 @@ const JumpRandomizer: React.FC = () => {
           scope: filters.scope,
           tags: filters.tags,
           minWeight: filters.minWeight,
-          groupId: filters.scope === "group" ? filters.groupId : "all",
+          groupId: filters.groupId,
         },
         picks: picks.map((entry) => ({
           entryId: entry.id,
@@ -1283,18 +1257,28 @@ const JumpRandomizer: React.FC = () => {
     showToast("Export downloaded.", "success");
   };
 
-  const listControlsDisabled = createListMutation.isPending || deleteListMutation.isPending;
-  const groupControlsDisabled = createGroupMutation.isPending || deleteGroupMutation.isPending;
+  const listControlsDisabled =
+    createListMutation.isPending || deleteListMutation.isPending || updateListMutation.isPending;
+  const groupControlsDisabled =
+    createGroupMutation.isPending || deleteGroupMutation.isPending || updateGroupMutation.isPending;
   const entryControlsDisabled =
     createEntryMutation.isPending || updateEntryMutation.isPending || deleteEntryMutation.isPending;
   const drawInProgress = recordRollMutation.isPending;
   const historyBusy = clearHistoryMutation.isPending;
 
+  useEffect(() => {
+    if (!copyMessage || typeof window === "undefined") {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopyMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [copyMessage]);
+
   return (
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Configuring randomizer placeholder.dataΓÇª</p>
+        <p>Manage lists, groups, and entries to run weighted draws.</p>
       </header>
       <div className="randomizer-layout">
         <aside className="randomizer-sidebar">
@@ -1681,7 +1665,11 @@ const JumpRandomizer: React.FC = () => {
                 <button type="submit" disabled={drawInProgress || !selectedListId}>
                   {drawInProgress ? "Recording…" : "Draw"}
                 </button>
-                <button type="button" onClick={handleCopyDrawResults} disabled={!drawResults.length}>
+                <button
+                  type="button"
+                  onClick={handleCopyDrawResults}
+                  disabled={drawInProgress || !drawResults.length}
+                >
                   Copy Results
                 </button>
               </div>
@@ -1736,13 +1724,25 @@ const JumpRandomizer: React.FC = () => {
                       {entry.tags.length ? <span>{` · ${entry.tags.join(", ")}`}</span> : null}
                     </div>
                     <div className="form-actions">
-                      <button type="button" onClick={() => handleCopyResult(entry, "name")}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "name")}
+                        disabled={drawInProgress}
+                      >
                         Copy Name
                       </button>
-                      <button type="button" onClick={() => handleCopyResult(entry, "full")}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "full")}
+                        disabled={drawInProgress}
+                      >
                         Copy Line
                       </button>
-                      <button type="button" onClick={() => handleCopyResult(entry, "link")} disabled={!entry.link}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "link")}
+                        disabled={drawInProgress || !entry.link}
+                      >
                         Copy Link
                       </button>
                     </div>
