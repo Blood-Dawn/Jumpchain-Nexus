@@ -2323,6 +2323,20 @@ a:hover {
   gap: 0.2rem;
 }
 
+.passport__companion-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.passport__companion-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: rgba(124, 241, 200, 0.75);
+}
+
 .passport__companion-row span {
   font-size: 0.78rem;
   color: rgba(240, 247, 255, 0.55);
