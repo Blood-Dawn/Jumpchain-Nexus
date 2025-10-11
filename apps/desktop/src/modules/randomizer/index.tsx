@@ -65,6 +65,15 @@ interface EntryFormState {
   groupId: string;
 }
 
+interface DrawSummary {
+  count: number;
+  seed?: string;
+  scope: DrawScope;
+  tags: string[];
+  minWeight: number;
+  groupId: string | "all";
+}
+
 function tagsToInputValue(tags: string[]): string {
   return tags.join(", ");
 }
@@ -142,12 +151,25 @@ function createSeededRandom(seed: string | undefined): () => number {
   };
 }
 
+function validateSeedInput(seed: string): string | null {
+  if (!seed.length) {
+    return null;
+  }
+  if (seed.length > 64) {
+    return "Seed must be 64 characters or fewer.";
+  }
+  if (!/^[\w\s-]+$/.test(seed)) {
+    return "Seed may only contain letters, numbers, spaces, hyphen, or underscore.";
+  }
+  return null;
+}
+
 const JumpRandomizerPlaceholder: React.FC = () => {
   return (
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Loading randomizer…</p>
+        <p>Loading randomizerΓÇª</p>
       </header>
     </section>
   );
@@ -169,6 +191,9 @@ const JumpRandomizer: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [drawScope, setDrawScope] = useState<DrawScope>("all");
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [drawError, setDrawError] = useState<string | null>(null);
+  const [drawResults, setDrawResults] = useState<RandomizerEntryRecord[]>([]);
+  const [lastDrawSummary, setLastDrawSummary] = useState<DrawSummary | null>(null);
 
   useEffect(() => {
     if (!lists.length) {
@@ -589,6 +614,49 @@ const JumpRandomizer: React.FC = () => {
     deleteEntryMutation.mutate(selectedEntryId);
   };
 
+  const handleListChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    if (!value) {
+      setSelectedListId(null);
+      setSelectedGroupId("all");
+      setSelectedEntryId(null);
+      setSelectedTags([]);
+      setDrawResults([]);
+      setLastDrawSummary(null);
+      setDrawError(null);
+      return;
+    }
+    setSelectedListId(value);
+    setDrawResults([]);
+    setLastDrawSummary(null);
+    setDrawError(null);
+  };
+
+  const handleGroupChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    if (value === "all") {
+      setSelectedGroupId("all");
+      return;
+    }
+    setSelectedGroupId(value);
+  };
+
+  const handleScopeChange = (scope: DrawScope) => {
+    if (scope === "group") {
+      if (!groups.length) {
+        setDrawError("At least one group is required to draw within a group.");
+        return;
+      }
+      if (selectedGroupId === "all") {
+        const firstGroup = groups[0];
+        if (firstGroup) {
+          setSelectedGroupId(firstGroup.id);
+        }
+      }
+    }
+    setDrawScope(scope);
+  };
+
   const handleToggleTag = (tag: string) => {
     setSelectedTags((prev) => {
       if (prev.includes(tag)) {
@@ -602,10 +670,22 @@ const JumpRandomizer: React.FC = () => {
     if (!selectedListId) {
       return;
     }
+    setDrawError(null);
     const drawCount = Number.parseInt(drawCountInput, 10);
-    const resolvedCount = Number.isNaN(drawCount) || drawCount <= 0 ? 1 : drawCount;
+    if (Number.isNaN(drawCount)) {
+      setDrawError("Draw count must be a number.");
+      return;
+    }
+    if (drawCount <= 0) {
+      setDrawError("Draw count must be at least 1.");
+      return;
+    }
     if (!filteredEntries.length) {
-      setCopyMessage("No entries match the current filters.");
+      setDrawError("No entries match the current filters.");
+      return;
+    }
+    if (drawCount > filteredEntries.length) {
+      setDrawError(`Only ${filteredEntries.length} entries are available for this draw.`);
       return;
     }
     const entriesForDraw: WeightedEntry<RandomizerEntryRecord>[] = filteredEntries.map((entry) => ({
@@ -614,14 +694,29 @@ const JumpRandomizer: React.FC = () => {
       payload: entry,
     }));
     const seed = seedInput.trim();
-    const rng = createSeededRandom(seed.length ? seed : undefined);
-    const picks = drawWeightedWithoutReplacement(entriesForDraw, resolvedCount, rng).map((entry) => entry.payload);
+    const seedValidationError = validateSeedInput(seed);
+    if (seedValidationError) {
+      setDrawError(seedValidationError);
+      return;
+    }
+    const normalizedSeed = seed.length ? seed : undefined;
+    const rng = createSeededRandom(normalizedSeed);
+    const picks = drawWeightedWithoutReplacement(entriesForDraw, drawCount, rng).map((entry) => entry.payload);
+    setDrawResults(picks);
+    setLastDrawSummary({
+      count: drawCount,
+      seed: normalizedSeed,
+      scope: filters.scope,
+      tags: [...filters.tags],
+      minWeight: filters.minWeight,
+      groupId: filters.groupId,
+    });
     try {
       await recordRollMutation.mutateAsync({
         listId: selectedListId,
-        seed: seed.length ? seed : undefined,
+        seed: normalizedSeed,
         params: {
-          drawCount: resolvedCount,
+          drawCount,
           scope: filters.scope,
           tags: filters.tags,
           minWeight: filters.minWeight,
@@ -636,8 +731,108 @@ const JumpRandomizer: React.FC = () => {
       });
     } catch (error) {
       console.warn("Failed to record randomizer roll", error);
+      const message =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "Failed to record randomizer roll.";
+      setDrawError(message);
       setCopyMessage("Roll failed to record.");
     }
+  };
+
+  const handleCopyResult = async (entry: RandomizerEntryRecord, mode: "name" | "link" | "full") => {
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setCopyMessage("Clipboard unavailable");
+      return;
+    }
+    if (mode === "link" && !entry.link) {
+      setCopyMessage("Entry has no link to copy.");
+      return;
+    }
+    let text = entry.name;
+    if (mode === "link") {
+      text = entry.link ?? "";
+    } else if (mode === "full") {
+      const parts = [entry.name];
+      if (entry.link) {
+        parts.push(`(${entry.link})`);
+      }
+      parts.push(`w${entry.weight}`);
+      if (entry.tags.length) {
+        parts.push(`[${entry.tags.join(", ")}]`);
+      }
+      text = parts.join(" ");
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMessage("Copied to clipboard.");
+    } catch (error) {
+      console.warn("Failed to copy result", error);
+      setCopyMessage("Clipboard copy failed.");
+    }
+  };
+
+  const handleCopyDrawResults = async (): Promise<void> => {
+    if (!drawResults.length) {
+      setCopyMessage("No results available to copy.");
+      return;
+    }
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setCopyMessage("Clipboard unavailable");
+      return;
+    }
+    const text = drawResults
+      .map((entry, index) => {
+        const segments = [`${index + 1}. ${entry.name}`];
+        if (entry.link) {
+          segments.push(`(${entry.link})`);
+        }
+        segments.push(`w${entry.weight}`);
+        if (entry.tags.length) {
+          segments.push(`[${entry.tags.join(", ")}]`);
+        }
+        return segments.join(" ");
+      })
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyMessage("Results copied to clipboard.");
+    } catch (error) {
+      console.warn("Failed to copy results", error);
+      setCopyMessage("Clipboard copy failed.");
+    }
+  };
+
+  const handleApplyPreset = (preset: SavedRandomizerPreset) => {
+    applyPreset(preset);
+  };
+
+  const handleRemovePreset = (presetId: string) => {
+    removePreset(presetId);
+    showToast("Preset removed.", "info");
+  };
+
+  const handleClearPresetList = () => {
+    if (!recentPresets.length) {
+      showToast("There are no presets to clear.", "info");
+      return;
+    }
+    clearPresets();
+    showToast("Preset list cleared.", "info");
+  };
+
+  const handleApplyPresetAndDraw = async (preset: SavedRandomizerPreset) => {
+    if (recordRollMutation.isPending) {
+      showToast("A draw is already in progress.", "info");
+      return;
+    }
+    applyPreset(preset, { silent: true });
+    await new Promise<void>((resolve) => {
+      if (typeof window === "undefined") {
+        resolve();
+      } else {
+        window.setTimeout(() => resolve(), 0);
+      }
+    });
+    await handleDraw();
   };
 
   const handleResetHistory = (): void => {
@@ -654,7 +849,7 @@ const JumpRandomizer: React.FC = () => {
     }
     const text = historyRecords
       .map((run, index) => {
-        const parts = [`Roll ${index + 1} — ${formatTimestamp(run.created_at)}`];
+        const parts = [`Roll ${index + 1} ΓÇö ${formatTimestamp(run.created_at)}`];
         if (run.seed) {
           parts.push(`Seed: ${run.seed}`);
         }
@@ -733,30 +928,518 @@ const JumpRandomizer: React.FC = () => {
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Configuring randomizer placeholder.data…</p>
+        <p>Configuring randomizer placeholder.dataΓÇª</p>
       </header>
-      <pre className="debug-block">
-        {JSON.stringify(
-          {
-            lists: lists.length,
-            selectedListId,
-            selectedGroupId,
-            selectedEntryId,
-            groups: groups.length,
-            entries: entries.length,
-            history: historyRecords.length,
-            drawCountInput,
-            minWeightInput,
-            seedInput,
-            selectedTags,
-            drawScope,
-            entryFormError,
-            hasEntryForm: Boolean(entryForm),
-          },
-          null,
-          2
-        )}
-      </pre>
+      <div className="randomizer-layout">
+        <aside className="randomizer-sidebar">
+          <div className="randomizer-panel">
+            <h2>Lists</h2>
+            {lists.length ? (
+              <ul className="randomizer-list">
+                {lists.map((list) => {
+                  const isSelected = list.id === selectedListId;
+                  return (
+                    <li key={list.id}>
+                      <button
+                        type="button"
+                        className={isSelected ? "list-button is-selected" : "list-button"}
+                        onClick={() => handleSelectList(list.id)}
+                        aria-pressed={isSelected}
+                      >
+                        {list.name || "Untitled list"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="empty-state">No lists yet.</p>
+            )}
+            <form className="stack-form" onSubmit={handleCreateList}>
+              <label>
+                <span>Create List</span>
+                <input
+                  type="text"
+                  value={newListName}
+                  onChange={(event) => setNewListName(event.target.value)}
+                  placeholder="List name"
+                  disabled={listControlsDisabled}
+                  autoComplete="off"
+                />
+              </label>
+              <button type="submit" disabled={listControlsDisabled}>
+                Add List
+              </button>
+            </form>
+            {selectedList ? (
+              <div className="stack-form">
+                <form onSubmit={handleRenameList}>
+                  <label>
+                    <span>Rename List</span>
+                    <input
+                      type="text"
+                      value={listNameDraft}
+                      onChange={(event) => setListNameDraft(event.target.value)}
+                      disabled={listControlsDisabled}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="form-actions">
+                    <button
+                      type="submit"
+                      disabled={
+                        listControlsDisabled ||
+                        !listNameDraft.trim().length ||
+                        listNameDraft.trim() === selectedList.name
+                      }
+                    >
+                      Save
+                    </button>
+                  </div>
+                </form>
+                <button type="button" onClick={handleDeleteList} disabled={listControlsDisabled}>
+                  Delete List
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="randomizer-panel">
+            <h2>Groups</h2>
+            {selectedListId ? (
+              <>
+                <ul className="randomizer-list">
+                  <li key="all">
+                    <button
+                      type="button"
+                      className={selectedGroupId === "all" ? "list-button is-selected" : "list-button"}
+                      onClick={() => handleSelectGroup("all")}
+                      aria-pressed={selectedGroupId === "all"}
+                    >
+                      All Entries
+                    </button>
+                  </li>
+                  {groups.map((group) => {
+                    const isSelected = group.id === selectedGroupId;
+                    return (
+                      <li key={group.id}>
+                        <button
+                          type="button"
+                          className={isSelected ? "list-button is-selected" : "list-button"}
+                          onClick={() => handleSelectGroup(group.id)}
+                          aria-pressed={isSelected}
+                        >
+                          {group.name || "Untitled group"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <form className="stack-form" onSubmit={handleCreateGroup}>
+                  <label>
+                    <span>Create Group</span>
+                    <input
+                      type="text"
+                      value={newGroupName}
+                      onChange={(event) => setNewGroupName(event.target.value)}
+                      placeholder="Group name"
+                      disabled={groupControlsDisabled || !selectedListId}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <button type="submit" disabled={groupControlsDisabled || !selectedListId}>
+                    Add Group
+                  </button>
+                </form>
+                {selectedGroup ? (
+                  <div className="stack-form">
+                    <form onSubmit={handleRenameGroup}>
+                      <label>
+                        <span>Rename Group</span>
+                        <input
+                          type="text"
+                          value={groupNameDraft}
+                          onChange={(event) => setGroupNameDraft(event.target.value)}
+                          disabled={groupControlsDisabled}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <div className="form-actions">
+                        <button
+                          type="submit"
+                          disabled={
+                            groupControlsDisabled ||
+                            !groupNameDraft.trim().length ||
+                            groupNameDraft.trim() === selectedGroup.name
+                          }
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </form>
+                    <button
+                      type="button"
+                      onClick={handleDeleteGroup}
+                      disabled={groupControlsDisabled || groups.length <= 1}
+                    >
+                      Delete Group
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="empty-state">Select a list to manage groups.</p>
+            )}
+          </div>
+
+          <div className="randomizer-panel">
+            <h2>Filters</h2>
+            <div className="stack-form">
+              <label>
+                <span>Minimum Weight</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={minWeightInput}
+                  onChange={(event) => setMinWeightInput(event.target.value)}
+                />
+              </label>
+              <fieldset className="scope-fieldset">
+                <legend>Draw Scope</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="draw-scope"
+                    value="all"
+                    checked={drawScope === "all"}
+                    onChange={() => handleScopeChange("all")}
+                  />
+                  Entire list
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="draw-scope"
+                    value="group"
+                    checked={drawScope === "group"}
+                    onChange={() => handleScopeChange("group")}
+                    disabled={!groups.length && selectedGroupId === "all"}
+                  />
+                  Selected group only
+                </label>
+              </fieldset>
+              <div className="tag-selector">
+                <span>Tags</span>
+                {availableTags.length ? (
+                  <div className="tag-options">
+                    {availableTags.map((tag) => (
+                      <label key={tag}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.includes(tag)}
+                          onChange={() => handleToggleTag(tag)}
+                        />
+                        {tag}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-state">No tags discovered yet.</p>
+                )}
+              </div>
+              <div className="filter-summary">
+                <span>{`Matching entries: ${filteredEntries.length}`}</span>
+                <span>{`Total weight: ${totalWeight}`}</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div className="randomizer-content">
+          <div className="randomizer-panel">
+            <div className="panel-heading">
+              <h2>Entries</h2>
+              <button
+                type="button"
+                onClick={handleAddEntry}
+                disabled={!selectedListId || !groups.length || entryControlsDisabled}
+              >
+                Add Entry
+              </button>
+            </div>
+            {selectedListId ? (
+              availableEntries.length ? (
+                <ul className="entry-list">
+                  {availableEntries.map((entry) => {
+                    const isSelected = entry.id === selectedEntryId;
+                    return (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          className={isSelected ? "entry-button is-selected" : "entry-button"}
+                          onClick={() => setSelectedEntryId(entry.id)}
+                          aria-pressed={isSelected}
+                        >
+                          <span className="entry-name">{entry.name || "Untitled entry"}</span>
+                          <span className="entry-weight">{`w${entry.weight}`}</span>
+                          {entry.tags.length ? (
+                            <span className="entry-tags">{entry.tags.join(", ")}</span>
+                          ) : (
+                            <span className="entry-tags muted">No tags</span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="empty-state">No entries in this selection.</p>
+              )
+            ) : (
+              <p className="empty-state">Select a list to view entries.</p>
+            )}
+          </div>
+
+          <div className="randomizer-panel">
+            <h2>Entry Details</h2>
+            {entryForm ? (
+              <form className="stack-form" onSubmit={handleEntrySubmit}>
+                <label>
+                  <span>Name</span>
+                  <input
+                    type="text"
+                    value={entryForm.name}
+                    onChange={handleEntryFieldChange("name")}
+                    disabled={entryControlsDisabled}
+                    required
+                  />
+                </label>
+                <div className="field-row">
+                  <label>
+                    <span>Weight</span>
+                    <input
+                      type="number"
+                      value={entryForm.weight}
+                      onChange={handleEntryFieldChange("weight")}
+                      disabled={entryControlsDisabled}
+                    />
+                  </label>
+                  <label>
+                    <span>Group</span>
+                    <select
+                      value={entryForm.groupId}
+                      onChange={handleEntryFieldChange("groupId")}
+                      disabled={entryControlsDisabled || !groups.length}
+                    >
+                      {groups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name || "Untitled group"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <span>Link</span>
+                  <input
+                    type="url"
+                    value={entryForm.link}
+                    onChange={handleEntryFieldChange("link")}
+                    disabled={entryControlsDisabled}
+                    placeholder="https://example.com"
+                  />
+                </label>
+                <label>
+                  <span>Tags (comma separated)</span>
+                  <input
+                    type="text"
+                    value={entryForm.tags}
+                    onChange={handleEntryFieldChange("tags")}
+                    disabled={entryControlsDisabled}
+                  />
+                </label>
+                <label>
+                  <span>Filters (JSON object)</span>
+                  <textarea
+                    value={entryForm.filters}
+                    onChange={handleEntryFieldChange("filters")}
+                    disabled={entryControlsDisabled}
+                    rows={4}
+                  />
+                </label>
+                {entryFormError ? <p className="error-message">{entryFormError}</p> : null}
+                <div className="form-actions">
+                  <button type="submit" disabled={entryControlsDisabled}>
+                    Save Entry
+                  </button>
+                  <button type="button" onClick={handleDeleteEntry} disabled={entryControlsDisabled}>
+                    Delete Entry
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <p className="empty-state">Select an entry to edit.</p>
+            )}
+          </div>
+
+          <div className="randomizer-panel">
+            <h2>Draw</h2>
+            <form
+              className="stack-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleDraw();
+              }}
+            >
+              <label>
+                <span>Draw Count</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={drawCountInput}
+                  onChange={(event) => setDrawCountInput(event.target.value)}
+                  disabled={drawInProgress || !selectedListId}
+                />
+              </label>
+              <label>
+                <span>Seed (optional)</span>
+                <input
+                  type="text"
+                  value={seedInput}
+                  onChange={(event) => setSeedInput(event.target.value)}
+                  disabled={drawInProgress}
+                  placeholder="Leave blank for random seed"
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" disabled={drawInProgress || !selectedListId}>
+                  {drawInProgress ? "Recording…" : "Draw"}
+                </button>
+                <button type="button" onClick={handleCopyDrawResults} disabled={!drawResults.length}>
+                  Copy Results
+                </button>
+              </div>
+            </form>
+            {drawError ? <p className="error-message">{drawError}</p> : null}
+            {lastDrawSummary ? (
+              <div className="draw-summary">
+                <h3>Last Draw</h3>
+                <dl>
+                  <div>
+                    <dt>Count</dt>
+                    <dd>{lastDrawSummary.count}</dd>
+                  </div>
+                  <div>
+                    <dt>Scope</dt>
+                    <dd>{lastDrawSummary.scope === "group" ? "Selected group" : "Entire list"}</dd>
+                  </div>
+                  <div>
+                    <dt>Group</dt>
+                    <dd>{getGroupName(lastDrawSummary.groupId)}</dd>
+                  </div>
+                  <div>
+                    <dt>Minimum Weight</dt>
+                    <dd>{lastDrawSummary.minWeight}</dd>
+                  </div>
+                  <div>
+                    <dt>Tags</dt>
+                    <dd>{lastDrawSummary.tags.length ? lastDrawSummary.tags.join(", ") : "None"}</dd>
+                  </div>
+                  <div>
+                    <dt>Seed</dt>
+                    <dd>{lastDrawSummary.seed ?? "Random"}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
+            {drawResults.length ? (
+              <ol className="draw-results">
+                {drawResults.map((entry) => (
+                  <li key={entry.id}>
+                    <div className="result-line">
+                      <strong>{entry.name}</strong>
+                      <span>{` w${entry.weight}`}</span>
+                      {entry.link ? (
+                        <span>
+                          {" "}·{" "}
+                          <a href={entry.link} target="_blank" rel="noopener noreferrer">
+                            Link
+                          </a>
+                        </span>
+                      ) : null}
+                      {entry.tags.length ? <span>{` · ${entry.tags.join(", ")}`}</span> : null}
+                    </div>
+                    <div className="form-actions">
+                      <button type="button" onClick={() => handleCopyResult(entry, "name")}>
+                        Copy Name
+                      </button>
+                      <button type="button" onClick={() => handleCopyResult(entry, "full")}>
+                        Copy Line
+                      </button>
+                      <button type="button" onClick={() => handleCopyResult(entry, "link")} disabled={!entry.link}>
+                        Copy Link
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="empty-state">Run a draw to see results.</p>
+            )}
+          </div>
+
+          <div className="randomizer-panel">
+            <h2>History</h2>
+            {historyRecords.length ? (
+              <ul className="history-list">
+                {historyRecords.map((run) => (
+                  <li key={run.id}>
+                    <div className="history-header">
+                      <strong>{formatTimestamp(run.created_at)}</strong>
+                      {run.seed ? <span>{` · Seed: ${run.seed}`}</span> : null}
+                    </div>
+                    <div className="history-meta">
+                      Draw {run.params.drawCount} · Scope {run.params.scope}
+                      {Array.isArray(run.params.tags) && run.params.tags.length
+                        ? ` · Tags ${run.params.tags.join(", ")}`
+                        : ""}
+                      {typeof run.params.minWeight === "number" ? ` · Min w${run.params.minWeight}` : ""}
+                    </div>
+                    {run.picks.length ? (
+                      <ol className="history-picks">
+                        {run.picks.map((pick) => (
+                          <li key={pick.id}>
+                            {pick.name}
+                            <span>{` w${pick.weight}`}</span>
+                            {pick.tags.length ? <span>{` [${pick.tags.join(", ")}]`}</span> : null}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="empty-state">No picks recorded.</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty-state">No history yet.</p>
+            )}
+            <div className="form-actions">
+              <button type="button" onClick={handleCopyHistory} disabled={!historyRecords.length}>
+                Copy History
+              </button>
+              <button type="button" onClick={handleExportHistory} disabled={!historyRecords.length}>
+                Export History
+              </button>
+              <button type="button" onClick={handleResetHistory} disabled={!historyRecords.length || historyBusy}>
+                {historyBusy ? "Clearing…" : "Clear History"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {copyMessage ? <p className="status-message">{copyMessage}</p> : null}
     </section>
   );
 };
