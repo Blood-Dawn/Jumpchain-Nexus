@@ -3240,19 +3240,19 @@ a:hover {
   letter-spacing: 0.08em;
 }
 
-.locker__badge--essential {
-  background: rgba(124, 241, 200, 0.25);
-  color: #bbffe7;
+.locker__badge--high {
+  background: rgba(255, 149, 122, 0.24);
+  color: #ffd6cb;
 }
 
-.locker__badge--standard {
-  background: rgba(122, 203, 255, 0.2);
-  color: #c3e9ff;
-}
-
-.locker__badge--luxury {
+.locker__badge--medium {
   background: rgba(255, 196, 122, 0.22);
   color: #ffe8b8;
+}
+
+.locker__badge--low {
+  background: rgba(124, 241, 200, 0.25);
+  color: #bbffe7;
 }
 
 .locker__badge--bodymod {

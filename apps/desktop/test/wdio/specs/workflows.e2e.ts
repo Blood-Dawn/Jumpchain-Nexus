@@ -273,7 +273,7 @@ describe("Jumpchain desktop smoke flows", function () {
     await lockerItem.waitForExist({ timeout: 10000 });
     await lockerItem.click();
     await toggleCheckbox("Packed", true);
-    await fillByLabel("Priority", "luxury");
+    await fillByLabel("Priority", "high");
     await browser
       .$("//form[contains(@class, 'locker__form')]//textarea")
       .setValue("Ready for deployment.");

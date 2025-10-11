@@ -57,7 +57,7 @@ interface LockerFormState {
   notes: string;
   tags: string[];
   packed: boolean;
-  priority: "essential" | "standard" | "luxury";
+  priority: LockerPriority;
   metadata: LockerMetadata;
   bodyModType: BodyModType | null;
 }
@@ -273,9 +273,9 @@ const CosmicLocker: React.FC = () => {
             <div>
               {[
                 { label: "All", value: "all" },
-                { label: "Essential", value: "essential" },
-                { label: "Standard", value: "standard" },
-                { label: "Luxury", value: "luxury" },
+                { label: "High", value: "high" },
+                { label: "Medium", value: "medium" },
+                { label: "Low", value: "low" },
               ].map((option) => (
                 <button
                   key={option.value}
@@ -532,9 +532,9 @@ const CosmicLocker: React.FC = () => {
                     )
                   }
                 >
-                  <option value="essential">Essential</option>
-                  <option value="standard">Standard</option>
-                  <option value="luxury">Luxury</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
                 </select>
               </label>
 
