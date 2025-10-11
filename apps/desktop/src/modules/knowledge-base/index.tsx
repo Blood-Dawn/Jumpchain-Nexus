@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEventHandler } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import "./knowledgeBase.css";
@@ -31,15 +31,21 @@ import {
   deleteKnowledgeArticle,
   ensureKnowledgeBaseSeeded,
   fetchKnowledgeArticles,
+  listKnowledgeBaseImportErrors,
+  recordKnowledgeBaseImportErrors,
+  deleteKnowledgeBaseImportError,
+  clearKnowledgeBaseImportErrors,
   upsertKnowledgeArticle,
   type KnowledgeArticleQuery,
   type KnowledgeArticleRecord,
+  type KnowledgeBaseImportError,
+  type KnowledgeBaseImportErrorRecord,
   type UpsertKnowledgeArticleInput,
 } from "../../db/dao";
 import {
   importKnowledgeBaseArticles,
   promptKnowledgeBaseImport,
-  type KnowledgeBaseImportError,
+  loadKnowledgeBaseDraft,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
 
@@ -98,7 +104,8 @@ const KnowledgeBase = () => {
     draft: { ...emptyDraft },
   });
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [importIssues, setImportIssues] = useState<KnowledgeBaseImportError[] | null>(null);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(true);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -134,6 +141,24 @@ const KnowledgeBase = () => {
     queryFn: countKnowledgeArticles,
     staleTime: 5 * 60 * 1000,
   });
+
+  const importErrorsQuery = useQuery({
+    queryKey: ["knowledge-base", "import-errors"],
+    queryFn: listKnowledgeBaseImportErrors,
+    staleTime: 0,
+  });
+
+  const importErrors = importErrorsQuery.data ?? [];
+  const hasImportErrors = importErrors.length > 0;
+  const previousImportErrorCount = useRef(0);
+
+  useEffect(() => {
+    const currentCount = importErrors.length;
+    if (currentCount > 0 && currentCount !== previousImportErrorCount.current) {
+      setImportDrawerOpen(true);
+    }
+    previousImportErrorCount.current = currentCount;
+  }, [importErrors]);
 
   const saveArticle = useMutation({
     mutationFn: (payload: UpsertKnowledgeArticleInput) => upsertKnowledgeArticle(payload),
@@ -179,7 +204,6 @@ const KnowledgeBase = () => {
     },
     onSuccess: async (result) => {
       if (!result || result.cancelled) {
-        setImportIssues(null);
         return;
       }
 
@@ -187,6 +211,11 @@ const KnowledgeBase = () => {
         queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
         queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
       ]);
+
+      if (result.errors.length) {
+        await recordKnowledgeBaseImportErrors(result.errors);
+        await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
+      }
 
       const importedCount = result.saved.length;
       const skippedCount = result.errors.length;
@@ -204,7 +233,6 @@ const KnowledgeBase = () => {
       }
 
       setFeedback(parts.join(" · "));
-      setImportIssues(result.errors.length ? result.errors : null);
 
       if (importedCount > 0) {
         setSelectedId(result.saved[0]?.id ?? null);
@@ -213,13 +241,45 @@ const KnowledgeBase = () => {
     onError: (error) => {
       console.error("Failed to import articles", error);
       setFeedback(error instanceof Error ? error.message : "Failed to import articles");
-      setImportIssues(null);
+    },
+  });
+
+  const retryImport = useMutation<KnowledgeArticleRecord, unknown, KnowledgeBaseImportErrorRecord>({
+    mutationFn: async (issue) => {
+      const draft = await loadKnowledgeBaseDraft(issue.path);
+      const article = await upsertKnowledgeArticle(draft.payload);
+      await deleteKnowledgeBaseImportError(issue.id);
+      return article;
+    },
+    onSuccess: async (article) => {
+      setFeedback(`Imported “${article.title}”`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] }),
+      ]);
+      setSelectedId(article.id);
+    },
+    onError: async (error, issue) => {
+      const reason = error instanceof Error ? error.message : "Failed to import file";
+      await recordKnowledgeBaseImportErrors([{ path: issue.path, reason }]);
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
+      setFeedback(reason);
+    },
+    onSettled: () => {
+      setRetryingId(null);
+    },
+  });
+
+  const clearImportErrorsMutation = useMutation({
+    mutationFn: clearKnowledgeBaseImportErrors,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
     },
   });
 
   const handleImport = () => {
     setFeedback(null);
-    setImportIssues(null);
     importArticles.mutate();
   };
 
@@ -277,6 +337,17 @@ const KnowledgeBase = () => {
         ...update,
       },
     }));
+  };
+
+  const handleRetry = (issue: KnowledgeBaseImportErrorRecord) => {
+    setRetryingId(issue.id);
+    retryImport.mutate(issue);
+  };
+
+  const handleDismissAll = () => {
+    clearImportErrorsMutation.mutate(undefined, {
+      onSuccess: () => setImportDrawerOpen(false),
+    });
   };
 
   const openCreate = () => {
@@ -554,26 +625,70 @@ const KnowledgeBase = () => {
 
       <section className="knowledge-base__stage">
         {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
-        {importIssues && (
-          <div className="knowledge-base__import-issues" role="status" aria-live="polite">
-            <header>
-              <h3>Skipped files</h3>
-              <p>We couldn't import the following resources. Resolve the issues and try again.</p>
-            </header>
-            <ul>
-              {importIssues.map((issue) => (
-                <li key={issue.path}>
-                  <code title={issue.path}>{issue.path}</code>
-                  <span>{issue.reason}</span>
-                </li>
-              ))}
-            </ul>
-            <footer>
-              <button type="button" className="ghost" onClick={() => setImportIssues(null)}>
-                Dismiss
+        {hasImportErrors && (
+          <>
+            {!importDrawerOpen && (
+              <button
+                type="button"
+                className="knowledge-base__import-toggle"
+                onClick={() => setImportDrawerOpen(true)}
+              >
+                Show failed imports ({importErrors.length})
               </button>
-            </footer>
-          </div>
+            )}
+            <aside
+              className="knowledge-base__import-drawer"
+              data-open={importDrawerOpen ? "true" : "false"}
+              role="complementary"
+              aria-label="Failed knowledge base imports"
+              aria-live="polite"
+            >
+              <header>
+                <div>
+                  <h3>Failed imports</h3>
+                  <p>We couldn't import these files. Resolve each issue and retry.</p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setImportDrawerOpen(false)}
+                  aria-label="Hide failed imports"
+                >
+                  Hide
+                </button>
+              </header>
+              <ul>
+                {importErrors.map((issue) => {
+                  const isRetrying = retryImport.isPending && retryingId === issue.id;
+                  return (
+                    <li key={issue.id}>
+                      <div className="knowledge-base__import-details">
+                        <code title={issue.path}>{issue.path}</code>
+                        <span>{issue.reason}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRetry(issue)}
+                        disabled={retryImport.isPending}
+                      >
+                        {isRetrying ? "Retrying…" : "Retry"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <footer>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleDismissAll}
+                  disabled={clearImportErrorsMutation.isPending}
+                >
+                  Dismiss all
+                </button>
+              </footer>
+            </aside>
+          </>
         )}
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
         {!articleQuery.isLoading && renderArticle(activeArticle)}
