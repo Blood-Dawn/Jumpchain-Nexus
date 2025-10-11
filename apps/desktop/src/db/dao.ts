@@ -4368,3 +4368,570 @@ export async function loadExportSnapshot(): Promise<ExportSnapshot> {
     presets,
   };
 }
+
+interface JumpCpRow {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+}
+
+interface AssetTypeAggregateRow {
+  asset_type: JumpAssetType;
+  item_count: number | null;
+  gross_cost: number | null;
+  net_cost: number | null;
+  credit: number | null;
+  discounted_count: number | null;
+  freebie_count: number | null;
+}
+
+interface InventoryCategoryAggregateRow {
+  category: string | null;
+  item_count: number | null;
+  total_quantity: number | null;
+  warehouse_count: number | null;
+  locker_count: number | null;
+}
+
+interface GauntletAggregateRow {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+}
+
+interface BoosterSourceRow {
+  id: string;
+  name: string;
+  attributes_json: string | null;
+  traits_json: string | null;
+}
+
+export interface CpSpendEarnRow {
+  jumpId: string;
+  title: string;
+  status: string | null;
+  budget: number;
+  spent: number;
+  earned: number;
+  net: number;
+}
+
+export interface CpAssetTypeBreakdown {
+  assetType: JumpAssetType;
+  itemCount: number;
+  gross: number;
+  netCost: number;
+  credit: number;
+  discounted: number;
+  freebies: number;
+}
+
+export interface CpSpendEarnSummary {
+  totals: {
+    budget: number;
+    spent: number;
+    earned: number;
+    net: number;
+  };
+  byJump: CpSpendEarnRow[];
+  byAssetType: CpAssetTypeBreakdown[];
+}
+
+export interface InventoryCategorySummary {
+  category: string;
+  itemCount: number;
+  totalQuantity: number;
+  warehouseCount: number;
+  lockerCount: number;
+}
+
+export interface GauntletProgressRow {
+  jumpId: string;
+  title: string;
+  status: string | null;
+  budget: number;
+  spent: number;
+  earned: number;
+  progress: number;
+}
+
+export interface GauntletProgressSummary {
+  allowGauntlet: boolean;
+  gauntletHalved: boolean;
+  totalGauntlets: number;
+  completedGauntlets: number;
+  rows: GauntletProgressRow[];
+}
+
+export interface BoosterUsageEntry {
+  booster: string;
+  count: number;
+  characters: Array<{ id: string; name: string }>;
+}
+
+export interface BoosterUsageSummary {
+  totalCharacters: number;
+  charactersWithBoosters: number;
+  totalBoosters: number;
+  uniqueBoosters: number;
+  entries: BoosterUsageEntry[];
+}
+
+export interface StatisticsSnapshot {
+  cp: CpSpendEarnSummary;
+  inventory: {
+    totalItems: number;
+    totalQuantity: number;
+    categories: InventoryCategorySummary[];
+  };
+  gauntlet: GauntletProgressSummary;
+  boosters: BoosterUsageSummary;
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
+function normalizeCategory(value: string | null): string {
+  if (!value) {
+    return "Uncategorized";
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : "Uncategorized";
+}
+
+function safeJsonParse(value: string | null): unknown {
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+const BOOSTER_META_KEYS = new Set([
+  "rank",
+  "notes",
+  "description",
+  "value",
+  "amount",
+  "type",
+  "category",
+  "level",
+  "rating",
+]);
+
+function collectBoosterNames(value: unknown, contextIsBooster: boolean, result: Set<string>): void {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    if (contextIsBooster) {
+      value
+        .split(/[,;\n]+/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+        .forEach((entry) => result.add(entry));
+    }
+    return;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        if (contextIsBooster) {
+          const trimmed = entry.trim();
+          if (trimmed.length) {
+            result.add(trimmed);
+          }
+        }
+        continue;
+      }
+      if (entry && typeof entry === "object") {
+        const record = entry as Record<string, unknown>;
+        if (contextIsBooster) {
+          const nameRaw = record.name ?? record.title ?? record.label;
+          if (typeof nameRaw === "string") {
+            const trimmed = nameRaw.trim();
+            if (trimmed.length) {
+              result.add(trimmed);
+            }
+          }
+        }
+        for (const [key, nested] of Object.entries(record)) {
+          const keyIsBooster = key.toLowerCase().includes("boost");
+          collectBoosterNames(nested, contextIsBooster || keyIsBooster, result);
+        }
+      }
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (contextIsBooster) {
+      for (const [key, nested] of entries) {
+        const normalized = key.trim();
+        if (!normalized.length) {
+          continue;
+        }
+        const isMeta = BOOSTER_META_KEYS.has(normalized.toLowerCase());
+        if (!isMeta) {
+          result.add(normalized);
+          collectBoosterNames(nested, true, result);
+          continue;
+        }
+        if (nested && typeof nested === "object") {
+          collectBoosterNames(nested, true, result);
+        }
+      }
+      return;
+    }
+
+    for (const [key, nested] of entries) {
+      const keyIsBooster = key.toLowerCase().includes("boost");
+      if (keyIsBooster && typeof nested === "string") {
+        const trimmed = nested.trim();
+        if (trimmed.length) {
+          result.add(trimmed);
+        }
+      }
+      collectBoosterNames(nested, keyIsBooster, result);
+    }
+  }
+}
+
+function extractBoosters(record: BoosterSourceRow): string[] {
+  const names = new Set<string>();
+  const attributes = safeJsonParse(record.attributes_json);
+  collectBoosterNames(attributes, false, names);
+
+  const traits = safeJsonParse(record.traits_json);
+  if (Array.isArray(traits)) {
+    for (const entry of traits) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const trait = entry as Record<string, unknown>;
+      const type = typeof trait.type === "string" ? trait.type.toLowerCase() : "";
+      const categories = Array.isArray(trait.categories)
+        ? (trait.categories as unknown[]).map((value) =>
+            typeof value === "string" ? value.toLowerCase() : ""
+          )
+        : [];
+      if (type.includes("booster") || categories.some((category) => category.includes("booster"))) {
+        const nameRaw = trait.name ?? trait.title ?? trait.label;
+        if (typeof nameRaw === "string") {
+          const trimmed = nameRaw.trim();
+          if (trimmed.length) {
+            names.add(trimmed);
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+export async function loadStatisticsSnapshot(): Promise<StatisticsSnapshot> {
+  return withInit(async (db) => {
+    const [cpRows, assetRows, inventoryRows, gauntletRows, universalRows, boosterRows] = await Promise.all([
+      db.select<JumpCpRow[]>(
+        `SELECT
+           j.id AS jump_id,
+           j.title AS title,
+           j.status AS status,
+           j.cp_budget AS cp_budget,
+           COALESCE(SUM(
+             CASE
+               WHEN a.asset_type = 'drawback' THEN 0
+               WHEN COALESCE(a.freebie, 0) = 1 THEN 0
+               WHEN COALESCE(a.discounted, 0) = 1 THEN COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END / 2.0
+               ELSE COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END
+             END
+           ), 0) AS spent,
+           COALESCE(SUM(
+             CASE
+               WHEN a.asset_type = 'drawback' THEN COALESCE(a.cost, 0) * CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END
+               ELSE 0
+             END
+           ), 0) AS earned
+         FROM jumps j
+         LEFT JOIN jump_assets a ON a.jump_id = j.id
+         GROUP BY j.id
+         ORDER BY j.sort_order ASC, j.created_at ASC`
+      ),
+      db.select<AssetTypeAggregateRow[]>(
+        `SELECT
+           asset_type,
+           COUNT(*) AS item_count,
+           COALESCE(SUM(COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END), 0) AS gross_cost,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN 0
+               WHEN COALESCE(freebie, 0) = 1 THEN 0
+               WHEN COALESCE(discounted, 0) = 1 THEN COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END / 2.0
+               ELSE COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END
+             END
+           ), 0) AS net_cost,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN COALESCE(cost, 0) * CASE WHEN quantity IS NULL OR quantity <= 0 THEN 1 ELSE quantity END
+               ELSE 0
+             END
+           ), 0) AS credit,
+           COALESCE(SUM(CASE WHEN asset_type <> 'drawback' AND COALESCE(discounted, 0) = 1 AND COALESCE(freebie, 0) = 0 THEN 1 ELSE 0 END), 0) AS discounted_count,
+           COALESCE(SUM(CASE WHEN COALESCE(freebie, 0) = 1 THEN 1 ELSE 0 END), 0) AS freebie_count
+         FROM jump_assets
+         GROUP BY asset_type`
+      ),
+      db.select<InventoryCategoryAggregateRow[]>(
+        `WITH normalized_inventory AS (
+           SELECT
+             CASE
+               WHEN category IS NULL OR TRIM(category) = '' THEN 'Uncategorized'
+               ELSE TRIM(category)
+             END AS category,
+             scope,
+             CASE
+               WHEN quantity IS NULL OR quantity < 0 THEN 0
+               ELSE quantity
+             END AS quantity
+           FROM inventory_items
+         )
+         SELECT
+           category,
+           COUNT(*) AS item_count,
+           COALESCE(SUM(quantity), 0) AS total_quantity,
+           COALESCE(SUM(CASE WHEN scope = 'warehouse' THEN 1 ELSE 0 END), 0) AS warehouse_count,
+           COALESCE(SUM(CASE WHEN scope = 'locker' THEN 1 ELSE 0 END), 0) AS locker_count
+         FROM normalized_inventory
+         GROUP BY category
+         ORDER BY item_count DESC, category COLLATE NOCASE`
+      ),
+      db.select<GauntletAggregateRow[]>(
+        `WITH gauntlet_jumps AS (
+           SELECT
+             j.id,
+             j.title,
+             j.status,
+             COALESCE(j.cp_budget, 0) AS cp_budget,
+             j.sort_order,
+             j.created_at,
+             a.asset_type,
+             COALESCE(a.cost, 0) AS cost,
+             CASE WHEN a.quantity IS NULL OR a.quantity <= 0 THEN 1 ELSE a.quantity END AS quantity,
+             COALESCE(a.discounted, 0) AS discounted,
+             COALESCE(a.freebie, 0) AS freebie
+           FROM jumps j
+           LEFT JOIN jump_assets a ON a.jump_id = j.id
+           WHERE LOWER(COALESCE(j.status, '')) LIKE '%gauntlet%'
+         )
+         SELECT
+           id AS jump_id,
+           title,
+           status,
+           cp_budget,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN 0
+               WHEN freebie = 1 THEN 0
+               WHEN discounted = 1 THEN cost * quantity / 2.0
+               ELSE cost * quantity
+             END
+           ), 0) AS spent,
+           COALESCE(SUM(
+             CASE
+               WHEN asset_type = 'drawback' THEN cost * quantity
+               ELSE 0
+             END
+           ), 0) AS earned
+         FROM gauntlet_jumps
+         GROUP BY id
+         ORDER BY MIN(sort_order) ASC, MIN(created_at) ASC, title COLLATE NOCASE`
+      ),
+      db.select<UniversalDrawbackSettingsRow[]>(
+        `SELECT * FROM universal_drawback_settings WHERE id = $1`,
+        [UNIVERSAL_DRAWBACK_SETTING_ID]
+      ),
+      db.select<BoosterSourceRow[]>(
+        `SELECT id, name, attributes_json, traits_json FROM character_profiles ORDER BY created_at ASC`
+      ),
+    ]);
+
+    const cpByJump: CpSpendEarnRow[] = (cpRows as JumpCpRow[]).map((row) => {
+      const budget = Math.max(0, toNumber(row.cp_budget));
+      const spent = Math.max(0, toNumber(row.spent));
+      const earned = Math.max(0, toNumber(row.earned));
+      return {
+        jumpId: row.jump_id,
+        title: row.title,
+        status: row.status,
+        budget,
+        spent,
+        earned,
+        net: earned - spent,
+      } satisfies CpSpendEarnRow;
+    });
+
+    const cpTotals = cpByJump.reduce(
+      (totals, row) => {
+        totals.budget += row.budget;
+        totals.spent += row.spent;
+        totals.earned += row.earned;
+        totals.net += row.net;
+        return totals;
+      },
+      { budget: 0, spent: 0, earned: 0, net: 0 }
+    );
+
+    const cpByAssetType: CpAssetTypeBreakdown[] = (assetRows as AssetTypeAggregateRow[])
+      .map((row) => ({
+        assetType: row.asset_type,
+        itemCount: Math.max(0, Math.floor(toNumber(row.item_count))),
+        gross: Math.max(0, toNumber(row.gross_cost)),
+        netCost: Math.max(0, toNumber(row.net_cost)),
+        credit: Math.max(0, toNumber(row.credit)),
+        discounted: Math.max(0, Math.floor(toNumber(row.discounted_count))),
+        freebies: Math.max(0, Math.floor(toNumber(row.freebie_count))),
+      }))
+      .sort((a, b) => {
+        if (a.assetType === b.assetType) {
+          return 0;
+        }
+        return a.assetType.localeCompare(b.assetType);
+      });
+
+    const inventoryCategories: InventoryCategorySummary[] = (inventoryRows as InventoryCategoryAggregateRow[])
+      .map((row) => ({
+        category: normalizeCategory(row.category ?? null),
+        itemCount: Math.max(0, Math.floor(toNumber(row.item_count))),
+        totalQuantity: Math.max(0, toNumber(row.total_quantity)),
+        warehouseCount: Math.max(0, Math.floor(toNumber(row.warehouse_count))),
+        lockerCount: Math.max(0, Math.floor(toNumber(row.locker_count))),
+      }))
+      .sort((a, b) => {
+        if (a.itemCount === b.itemCount) {
+          return a.category.localeCompare(b.category, undefined, { sensitivity: "base" });
+        }
+        return b.itemCount - a.itemCount;
+      });
+
+    const inventoryTotals = inventoryCategories.reduce(
+      (totals, row) => {
+        totals.totalItems += row.itemCount;
+        totals.totalQuantity += row.totalQuantity;
+        return totals;
+      },
+      { totalItems: 0, totalQuantity: 0 }
+    );
+
+    const gauntletSummaryRows: GauntletProgressRow[] = (gauntletRows as GauntletAggregateRow[]).map((row) => {
+      const budget = Math.max(0, toNumber(row.cp_budget));
+      const spent = Math.max(0, toNumber(row.spent));
+      const earned = Math.max(0, toNumber(row.earned));
+      const progress = budget > 0 ? spent / budget : 0;
+      return {
+        jumpId: row.jump_id,
+        title: row.title,
+        status: row.status,
+        budget,
+        spent,
+        earned,
+        progress,
+      } satisfies GauntletProgressRow;
+    });
+
+    const completedGauntlets = gauntletSummaryRows.filter((row) => row.budget > 0 && row.spent >= row.budget).length;
+
+    const universalSettings = mapUniversalSettings((universalRows as UniversalDrawbackSettingsRow[])[0]);
+
+    const boosterSources = boosterRows as BoosterSourceRow[];
+    const boosterMap = new Map<string, BoosterUsageEntry>();
+    let totalBoosters = 0;
+    let charactersWithBoosters = 0;
+
+    for (const profile of boosterSources) {
+      const boosters = extractBoosters(profile);
+      if (boosters.length > 0) {
+        charactersWithBoosters += 1;
+      }
+      totalBoosters += boosters.length;
+      for (const booster of boosters) {
+        const existing = boosterMap.get(booster);
+        if (existing) {
+          existing.count += 1;
+          existing.characters.push({ id: profile.id, name: profile.name });
+        } else {
+          boosterMap.set(booster, {
+            booster,
+            count: 1,
+            characters: [{ id: profile.id, name: profile.name }],
+          });
+        }
+      }
+    }
+
+    const boosterEntries = Array.from(boosterMap.values()).map((entry) => ({
+      ...entry,
+      characters: entry.characters.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    }));
+
+    boosterEntries.sort((a, b) => {
+      if (b.count === a.count) {
+        return a.booster.localeCompare(b.booster, undefined, { sensitivity: "base" });
+      }
+      return b.count - a.count;
+    });
+
+    return {
+      cp: {
+        totals: cpTotals,
+        byJump: cpByJump,
+        byAssetType: cpByAssetType,
+      },
+      inventory: {
+        totalItems: inventoryTotals.totalItems,
+        totalQuantity: inventoryTotals.totalQuantity,
+        categories: inventoryCategories,
+      },
+      gauntlet: {
+        allowGauntlet: universalSettings.allowGauntlet,
+        gauntletHalved: universalSettings.gauntletHalved,
+        totalGauntlets: gauntletSummaryRows.length,
+        completedGauntlets,
+        rows: gauntletSummaryRows,
+      },
+      boosters: {
+        totalCharacters: boosterSources.length,
+        charactersWithBoosters,
+        totalBoosters,
+        uniqueBoosters: boosterEntries.length,
+        entries: boosterEntries,
+      },
+    } satisfies StatisticsSnapshot;
+  });
+}
