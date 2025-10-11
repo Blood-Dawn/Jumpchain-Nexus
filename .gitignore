@@ -368,6 +368,7 @@ FodyWeavers.xsd
 /JumpList.txt
 
 tools/
+!apps/desktop/tools/
 
 # Desktop app generated artifacts
 apps/desktop/coverage/

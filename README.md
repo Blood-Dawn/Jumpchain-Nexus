@@ -31,6 +31,8 @@ From PowerShell (repository root):
 .\npm.cmd run build      # production web build (Tauri bundling uses tauri:build)
 .\npm.cmd run tauri:dev  # native shell with live reload
 .\npm.cmd run tauri:build
+.\npm.cmd run lint       # ESLint (TypeScript/React with Vitest/Playwright/Tauri rules)
+.\npm.cmd run format     # Prettier formatting across the desktop workspace
 ```
 Migration & DB scripts (SQLite via `@tauri-apps/plugin-sql`):
 ```powershell
