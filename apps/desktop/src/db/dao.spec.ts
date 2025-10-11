@@ -98,6 +98,7 @@ async function importDao() {
 }
 
 type PurchaseCostInput = import("./dao").PurchaseCostInput;
+type JumpAssetType = import("./dao").JumpAssetType;
 
 const cryptoImpl = globalThis.crypto ?? webcrypto;
 
@@ -356,101 +357,244 @@ describe("summarizeJumpBudget", () => {
   });
 });
 
+type JumpCpRowShape = {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+};
+
+type AssetTypeAggregateRowShape = {
+  asset_type: JumpAssetType;
+  item_count: number | null;
+  gross_cost: number | null;
+  net_cost: number | null;
+  credit: number | null;
+  discounted_count: number | null;
+  freebie_count: number | null;
+};
+
+type InventoryCategoryAggregateRowShape = {
+  category: string | null;
+  item_count: number | null;
+  total_quantity: number | null;
+  warehouse_count: number | null;
+  locker_count: number | null;
+};
+
+type GauntletAggregateRowShape = {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+};
+
+type BoosterSourceRowShape = {
+  id: string;
+  name: string;
+  attributes_json: string | null;
+  traits_json: string | null;
+};
+
+function makeJumpCpRow(overrides: Partial<JumpCpRowShape>): JumpCpRowShape {
+  return {
+    jump_id: "jump-default",
+    title: "Untitled",
+    status: null,
+    cp_budget: 0,
+    spent: 0,
+    earned: 0,
+    ...overrides,
+  } satisfies JumpCpRowShape;
+}
+
+function makeAssetAggregateRow(
+  overrides: Partial<AssetTypeAggregateRowShape> & Pick<AssetTypeAggregateRowShape, "asset_type">
+): AssetTypeAggregateRowShape {
+  return {
+    asset_type: overrides.asset_type,
+    item_count: overrides.item_count ?? 0,
+    gross_cost: overrides.gross_cost ?? 0,
+    net_cost: overrides.net_cost ?? 0,
+    credit: overrides.credit ?? 0,
+    discounted_count: overrides.discounted_count ?? 0,
+    freebie_count: overrides.freebie_count ?? 0,
+  } satisfies AssetTypeAggregateRowShape;
+}
+
+function makeInventoryAggregateRow(
+  overrides: Partial<InventoryCategoryAggregateRowShape> & Pick<InventoryCategoryAggregateRowShape, "category">
+): InventoryCategoryAggregateRowShape {
+  return {
+    category: overrides.category,
+    item_count: overrides.item_count ?? 0,
+    total_quantity: overrides.total_quantity ?? 0,
+    warehouse_count: overrides.warehouse_count ?? 0,
+    locker_count: overrides.locker_count ?? 0,
+  } satisfies InventoryCategoryAggregateRowShape;
+}
+
+function makeGauntletAggregateRow(
+  overrides: Partial<GauntletAggregateRowShape> & Pick<GauntletAggregateRowShape, "jump_id" | "title">
+): GauntletAggregateRowShape {
+  return {
+    jump_id: overrides.jump_id,
+    title: overrides.title,
+    status: overrides.status ?? null,
+    cp_budget: overrides.cp_budget ?? 0,
+    spent: overrides.spent ?? 0,
+    earned: overrides.earned ?? 0,
+  } satisfies GauntletAggregateRowShape;
+}
+
+function makeBoosterSourceRow(
+  options: { id: string; name: string; attributes?: unknown; traits?: unknown } &
+    Partial<Omit<BoosterSourceRowShape, "id" | "name" | "attributes_json" | "traits_json">>
+): BoosterSourceRowShape {
+  const { id, name, attributes, traits, ...rest } = options;
+  const attributesJson =
+    "attributes_json" in rest
+      ? rest.attributes_json ?? null
+      : attributes === undefined
+        ? null
+        : attributes === null
+          ? null
+          : JSON.stringify(attributes);
+  const traitsJson =
+    "traits_json" in rest
+      ? rest.traits_json ?? null
+      : traits === undefined
+        ? null
+        : traits === null
+          ? null
+          : JSON.stringify(traits);
+  return {
+    id,
+    name,
+    attributes_json: attributesJson,
+    traits_json: traitsJson,
+  } satisfies BoosterSourceRowShape;
+}
+
 describe("statistics snapshot", () => {
   it("aggregates cp, inventory, gauntlet, and boosters", async () => {
     const fakeDb = new FakeDb();
+    const cpRows = [
+      makeJumpCpRow({
+        jump_id: "jump-1",
+        title: "Arc One",
+        status: "Gauntlet",
+        cp_budget: 1500,
+        spent: 600,
+        earned: 400,
+      }),
+      makeJumpCpRow({
+        jump_id: "jump-2",
+        title: "World Two",
+        status: "Completed",
+        cp_budget: 1000,
+        spent: 850,
+        earned: 50,
+      }),
+    ] satisfies JumpCpRowShape[];
+    const assetRows = [
+      makeAssetAggregateRow({
+        asset_type: "perk",
+        item_count: 4,
+        gross_cost: 1000,
+        net_cost: 900,
+        credit: 0,
+        discounted_count: 2,
+        freebie_count: 1,
+      }),
+      makeAssetAggregateRow({
+        asset_type: "item",
+        item_count: 3,
+        gross_cost: 600,
+        net_cost: 550,
+      }),
+      makeAssetAggregateRow({
+        asset_type: "drawback",
+        item_count: 2,
+        gross_cost: 450,
+        net_cost: 0,
+        credit: 450,
+      }),
+    ] satisfies AssetTypeAggregateRowShape[];
+    const inventoryRows = [
+      makeInventoryAggregateRow({
+        category: "Weapons",
+        item_count: 4,
+        total_quantity: 8,
+        warehouse_count: 3,
+        locker_count: 1,
+      }),
+      makeInventoryAggregateRow({
+        category: null,
+        item_count: 1,
+        total_quantity: 1,
+        warehouse_count: 0,
+        locker_count: 1,
+      }),
+    ] satisfies InventoryCategoryAggregateRowShape[];
+    const gauntletRows = [
+      makeGauntletAggregateRow({
+        jump_id: "jump-1",
+        title: "Arc One",
+        status: "Gauntlet",
+        cp_budget: 1500,
+        spent: 600,
+        earned: 400,
+      }),
+      makeGauntletAggregateRow({
+        jump_id: "jump-3",
+        title: "Trial of Courage",
+        status: "GAUNTLET-PHASE",
+        cp_budget: 1200,
+        spent: 1300,
+        earned: 200,
+      }),
+    ] satisfies GauntletAggregateRowShape[];
+    const boosterRows = [
+      makeBoosterSourceRow({
+        id: "char-1",
+        name: "Alicia Storm",
+        attributes: { boosters: ["Regeneration", { name: "Speed Burst" }] },
+        traits: [{ name: "Courage", type: "virtue" }],
+      }),
+      makeBoosterSourceRow({
+        id: "char-2",
+        name: "Borin Flame",
+        attributes: { boosters: { "Fire Core": { rank: "A" } } },
+        traits: [{ name: "Fire Core", type: "booster" }],
+      }),
+      makeBoosterSourceRow({
+        id: "char-3",
+        name: "Cara Shade",
+        attributes: null,
+        traits: [{ name: "Shadow Blend", type: "booster" }],
+      }),
+    ] satisfies BoosterSourceRowShape[];
+
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM jumps j") && sql.includes("GROUP BY j.id") && !sql.includes("gauntlet_jumps"),
-      () => [
-        {
-          jump_id: "jump-1",
-          title: "Arc One",
-          status: "Gauntlet",
-          cp_budget: 1500,
-          spent: 600,
-          earned: 400,
-        },
-        {
-          jump_id: "jump-2",
-          title: "World Two",
-          status: "Completed",
-          cp_budget: 1000,
-          spent: 850,
-          earned: 50,
-        },
-      ]
+      () => cpRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM jump_assets") && sql.includes("GROUP BY asset_type"),
-      () => [
-        {
-          asset_type: "perk",
-          item_count: 4,
-          gross_cost: 1000,
-          net_cost: 900,
-          credit: 0,
-          discounted_count: 2,
-          freebie_count: 1,
-        },
-        {
-          asset_type: "item",
-          item_count: 3,
-          gross_cost: 600,
-          net_cost: 550,
-          credit: 0,
-          discounted_count: 0,
-          freebie_count: 0,
-        },
-        {
-          asset_type: "drawback",
-          item_count: 2,
-          gross_cost: 450,
-          net_cost: 0,
-          credit: 450,
-          discounted_count: 0,
-          freebie_count: 0,
-        },
-      ]
+      () => assetRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM normalized_inventory"),
-      () => [
-        {
-          category: "Weapons",
-          item_count: 4,
-          total_quantity: 8,
-          warehouse_count: 3,
-          locker_count: 1,
-        },
-        {
-          category: null,
-          item_count: 1,
-          total_quantity: 1,
-          warehouse_count: 0,
-          locker_count: 1,
-        },
-      ]
+      () => inventoryRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM gauntlet_jumps"),
-      () => [
-        {
-          jump_id: "jump-1",
-          title: "Arc One",
-          status: "Gauntlet",
-          cp_budget: 1500,
-          spent: 600,
-          earned: 400,
-        },
-        {
-          jump_id: "jump-3",
-          title: "Trial of Courage",
-          status: "GAUNTLET-PHASE",
-          cp_budget: 1200,
-          spent: 1300,
-          earned: 200,
-        },
-      ]
+      () => gauntletRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM universal_drawback_settings"),
@@ -470,26 +614,7 @@ describe("statistics snapshot", () => {
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM character_profiles"),
-      () => [
-        {
-          id: "char-1",
-          name: "Alicia Storm",
-          attributes_json: JSON.stringify({ boosters: ["Regeneration", { name: "Speed Burst" }] }),
-          traits_json: JSON.stringify([{ name: "Courage", type: "virtue" }]),
-        },
-        {
-          id: "char-2",
-          name: "Borin Flame",
-          attributes_json: JSON.stringify({ boosters: { "Fire Core": { rank: "A" } } }),
-          traits_json: JSON.stringify([{ name: "Fire Core", type: "booster" }]),
-        },
-        {
-          id: "char-3",
-          name: "Cara Shade",
-          attributes_json: null,
-          traits_json: JSON.stringify([{ name: "Shadow Blend", type: "booster" }]),
-        },
-      ]
+      () => boosterRows.map((row) => ({ ...row }))
     );
 
     loadMock.mockResolvedValue(fakeDb);
