@@ -167,6 +167,179 @@ describe("computeBudget", () => {
   });
 });
 
+describe("summarizeJumpBudget", () => {
+  it("includes stipend toggles and companion import selections", async () => {
+    const fakeDb = new FakeDb();
+    const assetRows = [
+      {
+        id: "asset-perk",
+        asset_type: "perk",
+        name: "Perk A",
+        cost: 400,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: JSON.stringify({ stipend: { base: 100, frequency: "once", total: 100 } }),
+      },
+      {
+        id: "asset-companion",
+        asset_type: "companion",
+        name: "Companion B",
+        cost: 0,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: JSON.stringify({ stipend: { base: 50, periods: 3, frequency: "monthly", total: 150 } }),
+      },
+      {
+        id: "asset-drawback",
+        asset_type: "drawback",
+        name: "Drawback Z",
+        cost: 200,
+        quantity: 1,
+        discounted: 0,
+        freebie: 0,
+        metadata: null,
+      },
+    ];
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("WHERE jump_id = $1"),
+      () => assetRows
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [
+        { asset_id: "asset-perk", enabled: 1, override_total: null },
+        { asset_id: "asset-companion", enabled: 0, override_total: null },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM companion_imports"),
+      () => [
+        {
+          id: "import-1",
+          asset_id: "asset-companion",
+          companion_name: "Alice",
+          option_value: 150,
+          selected: 1,
+        },
+        {
+          id: "import-2",
+          asset_id: "asset-companion",
+          companion_name: "Bob",
+          option_value: 200,
+          selected: 0,
+        },
+      ]
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { summarizeJumpBudget } = await importDao();
+    const summary = await summarizeJumpBudget("jump-1");
+
+    expect(summary.netCost).toBe(550);
+    expect(summary.purchasesNetCost).toBe(400);
+    expect(summary.companionImportCost).toBe(150);
+    expect(summary.drawbackCredit).toBe(200);
+    expect(summary.stipendAdjustments).toBe(100);
+    expect(summary.stipendPotential).toBe(250);
+    expect(summary.balance).toBe(-250);
+
+    expect(summary.stipendToggles).toEqual([
+      {
+        assetId: "asset-perk",
+        assetName: "Perk A",
+        enabled: true,
+        amount: 100,
+        potentialAmount: 100,
+      },
+      {
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        enabled: false,
+        amount: 150,
+        potentialAmount: 150,
+      },
+    ]);
+
+    expect(summary.companionImportSelections).toEqual([
+      {
+        id: "import-1",
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        companionName: "Alice",
+        optionValue: 150,
+        selected: true,
+      },
+      {
+        id: "import-2",
+        assetId: "asset-companion",
+        assetName: "Companion B",
+        companionName: "Bob",
+        optionValue: 200,
+        selected: false,
+      },
+    ]);
+  });
+
+  it("persists stipend toggle updates and refreshes jump costs", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_assets") && sql.includes("WHERE jump_id = $1"),
+      () => [
+        {
+          id: "asset-perk",
+          asset_type: "perk",
+          name: "Perk A",
+          cost: 100,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          metadata: JSON.stringify({ stipend: { base: 50, frequency: "once", total: 50 } }),
+        },
+      ]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM jump_stipend_toggles"),
+      () => [{ asset_id: "asset-perk", enabled: 0, override_total: null }]
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM companion_imports"),
+      () => []
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { summarizeJumpBudget, setJumpStipendToggle } = await importDao();
+
+    const before = await summarizeJumpBudget("jump-1");
+    expect(before.stipendAdjustments).toBe(50);
+    expect(before.balance).toBe(-50);
+
+    await setJumpStipendToggle("jump-1", "asset-perk", false);
+
+    const insertCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("INSERT INTO jump_stipend_toggles")
+    );
+    expect(insertCall?.params.slice(0, 3)).toEqual(["jump-1", "asset-perk", 0]);
+
+    const updateCall = fakeDb.executeCalls.find((call) =>
+      call.sql.includes("UPDATE jumps SET cp_spent")
+    );
+    expect(updateCall).toBeTruthy();
+
+    const after = await summarizeJumpBudget("jump-1");
+    expect(after.stipendAdjustments).toBe(0);
+    expect(after.balance).toBe(-100);
+  });
+});
+
 describe("jump asset dao", () => {
   it("@smoke creates jump assets with derived defaults and summary updates", async () => {
     const fakeDb = new FakeDb();
@@ -180,14 +353,17 @@ describe("jump asset dao", () => {
       { once: true }
     );
     fakeDb.whenSelect(
-      (sql) => sql.includes("SELECT asset_type, cost, quantity, discounted, freebie") && sql.includes("FROM jump_assets"),
+      (sql) => sql.includes("SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata") && sql.includes("FROM jump_assets"),
       () => [
         {
+          id: "asset-123",
           asset_type: "perk",
+          name: "Sword of Dawn",
           cost: 200,
           quantity: 1,
           discounted: 0,
           freebie: 0,
+          metadata: JSON.stringify({ stipend: null }),
         },
       ],
       { once: true }

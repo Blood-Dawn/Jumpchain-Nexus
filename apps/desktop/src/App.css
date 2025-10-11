@@ -1436,6 +1436,53 @@ a:hover {
   font-size: 0.9rem;
 }
 
+.jump-hub__summary-section {
+  grid-column: 1 / -1;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(122, 203, 255, 0.12);
+}
+
+.jump-hub__summary-section h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(240, 247, 255, 0.7);
+}
+
+.jump-hub__summary-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.jump-hub__summary-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.jump-hub__summary-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.jump-hub__summary-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.jump-hub__summary-note {
+  margin-left: 0.35rem;
+  color: rgba(240, 247, 255, 0.6);
+  font-size: 0.75rem;
+}
+
 .jump-hub__summary--error {
   color: #ff9cab;
 }
