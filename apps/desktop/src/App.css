@@ -4013,20 +4013,120 @@ a:hover {
   cursor: default;
 }
 
-.exports__preview-content {
-  margin: 0;
-  padding: 1rem 1.2rem;
+.exports__preview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.exports__preview-card {
   border-radius: 1rem;
   border: 1px solid rgba(122, 203, 255, 0.12);
   background: rgba(14, 24, 38, 0.88);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.exports__preview-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.exports__preview-card-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.exports__preview-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.exports__preview-format {
+  display: inline-flex;
+  gap: 0.45rem;
+}
+
+.exports__preview-format-btn {
+  border-radius: 999px;
+  border: 1px solid rgba(122, 203, 255, 0.25);
+  padding: 0.35rem 0.85rem;
+  background: rgba(12, 20, 34, 0.75);
   color: #f0f7ff;
-  min-height: 260px;
-  max-height: 520px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.exports__preview-format-btn--active {
+  background: rgba(34, 121, 189, 0.85);
+  border-color: rgba(122, 203, 255, 0.6);
+}
+
+.exports__preview-format-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.exports__preview-spoiler {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(240, 247, 255, 0.7);
+}
+
+.exports__preview-pane {
+  border-radius: 1rem;
+  border: 1px solid rgba(122, 203, 255, 0.12);
+  padding: 1rem 1.2rem;
+  background: rgba(10, 18, 30, 0.78);
+  max-height: 480px;
   overflow: auto;
+}
+
+.exports__preview-markdown {
+  color: #f0f7ff;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.exports__preview-markdown h1,
+.exports__preview-markdown h2,
+.exports__preview-markdown h3 {
+  margin-top: 0;
+}
+
+.exports__preview-code {
+  margin: 0;
+  color: #f0f7ff;
   white-space: pre-wrap;
   font-family: "Fira Code", "Cascadia Mono", "Menlo", monospace;
   font-size: 0.82rem;
   line-height: 1.55;
+}
+
+.exports__spoiler {
+  border: 1px solid rgba(122, 203, 255, 0.2);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.exports__spoiler > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: rgba(240, 247, 255, 0.8);
 }
 
 .exports__empty {

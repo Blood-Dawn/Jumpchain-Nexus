@@ -23,7 +23,12 @@ SOFTWARE.
 */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { marked } from "marked";
+import createDOMPurify, { type DOMPurifyI } from "dompurify";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import TurndownService from "turndown";
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   computeBudget,
   deleteExportPreset,
@@ -63,6 +68,145 @@ interface PresetFormState {
   options: ExportPresetOptions;
 }
 
+const PREVIEW_SECTION_ORDER = [
+  { key: "header", title: "Jumpchain Export" },
+  { key: "totals", title: "Chain Totals" },
+  { key: "jumps", title: "Jump Breakdown" },
+  { key: "inventory", title: "Inventory Snapshot" },
+  { key: "profiles", title: "Character Profiles" },
+  { key: "notes", title: "Notes Overview" },
+  { key: "recaps", title: "Recap Highlights" },
+] as const;
+
+type ExportSectionKey = (typeof PREVIEW_SECTION_ORDER)[number]["key"];
+type PreviewFormat = "markdown" | "bbcode";
+
+interface SectionPreference {
+  format: PreviewFormat;
+  spoiler: boolean;
+}
+
+type SectionPreferences = Record<ExportSectionKey, SectionPreference>;
+
+const SECTION_LABELS: Record<ExportSectionKey, string> = PREVIEW_SECTION_ORDER.reduce(
+  (acc, item) => ({ ...acc, [item.key]: item.title }),
+  {} as Record<ExportSectionKey, string>
+);
+
+export function createDefaultSectionPreferences(): SectionPreferences {
+  return PREVIEW_SECTION_ORDER.reduce((acc, item) => {
+    acc[item.key] = { format: "markdown", spoiler: false };
+    return acc;
+  }, {} as SectionPreferences);
+}
+
+const SECTION_PREFERENCE_FALLBACK: SectionPreference = Object.freeze({
+  format: "markdown",
+  spoiler: false,
+});
+
+type FormStateUpdater =
+  | PresetFormState
+  | null
+  | ((prev: PresetFormState | null) => PresetFormState | null);
+
+export interface ExportConfigState {
+  selectedPresetId: string | null;
+  formState: PresetFormState | null;
+  sectionPreferences: SectionPreferences;
+  setSelectedPresetId: (id: string | null) => void;
+  setFormState: (updater: FormStateUpdater) => void;
+  setSectionFormat: (key: ExportSectionKey, format: PreviewFormat) => void;
+  setSectionSpoiler: (key: ExportSectionKey, spoiler: boolean) => void;
+  updateOption: <K extends keyof ExportPresetOptions>(key: K, value: ExportPresetOptions[K]) => void;
+  toggleAsset: (type: JumpAssetType, enabled: boolean) => void;
+  reset: () => void;
+}
+
+export const useExportConfigStore = create<ExportConfigState>()(
+  persist(
+    (set) => ({
+      selectedPresetId: null,
+      formState: null,
+      sectionPreferences: createDefaultSectionPreferences(),
+      setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
+      setFormState: (updater) =>
+        set((state) => ({
+          formState:
+            typeof updater === "function"
+              ? (updater as (prev: PresetFormState | null) => PresetFormState | null)(state.formState)
+              : updater,
+        })),
+      setSectionFormat: (key, format) =>
+        set((state) => ({
+          sectionPreferences: {
+            ...state.sectionPreferences,
+            [key]: { ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK), format },
+          },
+        })),
+      setSectionSpoiler: (key, spoiler) =>
+        set((state) => ({
+          sectionPreferences: {
+            ...state.sectionPreferences,
+            [key]: { ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK), spoiler },
+          },
+        })),
+      updateOption: (key, value) =>
+        set((state) =>
+          state.formState
+            ? {
+                formState: {
+                  ...state.formState,
+                  options: {
+                    ...state.formState.options,
+                    [key]: value,
+                  },
+                },
+              }
+            : state
+        ),
+      toggleAsset: (type, enabled) =>
+        set((state) =>
+          state.formState
+            ? {
+                formState: {
+                  ...state.formState,
+                  options: {
+                    ...state.formState.options,
+                    includeAssets: {
+                      ...state.formState.options.includeAssets,
+                      [type]: enabled,
+                    },
+                  },
+                },
+              }
+            : state
+        ),
+      reset: () =>
+        set({
+          selectedPresetId: null,
+          formState: null,
+          sectionPreferences: createDefaultSectionPreferences(),
+        }),
+    }),
+    {
+      name: "export-config",
+      partialize: ({ selectedPresetId, formState, sectionPreferences }) => ({
+        selectedPresetId,
+        formState,
+        sectionPreferences,
+      }),
+      ...(typeof window !== "undefined"
+        ? { storage: createJSONStorage(() => window.localStorage) }
+        : {}),
+    }
+  )
+);
+
+marked.use({ mangle: false, headerIds: false, breaks: false });
+
+const bbcodeTurndown = createBbcodeService();
+
 const ASSET_ORDER: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 const ASSET_LABELS: Record<JumpAssetType, string> = {
   origin: "Origins",
@@ -78,7 +222,261 @@ const FORMAT_METADATA: Record<ExportFormat, { label: string; mime: string; exten
   text: { label: "Plain Text", mime: "text/plain", extension: "txt" },
 };
 
-function createDefaultOptions(): ExportPresetOptions {
+function createBbcodeService(): TurndownService {
+  const service = new TurndownService({ bulletListMarker: "-" });
+  service.escape = (input) => input;
+
+  service.addRule("paragraph", {
+    filter: "p",
+    replacement: (content) => (content ? `${content}\n\n` : "\n\n"),
+  });
+
+  service.addRule("lineBreak", {
+    filter: "br",
+    replacement: () => "\n",
+  });
+
+  service.addRule("strong", {
+    filter: ["strong", "b"],
+    replacement: (content) => `[b]${content}[/b]`,
+  });
+
+  service.addRule("emphasis", {
+    filter: ["em", "i"],
+    replacement: (content) => `[i]${content}[/i]`,
+  });
+
+  service.addRule("heading", {
+    filter: ["h1", "h2", "h3", "h4", "h5", "h6"],
+    replacement: (content, node) => {
+      const level = Number(node.nodeName.substring(1));
+      const size = level === 1 ? 155 : level === 2 ? 135 : level === 3 ? 120 : 110;
+      const trimmed = content.trim();
+      return trimmed ? `[size=${size}][b]${trimmed}[/b][/size]\n\n` : "";
+    },
+  });
+
+  service.addRule("unorderedList", {
+    filter: "ul",
+    replacement: (content) => {
+      const inner = content.trim();
+      return inner ? `[list]\n${inner}\n[/list]\n` : "";
+    },
+  });
+
+  service.addRule("orderedList", {
+    filter: "ol",
+    replacement: (content) => {
+      const inner = content.trim();
+      return inner ? `[list=1]\n${inner}\n[/list]\n` : "";
+    },
+  });
+
+  service.addRule("listItem", {
+    filter: "li",
+    replacement: (content) => {
+      const normalized = content.replace(/\n+/g, " ").trim();
+      return normalized ? `[*]${normalized}\n` : "";
+    },
+  });
+
+  return service;
+}
+
+function markdownToHtml(markdown: string): string {
+  return (marked.parse(markdown, { async: false }) as string).trim();
+}
+
+const DOM_PURIFY: DOMPurifyI | null =
+  typeof window === "undefined" ? null : createDOMPurify(window);
+
+function sanitizeHtml(html: string): string {
+  if (DOM_PURIFY) {
+    return DOM_PURIFY.sanitize(html, { USE_PROFILES: { html: true } });
+  }
+
+  // Fallback for non-browser environments such as server-side rendering or tests
+  // where DOMPurify cannot initialize. The export previews are only rendered in
+  // the browser, but we defensively strip script tags to avoid executing them
+  // if this fallback is ever used.
+  return html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+}
+
+function markdownToSanitizedHtml(markdown: string): string {
+  return sanitizeHtml(markdownToHtml(markdown));
+}
+
+function convertHtmlToBbcode(html: string): string {
+  const bbcode = bbcodeTurndown.turndown(html);
+  return bbcode.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"]|'/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
+}
+
+function wrapHtmlWithSpoiler(title: string, html: string, enabled: boolean): string {
+  if (!enabled) {
+    return html;
+  }
+  return `<details class="exports__spoiler" open><summary>${escapeHtml(title)}</summary>${html}</details>`;
+}
+
+function wrapBbcodeWithSpoiler(title: string, content: string, enabled: boolean): string {
+  if (!enabled) {
+    return content;
+  }
+  const safeTitle = title.replace(/\[/g, "(").replace(/\]/g, ")");
+  return `[spoiler=${safeTitle}]${content}[/spoiler]`;
+}
+
+export interface ExportSectionContent {
+  key: ExportSectionKey;
+  title: string;
+  markdown: string;
+  text: string;
+}
+
+export function generateSections(
+  snapshot: ExportSnapshot,
+  options: ExportPresetOptions
+): ExportSectionContent[] {
+  const { assetsByJump, notesByJump, recapsByJump } = indexSnapshot(snapshot);
+  const jumpMap = new Map(snapshot.jumps.map((jump) => [jump.id, jump] as const));
+  const sections: ExportSectionContent[] = [
+    {
+      key: "header",
+      title: SECTION_LABELS.header,
+      markdown: formatHeading("markdown", 1, "Jumpchain Export"),
+      text: formatHeading("text", 1, "Jumpchain Export"),
+    },
+  ];
+
+  if (options.includeTotals) {
+    const markdown = renderTotals("markdown", snapshot.jumps);
+    const text = renderTotals("text", snapshot.jumps);
+    if (markdown.trim()) {
+      sections.push({
+        key: "totals",
+        title: SECTION_LABELS.totals,
+        markdown,
+        text,
+      });
+    }
+  }
+
+  const sortedJumps = snapshot.jumps
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
+
+  const jumpMarkdownBlocks = sortedJumps
+    .map((jump) => {
+      const assets = assetsByJump.get(jump.id) ?? [];
+      return renderJumpSection("markdown", jump, assets, options);
+    })
+    .filter(Boolean);
+
+  const jumpTextBlocks = sortedJumps
+    .map((jump) => {
+      const assets = assetsByJump.get(jump.id) ?? [];
+      return renderJumpSection("text", jump, assets, options);
+    })
+    .filter(Boolean);
+
+  if (jumpMarkdownBlocks.length) {
+    sections.push({
+      key: "jumps",
+      title: SECTION_LABELS.jumps,
+      markdown: jumpMarkdownBlocks.join("\n\n"),
+      text: jumpTextBlocks.join("\n\n"),
+    });
+  }
+
+  if (options.includeInventory) {
+    sections.push({
+      key: "inventory",
+      title: SECTION_LABELS.inventory,
+      markdown: renderInventorySection("markdown", snapshot.inventory),
+      text: renderInventorySection("text", snapshot.inventory),
+    });
+  }
+
+  if (options.includeProfiles) {
+    sections.push({
+      key: "profiles",
+      title: SECTION_LABELS.profiles,
+      markdown: renderProfilesSection("markdown", snapshot.profiles),
+      text: renderProfilesSection("text", snapshot.profiles),
+    });
+  }
+
+  if (options.includeNotes) {
+    sections.push({
+      key: "notes",
+      title: SECTION_LABELS.notes,
+      markdown: renderNotesSection("markdown", notesByJump, jumpMap),
+      text: renderNotesSection("text", notesByJump, jumpMap),
+    });
+  }
+
+  if (options.includeRecaps) {
+    sections.push({
+      key: "recaps",
+      title: SECTION_LABELS.recaps,
+      markdown: renderRecapsSection("markdown", recapsByJump, jumpMap),
+      text: renderRecapsSection("text", recapsByJump, jumpMap),
+    });
+  }
+
+  return sections.filter((section) => section.markdown.trim() || section.text.trim());
+}
+
+export function composeDocument(
+  format: ExportFormat,
+  sections: ExportSectionContent[],
+  preferences: SectionPreferences
+): string {
+  if (format === "markdown") {
+    return sections
+      .map((section) => section.markdown.trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (format === "bbcode") {
+    return sections
+      .map((section) => {
+        const html = markdownToSanitizedHtml(section.markdown);
+        const bbcode = convertHtmlToBbcode(html);
+        const preference = preferences[section.key] ?? SECTION_PREFERENCE_FALLBACK;
+        return wrapBbcodeWithSpoiler(section.title, bbcode, preference.spoiler).trim();
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  return sections
+    .map((section) => section.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function createDefaultOptions(): ExportPresetOptions {
   return {
     format: "markdown",
     includeTotals: true,
@@ -165,13 +563,9 @@ function parseTags(raw: string | null): string[] {
     .filter(Boolean);
 }
 
-function formatHeading(format: ExportFormat, level: 1 | 2 | 3, text: string): string {
+function formatHeading(format: "markdown" | "text", level: 1 | 2 | 3, text: string): string {
   if (format === "markdown") {
     return `${"#".repeat(level)} ${text}`;
-  }
-  if (format === "bbcode") {
-    const size = level === 1 ? 155 : level === 2 ? 135 : 120;
-    return `[size=${size}][b]${text}[/b][/size]`;
   }
   if (level === 1) {
     return `${text.toUpperCase()}\n${"=".repeat(Math.min(text.length, 60))}`;
@@ -182,22 +576,18 @@ function formatHeading(format: ExportFormat, level: 1 | 2 | 3, text: string): st
   return text;
 }
 
-function renderList(format: ExportFormat, items: string[]): string {
+function renderList(format: "markdown" | "text", items: string[]): string {
   if (!items.length) {
     return "";
   }
   if (format === "markdown") {
     return items.map((item) => `- ${item}`).join("\n");
   }
-  if (format === "bbcode") {
-    const rows = items.map((item) => `[*]${item}`).join("\n");
-    return `[list]\n${rows}\n[/list]`;
-  }
   return items.map((item) => `• ${item}`).join("\n");
 }
 
 function renderKeyValues(
-  format: ExportFormat,
+  format: "markdown" | "text",
   entries: Array<{ key: string; value: string }>
 ): string {
   if (!entries.length) {
@@ -205,10 +595,6 @@ function renderKeyValues(
   }
   if (format === "markdown") {
     return entries.map((entry) => `- **${entry.key}:** ${entry.value}`).join("\n");
-  }
-  if (format === "bbcode") {
-    const rows = entries.map((entry) => `[*][b]${entry.key}:[/b] ${entry.value}`).join("\n");
-    return `[list]\n${rows}\n[/list]`;
   }
   return entries.map((entry) => `${entry.key}: ${entry.value}`).join("\n");
 }
@@ -303,7 +689,7 @@ function indexSnapshot(snapshot: ExportSnapshot): SnapshotMaps {
   return { assetsByJump, notesByJump, recapsByJump };
 }
 
-function renderTotals(format: ExportFormat, jumps: JumpRecord[]): string {
+function renderTotals(format: "markdown" | "text", jumps: JumpRecord[]): string {
   if (!jumps.length) {
     return renderKeyValues(format, [
       { key: "Total Budget", value: "0 CP" },
@@ -325,7 +711,7 @@ function renderTotals(format: ExportFormat, jumps: JumpRecord[]): string {
 }
 
 function renderJumpSection(
-  format: ExportFormat,
+  format: "markdown" | "text",
   jump: JumpRecord,
   assets: JumpAssetRecord[],
   options: ExportPresetOptions
@@ -375,7 +761,7 @@ function renderJumpSection(
 }
 
 function renderInventorySection(
-  format: ExportFormat,
+  format: "markdown" | "text",
   inventory: InventoryItemRecord[]
 ): string {
   if (!inventory.length) {
@@ -399,7 +785,7 @@ function renderInventorySection(
 }
 
 function renderProfilesSection(
-  format: ExportFormat,
+  format: "markdown" | "text",
   profiles: CharacterProfileRecord[]
 ): string {
   if (!profiles.length) {
@@ -425,7 +811,7 @@ function renderProfilesSection(
 }
 
 function renderNotesSection(
-  format: ExportFormat,
+  format: "markdown" | "text",
   notesByJump: Map<string | null, NoteRecord[]>,
   jumps: Map<string, JumpRecord>
 ): string {
@@ -445,7 +831,7 @@ function renderNotesSection(
 }
 
 function renderRecapsSection(
-  format: ExportFormat,
+  format: "markdown" | "text",
   recapsByJump: Map<string, RecapRecord[]>,
   jumps: Map<string, JumpRecord>
 ): string {
@@ -464,43 +850,6 @@ function renderRecapsSection(
   return blocks.filter(Boolean).join("\n\n");
 }
 
-function generateDocument(snapshot: ExportSnapshot, options: ExportPresetOptions): string {
-  const { assetsByJump, notesByJump, recapsByJump } = indexSnapshot(snapshot);
-  const format = options.format;
-  const jumpMap = new Map(snapshot.jumps.map((jump) => [jump.id, jump] as const));
-  const sections: string[] = [formatHeading(format, 1, "Jumpchain Export")];
-
-  if (options.includeTotals) {
-    sections.push(renderTotals(format, snapshot.jumps));
-  }
-
-  snapshot.jumps
-    .slice()
-    .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
-    .forEach((jump) => {
-      const assets = assetsByJump.get(jump.id) ?? [];
-      sections.push(renderJumpSection(format, jump, assets, options));
-    });
-
-  if (options.includeInventory) {
-    sections.push(renderInventorySection(format, snapshot.inventory));
-  }
-
-  if (options.includeProfiles) {
-    sections.push(renderProfilesSection(format, snapshot.profiles));
-  }
-
-  if (options.includeNotes) {
-    sections.push(renderNotesSection(format, notesByJump, jumpMap));
-  }
-
-  if (options.includeRecaps) {
-    sections.push(renderRecapsSection(format, recapsByJump, jumpMap));
-  }
-
-  return sections.filter(Boolean).join("\n\n");
-}
-
 const ExportCenter: React.FC = () => {
   const queryClient = useQueryClient();
   const presetsQuery = useQuery({ queryKey: ["export-presets"], queryFn: listExportPresets });
@@ -510,8 +859,15 @@ const ExportCenter: React.FC = () => {
     queryFn: loadExportPreferences,
   });
 
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [formState, setFormState] = useState<PresetFormState | null>(null);
+  const selectedPresetId = useExportConfigStore((state) => state.selectedPresetId);
+  const setSelectedPresetId = useExportConfigStore((state) => state.setSelectedPresetId);
+  const formState = useExportConfigStore((state) => state.formState);
+  const setFormState = useExportConfigStore((state) => state.setFormState);
+  const sectionPreferences = useExportConfigStore((state) => state.sectionPreferences);
+  const setSectionFormat = useExportConfigStore((state) => state.setSectionFormat);
+  const setSectionSpoiler = useExportConfigStore((state) => state.setSectionSpoiler);
+  const updateOption = useExportConfigStore((state) => state.updateOption);
+  const toggleAsset = useExportConfigStore((state) => state.toggleAsset);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const defaultAppliedRef = useRef<string | null>(null);
 
@@ -580,6 +936,48 @@ const ExportCenter: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [statusMessage]);
 
+  const sections = useMemo(() => {
+    if (!formState || !snapshotQuery.data) {
+      return [] as ExportSectionContent[];
+    }
+    return generateSections(snapshotQuery.data, formState.options);
+  }, [formState?.options, snapshotQuery.data]);
+
+  const previewSections = useMemo(() => {
+    if (!sections.length) {
+      return [] as Array<
+        ExportSectionContent & {
+          html: string;
+          htmlPreview: string;
+          bbcode: string;
+          preference: SectionPreference;
+        }
+      >;
+    }
+    return sections.map((section) => {
+      const preference = sectionPreferences[section.key] ?? SECTION_PREFERENCE_FALLBACK;
+      const html = markdownToSanitizedHtml(section.markdown);
+      return {
+        ...section,
+        html,
+        htmlPreview: wrapHtmlWithSpoiler(section.title, html, preference.spoiler),
+        bbcode: wrapBbcodeWithSpoiler(
+          section.title,
+          convertHtmlToBbcode(html),
+          preference.spoiler
+        ),
+        preference,
+      };
+    });
+  }, [sections, sectionPreferences]);
+
+  const previewContent = useMemo(() => {
+    if (!formState || !sections.length) {
+      return "";
+    }
+    return composeDocument(formState.options.format, sections, sectionPreferences);
+  }, [formState?.options.format, sections, sectionPreferences]);
+
   const upsertMutation = useMutation({
     mutationFn: upsertExportPreset,
     onSuccess: async (record) => {
@@ -594,7 +992,9 @@ const ExportCenter: React.FC = () => {
     onSuccess: async (_, deletedId) => {
       await queryClient.invalidateQueries({ queryKey: ["export-presets"] });
       setStatusMessage("Preset deleted.");
-      setSelectedPresetId((current) => (current === deletedId ? null : current));
+      if (useExportConfigStore.getState().selectedPresetId === deletedId) {
+        setSelectedPresetId(null);
+      }
     },
   });
 
@@ -672,32 +1072,12 @@ const ExportCenter: React.FC = () => {
   };
 
   const handleOptionChange = <K extends keyof ExportPresetOptions>(key: K, value: ExportPresetOptions[K]) => {
-    setFormState((prev) => (prev ? { ...prev, options: { ...prev.options, [key]: value } } : prev));
+    updateOption(key, value);
   };
 
   const handleAssetToggle = (type: JumpAssetType, checked: boolean) => {
-    setFormState((prev) =>
-      prev
-        ? {
-            ...prev,
-            options: {
-              ...prev.options,
-              includeAssets: {
-                ...prev.options.includeAssets,
-                [type]: checked,
-              },
-            },
-          }
-        : prev,
-    );
+    toggleAsset(type, checked);
   };
-
-  const previewContent = useMemo(() => {
-    if (!formState || !snapshotQuery.data) {
-      return "";
-    }
-    return generateDocument(snapshotQuery.data, formState.options);
-  }, [formState?.options, snapshotQuery.data]);
 
   return (
     <section className="exports">
@@ -906,7 +1286,7 @@ const ExportCenter: React.FC = () => {
                         ? "Loading snapshot…"
                         : snapshotQuery.isError
                           ? "Snapshot unavailable."
-                          : "Live preview reflects unsaved changes."}
+                          : "Previews honor format and spoiler preferences."}
                     </p>
                   </div>
                   <div className="exports__preview-actions">
@@ -918,7 +1298,65 @@ const ExportCenter: React.FC = () => {
                     </button>
                   </div>
                 </header>
-                <pre className="exports__preview-content">{previewContent || ""}</pre>
+                <div className="exports__preview-grid">
+                  {previewSections.length ? (
+                    previewSections.map((section) => (
+                      <article key={section.key} className="exports__preview-card">
+                        <header className="exports__preview-card-header">
+                          <h3>{section.title}</h3>
+                          <div className="exports__preview-card-controls">
+                            <div className="exports__preview-format" role="group" aria-label="Preview format">
+                              <button
+                                type="button"
+                                className={
+                                  section.preference.format === "markdown"
+                                    ? "exports__preview-format-btn exports__preview-format-btn--active"
+                                    : "exports__preview-format-btn"
+                                }
+                                onClick={() => setSectionFormat(section.key, "markdown")}
+                                aria-pressed={section.preference.format === "markdown"}
+                              >
+                                Markdown
+                              </button>
+                              <button
+                                type="button"
+                                className={
+                                  section.preference.format === "bbcode"
+                                    ? "exports__preview-format-btn exports__preview-format-btn--active"
+                                    : "exports__preview-format-btn"
+                                }
+                                onClick={() => setSectionFormat(section.key, "bbcode")}
+                                aria-pressed={section.preference.format === "bbcode"}
+                              >
+                                BBCode
+                              </button>
+                            </div>
+                            <label className="exports__preview-spoiler">
+                              <input
+                                type="checkbox"
+                                checked={section.preference.spoiler}
+                                onChange={(event) => setSectionSpoiler(section.key, event.target.checked)}
+                              />
+                              Spoiler
+                            </label>
+                          </div>
+                        </header>
+                        <div className="exports__preview-pane">
+                          {section.preference.format === "markdown" ? (
+                            <div
+                              className="exports__preview-markdown"
+                              dangerouslySetInnerHTML={{ __html: section.htmlPreview }}
+                            />
+                          ) : (
+                            <pre className="exports__preview-code">{section.bbcode}</pre>
+                          )}
+                        </div>
+                      </article>
+                    ))
+                  ) : (
+                    <p className="exports__empty">No preview available. Adjust export options to enable sections.</p>
+                  )}
+                </div>
               </section>
             </>
           )}
