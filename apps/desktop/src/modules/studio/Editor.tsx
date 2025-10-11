@@ -28,8 +28,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { Plugin, PluginKey } from "prosemirror-state";
 import type {
@@ -37,6 +36,7 @@ import type {
   ChapterSnapshotRecord,
   StoryWithChapters,
   EntityRecord,
+  ChapterTextRecord,
 } from "../../db/dao";
 import {
   getChapterText,
@@ -53,7 +53,12 @@ import { checkGrammar, createGrammarDebouncer, type GrammarSuggestion } from "..
 import { syncChapterMetadata } from "./indexer";
 import { exportChapter, exportStory, type StoryExportFormat } from "./exporters";
 import { confirmDialog } from "../../services/dialogService";
-import GrammarMatchesSidebar from "./GrammarMatchesSidebar";
+import {
+  computeDraftState,
+  extractPlainTextFromJson,
+  restoreSnapshotContent,
+  type DraftState,
+} from "./snapshotUtils";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -61,12 +66,6 @@ interface StudioEditorProps {
   onChapterRenamed: (chapterId: string, title: string) => Promise<void>;
   onStoryRenamed: (storyId: string, title: string) => Promise<void>;
   onRequestChapterCreate: (storyId: string | null) => Promise<void>;
-}
-
-interface DraftState {
-  json: string;
-  plain: string;
-  offsetMap: number[];
 }
 
 interface GrammarDecoration {
@@ -133,44 +132,6 @@ const GrammarHighlightExtension = Extension.create({
   },
 });
 
-function buildPlainText(editor: TiptapEditor): DraftState {
-  const doc = editor.state.doc;
-  let text = "";
-  const map: number[] = [];
-
-  function traverse(node: ProseMirrorNode, pos: number) {
-    if (node.isText) {
-      const value = node.text ?? "";
-      for (let i = 0; i < value.length; i += 1) {
-        map.push(pos + i + 1);
-      }
-      text += value;
-      return;
-    }
-    if (node.type.name === "hardBreak") {
-      text += "\n";
-      map.push(pos + 1);
-      return;
-    }
-    let startLength = text.length;
-    node.forEach((child, offset) => {
-      traverse(child, pos + offset + 1);
-    });
-    if (node.isBlock && text.length > startLength) {
-      text += "\n";
-      map.push(pos + node.nodeSize);
-    }
-  }
-
-  traverse(doc, -1);
-  const json = JSON.stringify(editor.getJSON());
-  return {
-    json,
-    plain: text.trimEnd(),
-    offsetMap: map,
-  };
-}
-
 function collectMentions(editor: TiptapEditor): Array<{ entityId: string; start: number | null; end: number | null }> {
   const mentions: Array<{ entityId: string; start: number | null; end: number | null }> = [];
   editor.state.doc.descendants((node, pos) => {
@@ -213,6 +174,10 @@ function formatTimestamp(value: string | null): string {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+const SNAPSHOT_CURRENT_DRAFT = "current-draft";
+const SNAPSHOT_PREVIOUS_DRAFT = "previous-draft";
+const SNAPSHOT_LAST_SAVE = "current-save";
+
 export const StudioEditor: React.FC<StudioEditorProps> = ({
   story,
   chapter,
@@ -223,8 +188,6 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const queryClient = useQueryClient();
   const entities = useJmhStore((state) => state.entities);
   const autosaveInterval = useStudioStore((state) => state.autosaveIntervalMs);
-  const snapshotsOpen = useStudioStore((state) => state.snapshotsOpen);
-  const setSnapshotsOpen = useStudioStore((state) => state.setSnapshotsOpen);
   const grammarEnabled = useStudioStore((state) => state.grammarEnabled);
   const grammarMode = useStudioStore((state) => state.grammarMode);
   const setGrammarEnabled = useStudioStore((state) => state.setGrammarEnabled);
@@ -232,6 +195,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const setLastAutosave = useStudioStore((state) => state.setLastAutosave);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
+  const [draftBackup, setDraftBackup] = useState<DraftState | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exportFormat, setExportFormat] = useState<StoryExportFormat>("markdown");
@@ -244,7 +208,11 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const [hoveredGrammar, setHoveredGrammar] = useState<{ suggestion: GrammarSuggestionWithRange; rect: DOMRect } | null>(
     null,
   );
-  const shellContentRef = useRef<HTMLDivElement | null>(null);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string>(SNAPSHOT_CURRENT_DRAFT);
+  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewLabel, setPreviewLabel] = useState<string>("Current Draft");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -257,8 +225,9 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     ],
     content: "<p>Start crafting your next chronicle…</p>",
     onUpdate: ({ editor: instance }) => {
-      const payload = buildPlainText(instance);
+      const payload = computeDraftState(instance);
       setDraft(payload);
+      setDraftBackup(null);
       setDirty(true);
     },
   });
@@ -281,10 +250,81 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const snapshotsQuery = useQuery({
     queryKey: ["chapterSnapshots", chapterId],
     queryFn: () => (chapterId ? listChapterSnapshots(chapterId) : Promise.resolve([] as ChapterSnapshotRecord[])),
-    enabled: Boolean(chapterId) && snapshotsOpen,
+    enabled: Boolean(chapterId),
   });
+  const snapshots = snapshotsQuery.data ?? [];
+  const canRestoreSnapshot =
+    selectedSnapshotId !== SNAPSHOT_CURRENT_DRAFT &&
+    !(selectedSnapshotId === SNAPSHOT_PREVIOUS_DRAFT && !draftBackup) &&
+    !previewLoading;
 
   const debouncedGrammarRef = useRef<(value: string) => void | undefined>(undefined);
+
+  useEffect(() => {
+    if (selectedSnapshotId === SNAPSHOT_PREVIOUS_DRAFT && !draftBackup) {
+      setSelectedSnapshotId(SNAPSHOT_CURRENT_DRAFT);
+    }
+  }, [draftBackup, selectedSnapshotId]);
+
+  useEffect(() => {
+    setSelectedSnapshotId(SNAPSHOT_CURRENT_DRAFT);
+    setPreviewLabel("Current Draft");
+    setPreviewError(null);
+  }, [chapterId]);
+
+  useEffect(() => {
+    if (!editor) return;
+    let cancelled = false;
+    const updatePreview = async () => {
+      setPreviewError(null);
+      if (selectedSnapshotId === SNAPSHOT_CURRENT_DRAFT) {
+        setPreviewLoading(false);
+        setPreviewLabel("Current Draft");
+        setPreviewContent(draft?.plain ?? "");
+        return;
+      }
+      if (selectedSnapshotId === SNAPSHOT_PREVIOUS_DRAFT) {
+        setPreviewLoading(false);
+        setPreviewLabel("Previous Draft (unsaved)");
+        setPreviewContent(draftBackup?.plain ?? "");
+        return;
+      }
+      setPreviewLoading(true);
+      try {
+        if (selectedSnapshotId === SNAPSHOT_LAST_SAVE) {
+          const data = chapterId ? chapterTextQuery.data ?? (await getChapterText(chapterId)) : null;
+          if (cancelled) return;
+          const plain = data?.json ? extractPlainTextFromJson(editor, data.json) : "";
+          setPreviewLabel("Last Saved Chapter");
+          setPreviewContent(plain);
+        } else {
+          const snapshot = snapshots.find((item) => item.id === selectedSnapshotId);
+          if (!snapshot) {
+            setPreviewError("Snapshot unavailable");
+            setPreviewContent("");
+            return;
+          }
+          const plain = extractPlainTextFromJson(editor, snapshot.json);
+          setPreviewLabel(`Snapshot from ${new Date(snapshot.created_at).toLocaleString()}`);
+          setPreviewContent(plain);
+        }
+      } catch (error) {
+        console.error("Failed to preview snapshot", error);
+        if (!cancelled) {
+          setPreviewError("Unable to render snapshot preview");
+          setPreviewContent("");
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      }
+    };
+    void updatePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [chapterId, chapterTextQuery.data, draft?.plain, draftBackup, editor, selectedSnapshotId, snapshots]);
 
   useEffect(() => {
     debouncedGrammarRef.current = createGrammarDebouncer(1200, (value: string) => {
@@ -345,18 +385,20 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     if (chapter && data?.json) {
       try {
         editor.commands.setContent(JSON.parse(data.json), false);
-        const payload = buildPlainText(editor);
+        const payload = computeDraftState(editor);
         setDraft(payload);
         setDirty(false);
+        setDraftBackup(null);
       } catch (error) {
         console.error("Failed to parse chapter content", error);
         editor.commands.setContent("<p>Start crafting your next chronicle…</p>", false);
       }
     } else if (chapter) {
       editor.commands.setContent(`<h2>${chapter.title}</h2><p>Begin your narrative…</p>`, false);
-      const payload = buildPlainText(editor);
+      const payload = computeDraftState(editor);
       setDraft(payload);
       setDirty(false);
+      setDraftBackup(null);
     }
   }, [editor, chapterId, chapterTextQuery.data, chapter]);
 
@@ -426,7 +468,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     if (!chapter || !draft) return;
     setSaving(true);
     try {
-      await saveChapterText({
+      const savedText: ChapterTextRecord = await saveChapterText({
         chapter_id: chapter.id,
         json: draft.json,
         plain: draft.plain,
@@ -438,7 +480,9 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
         await snapshotsQuery.refetch();
       }
       setDirty(false);
+      setDraftBackup(null);
       setLastAutosave(new Date().toISOString());
+      queryClient.setQueryData(["chapterText", chapter.id], savedText);
       await queryClient.invalidateQueries({ queryKey: ["stories"] });
     } catch (error) {
       console.error("Failed to save chapter", error);
@@ -550,6 +594,92 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     await queryClient.invalidateQueries({ queryKey: ["stories"] });
   };
 
+  const handleSnapshotSelectionChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedSnapshotId(event.target.value);
+    setPreviewError(null);
+  };
+
+  const handleRestoreSelectedSnapshot = async () => {
+    if (!editor || !chapterId) return;
+    if (selectedSnapshotId === SNAPSHOT_CURRENT_DRAFT) return;
+
+    if (selectedSnapshotId === SNAPSHOT_PREVIOUS_DRAFT) {
+      if (!draftBackup) {
+        setPreviewError("No previous draft available");
+        return;
+      }
+      const confirm = await confirmDialog({
+        title: "Restore previous draft",
+        message: "Revert to the unsaved draft captured before your last snapshot restore?",
+        kind: "warning",
+        okLabel: "Restore",
+        cancelLabel: "Cancel",
+      });
+      if (!confirm) return;
+      try {
+        const { nextDraft } = restoreSnapshotContent(editor, draftBackup.json, draft, false);
+        setDraft(nextDraft);
+        setDirty(true);
+        setDraftBackup(null);
+        setSelectedSnapshotId(SNAPSHOT_CURRENT_DRAFT);
+        setPreviewContent(nextDraft.plain);
+        setPreviewLabel("Current Draft");
+        setPreviewError(null);
+      } catch (error) {
+        console.error("Failed to restore previous draft", error);
+        setPreviewError("Failed to restore previous draft");
+      }
+      return;
+    }
+
+    let sourceJson: string | null = null;
+    let description = "the selected snapshot";
+
+    if (selectedSnapshotId === SNAPSHOT_LAST_SAVE) {
+      const data = chapterId ? chapterTextQuery.data ?? (await getChapterText(chapterId)) : null;
+      sourceJson = data?.json ?? null;
+      description = "the last saved version";
+    } else {
+      const snapshot = snapshots.find((item) => item.id === selectedSnapshotId);
+      if (!snapshot) {
+        setPreviewError("Snapshot unavailable");
+        return;
+      }
+      sourceJson = snapshot.json;
+      description = `snapshot from ${new Date(snapshot.created_at).toLocaleString()}`;
+    }
+
+    if (!sourceJson) {
+      setPreviewError("Snapshot data unavailable");
+      return;
+    }
+
+    const confirm = await confirmDialog({
+      title: "Restore snapshot",
+      message: `Restore ${description}? Your current draft will move to Previous Draft for safekeeping.`,
+      kind: "warning",
+      okLabel: "Restore",
+      cancelLabel: "Cancel",
+    });
+    if (!confirm) return;
+
+    try {
+      const { nextDraft, backup } = restoreSnapshotContent(editor, sourceJson, draft, dirty);
+      setDraft(nextDraft);
+      setDirty(true);
+      if (backup) {
+        setDraftBackup(backup);
+      }
+      setSelectedSnapshotId(SNAPSHOT_CURRENT_DRAFT);
+      setPreviewContent(nextDraft.plain);
+      setPreviewLabel("Current Draft");
+      setPreviewError(null);
+    } catch (error) {
+      console.error("Failed to restore snapshot", error);
+      setPreviewError("Failed to restore snapshot");
+    }
+  };
+
   if (!story) {
     return (
       <div className="studio-empty-state">
@@ -594,10 +724,11 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
         <div className="studio-shell__editor-meta">
           <h2>{chapter.title}</h2>
           <span className="studio-shell__summary">
-            {story.title} • Autosave every {Math.round(autosaveInterval / 1000)}s • Last autosave: {formatTimestamp(lastAutosaveAt)}
+            {story.title} • Autosave every {Math.round(autosaveInterval / 1000)}s
           </span>
         </div>
         <div className="studio-shell__editor-actions">
+          <span className="studio-shell__autosave">Last autosave: {formatTimestamp(lastAutosaveAt)}</span>
           <button type="button" onClick={handleRenameStory}>Rename Story</button>
           <button type="button" onClick={handleRenameChapter}>Rename Chapter</button>
           <button type="button" onClick={() => handleReorder("prev")}>◀</button>
@@ -617,11 +748,21 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
               <option value="bbcode">BBCode</option>
             </select>
           </label>
-          <button type="button" onClick={handleExport} disabled={exporting}>
-            {exporting ? "Exporting…" : "Export"}
-          </button>
-          <button type="button" onClick={() => setSnapshotsOpen(!snapshotsOpen)}>
-            {snapshotsOpen ? "Hide Snapshots" : "Show Snapshots"}
+          <label className="studio-snapshot-select">
+            Snapshots
+            <select value={selectedSnapshotId} onChange={handleSnapshotSelectionChange}>
+              <option value={SNAPSHOT_CURRENT_DRAFT}>Current Draft</option>
+              {draftBackup && <option value={SNAPSHOT_PREVIOUS_DRAFT}>Previous Draft (unsaved)</option>}
+              <option value={SNAPSHOT_LAST_SAVE}>Last Save</option>
+              {snapshots.map((snapshot) => (
+                <option key={snapshot.id} value={snapshot.id}>
+                  {new Date(snapshot.created_at).toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={handleRestoreSelectedSnapshot} disabled={!canRestoreSnapshot}>
+            Restore Selection
           </button>
           <button type="button" onClick={() => saveChapter(true)} disabled={saving || !dirty}>
             {saving ? "Saving…" : dirty ? "Save" : "Saved"}
@@ -670,39 +811,25 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
 
       {grammarError && <p className="studio-shell__summary">{grammarError}</p>}
 
-      {snapshotsOpen && snapshotsQuery.data && (
-        <aside className="studio-snapshot-list">
-          <h3>Snapshots</h3>
-          {snapshotsQuery.data.length === 0 && <span>No snapshots yet.</span>}
-          {snapshotsQuery.data.map((snapshot, index) => (
-            <button
-              type="button"
-              key={snapshot.id}
-              onClick={async () => {
-                if (!editor) return;
-                const restore = await confirmDialog({
-                  message: `Restore snapshot #${index + 1}? Unsaved changes will be lost.`,
-                  title: "Restore snapshot",
-                  kind: "warning",
-                  okLabel: "Restore",
-                  cancelLabel: "Cancel",
-                });
-                if (!restore) return;
-                try {
-                  editor.commands.setContent(JSON.parse(snapshot.json), false);
-                  const payload = buildPlainText(editor);
-                  setDraft(payload);
-                  setDirty(true);
-                } catch (error) {
-                  console.error("Failed to restore snapshot", error);
-                }
-              }}
-            >
-              {new Date(snapshot.created_at).toLocaleString()}
-            </button>
-          ))}
-        </aside>
-      )}
+      <section className="studio-snapshot-panel" aria-live="polite">
+        <div className="studio-snapshot-panel__header">
+          <h3>Snapshot Preview</h3>
+          <span className="studio-snapshot-panel__label">{previewLabel}</span>
+        </div>
+        <div className="studio-snapshot-panel__preview">
+          {previewLoading ? (
+            <p>Loading snapshot preview…</p>
+          ) : previewError ? (
+            <p className="studio-snapshot-panel__error">{previewError}</p>
+          ) : (
+            <pre>{previewContent || "This snapshot is empty."}</pre>
+          )}
+        </div>
+        {draftBackup && (
+          <p className="studio-snapshot-panel__note">Your previous draft is stored as "Previous Draft (unsaved)" in the dropdown.</p>
+        )}
+      </section>
+
     </div>
   );
 };

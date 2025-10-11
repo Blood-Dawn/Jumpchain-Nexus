@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use tauri::{path::BaseDirectory, AppHandle, Window};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager, Window};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_shell::{process::CommandEvent, ShellExt};
 
@@ -263,6 +263,7 @@ async fn run_full_test_suite(window: Window) -> Result<(), String> {
                     let payload = TestRunPayload::Error { message: error };
                     let _ = event_window.emit(TEST_RUN_EVENT, &payload);
                 }
+                _ => {}
             }
         }
     });

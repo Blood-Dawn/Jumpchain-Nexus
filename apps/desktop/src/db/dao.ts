@@ -4573,6 +4573,10 @@ export async function updateFormatterSettings(
   return next;
 }
 
+export async function saveFormatterSpellcheck(spellcheckEnabled: boolean): Promise<FormatterSettings> {
+  return updateFormatterSettings({ spellcheckEnabled });
+}
+
 export async function listExportPresets(): Promise<ExportPresetRecord[]> {
   return withInit(async (db) => {
     const rows = await db.select<ExportPresetRecord[]>(
