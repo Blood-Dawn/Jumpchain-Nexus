@@ -173,6 +173,26 @@
   overflow: auto;
 }
 
+.knowledge-base__stage--drop {
+  border-color: color-mix(in srgb, var(--kb-accent) 70%, var(--kb-border-muted));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kb-accent) 30%, transparent);
+}
+
+.knowledge-base__drop-indicator {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--kb-accent) 14%, transparent);
+  color: var(--kb-accent-text);
+  text-align: center;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .knowledge-base__feedback {
   position: absolute;
   top: 1rem;
