@@ -79,8 +79,11 @@ class FakeDb {
     if (normalized.startsWith("PRAGMA TABLE_INFO")) {
       return [];
     }
-    if (normalized.includes("FROM KNOWLEDGE_ARTICLES")) {
+    if (normalized.includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES")) {
       return [{ count: 0 }];
+    }
+    if (normalized.includes("FROM KNOWLEDGE_ARTICLE_ASSETS")) {
+      return [];
     }
     if (!this.selectQueue.length) {
       return [];
@@ -180,6 +183,191 @@ describe("computeBudget", () => {
       freebies: 0,
       netCost: 0,
     });
+  });
+});
+
+describe("knowledge base relationships", () => {
+  it("includes related asset ids when fetching articles", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES"),
+      () => [{ count: 1 }],
+      { once: true },
+    );
+    const baseRow = {
+      id: "article-1",
+      title: "Sample",
+      category: null,
+      summary: null,
+      content: "Body",
+      tags: JSON.stringify(["tips"]),
+      source: null,
+      is_system: 0,
+      created_at: "2025-01-01T00:00:00.000Z",
+      updated_at: "2025-01-01T00:00:00.000Z",
+    } satisfies Record<string, unknown>;
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("SELECT * FROM KNOWLEDGE_ARTICLES"),
+      () => [baseRow],
+      { once: true },
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("FROM KNOWLEDGE_ARTICLE_ASSETS"),
+      () => [
+        { article_id: "article-1", asset_id: "asset-42" },
+        { article_id: "article-1", asset_id: "asset-24" },
+      ],
+      { once: true },
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { fetchKnowledgeArticles } = await importDao();
+    const articles = await fetchKnowledgeArticles();
+    expect(articles).toHaveLength(1);
+    expect(articles[0]?.related_asset_ids).toEqual(["asset-42", "asset-24"]);
+  });
+
+  it("persists knowledge article asset links on upsert", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES"),
+      () => [{ count: 1 }],
+      { once: true },
+    );
+    const existingRow = {
+      id: "article-9",
+      title: "Existing",
+      category: null,
+      summary: null,
+      content: "Body",
+      tags: JSON.stringify([]),
+      source: null,
+      is_system: 0,
+      created_at: "2025-01-01T00:00:00.000Z",
+      updated_at: "2025-01-01T00:00:00.000Z",
+    } satisfies Record<string, unknown>;
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("SELECT * FROM KNOWLEDGE_ARTICLES WHERE ID = $1"),
+      () => [existingRow],
+      { once: true },
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("SELECT * FROM KNOWLEDGE_ARTICLES WHERE ID = $1"),
+      () => [
+        {
+          ...existingRow,
+          title: "Existing",
+          updated_at: "2025-01-02T00:00:00.000Z",
+        },
+      ],
+      { once: true },
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { upsertKnowledgeArticle } = await importDao();
+    await upsertKnowledgeArticle({
+      id: "article-9",
+      title: "Existing",
+      category: null,
+      summary: null,
+      content: "Body",
+      tags: ["tips"],
+      source: null,
+      relatedAssetIds: ["asset-a", "asset-b", "asset-a"],
+    });
+
+    const deleteCalls = fakeDb.executeCalls.filter((call) =>
+      call.sql.toUpperCase().includes("DELETE FROM KNOWLEDGE_ARTICLE_ASSETS")
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]?.params).toEqual(["article-9"]);
+
+    const insertCalls = fakeDb.executeCalls.filter((call) =>
+      call.sql.toUpperCase().includes("INSERT INTO KNOWLEDGE_ARTICLE_ASSETS")
+    );
+    expect(insertCalls).toHaveLength(2);
+    expect(insertCalls.map((call) => call.params)).toEqual([
+      ["article-9", "asset-a"],
+      ["article-9", "asset-b"],
+    ]);
+  });
+
+  it("attaches knowledge article ids to jump assets", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("SELECT * FROM JUMP_ASSETS") && sql.includes("WHERE jump_id = $1"),
+      () => [
+        {
+          id: "asset-1",
+          jump_id: "jump-1",
+          asset_type: "perk",
+          name: "Perk One",
+          category: null,
+          subcategory: null,
+          cost: 100,
+          quantity: 1,
+          discounted: 0,
+          freebie: 0,
+          notes: null,
+          metadata: null,
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true },
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("FROM KNOWLEDGE_ARTICLE_ASSETS"),
+      () => [
+        { article_id: "article-1", asset_id: "asset-1" },
+        { article_id: "article-2", asset_id: "asset-1" },
+      ],
+      { once: true },
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { listJumpAssets } = await importDao();
+    const rows = await listJumpAssets("jump-1");
+    expect(rows[0]?.knowledge_article_ids).toEqual(["article-1", "article-2"]);
+  });
+});
+
+describe("lookupKnowledgeArticleSummaries", () => {
+  it("preserves the input order while removing duplicates", async () => {
+    const fakeDb = new FakeDb();
+    fakeDb.whenSelect(
+      (sql) => sql.toUpperCase().includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES"),
+      () => [{ count: 3 }],
+      { once: true },
+    );
+    fakeDb.whenSelect(
+      (sql) =>
+        sql.toUpperCase().includes("SELECT ID, TITLE, SUMMARY") &&
+        sql.toUpperCase().includes("FROM KNOWLEDGE_ARTICLES"),
+      () => [
+        { id: "article-b", title: "Beta", summary: "Second" },
+        { id: "article-a", title: "Alpha", summary: "First" },
+        { id: "article-c", title: "Gamma", summary: null },
+      ],
+      { once: true },
+    );
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { lookupKnowledgeArticleSummaries } = await importDao();
+    const summaries = await lookupKnowledgeArticleSummaries([
+      "article-a",
+      "article-c",
+      "article-a",
+      "article-b",
+      "article-missing",
+    ]);
+
+    expect(summaries).toEqual([
+      { id: "article-a", title: "Alpha", summary: "First" },
+      { id: "article-c", title: "Gamma", summary: null },
+      { id: "article-b", title: "Beta", summary: "Second" },
+    ]);
   });
 });
 
@@ -567,6 +755,7 @@ describe("jump asset dao", () => {
       sort_order: 3,
       created_at: insertedAt.toISOString(),
       updated_at: insertedAt.toISOString(),
+      knowledge_article_ids: [],
     };
     fakeDb.whenSelect(
       (sql, params) => sql.includes("SELECT * FROM jump_assets WHERE id = $1") && params[0] === "asset-123",

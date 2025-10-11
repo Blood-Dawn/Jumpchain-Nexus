@@ -25,15 +25,19 @@ SOFTWARE.
 import { useEffect, useMemo, useState } from "react";
 import type { FormEventHandler } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./knowledgeBase.css";
 import {
   countKnowledgeArticles,
   deleteKnowledgeArticle,
   ensureKnowledgeBaseSeeded,
   fetchKnowledgeArticles,
+  listAssetReferenceSummaries,
+  lookupAssetReferenceSummaries,
   upsertKnowledgeArticle,
   type KnowledgeArticleQuery,
   type KnowledgeArticleRecord,
+  type AssetReferenceSummary,
   type UpsertKnowledgeArticleInput,
 } from "../../db/dao";
 import {
@@ -42,11 +46,16 @@ import {
   type KnowledgeBaseImportError,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
+import { useJmhStore } from "../jmh/store";
 
 interface EditorState {
   open: boolean;
   draft: UpsertKnowledgeArticleInput;
   editingId?: string;
+}
+
+interface KnowledgeBaseLocationState {
+  articleId?: string;
 }
 
 interface ImportMutationResult {
@@ -62,6 +71,7 @@ const emptyDraft: UpsertKnowledgeArticleInput = {
   content: "",
   tags: [],
   source: "",
+  relatedAssetIds: [],
 };
 
 function parseTags(input: string): string[] {
@@ -89,6 +99,11 @@ function formatDate(value: string): string {
 
 const KnowledgeBase = () => {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
+  const setActiveAssetType = useJmhStore((state) => state.setActiveAssetType);
+  const setSelectedAssetId = useJmhStore((state) => state.setSelectedAssetId);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -123,6 +138,14 @@ const KnowledgeBase = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const state = location.state as KnowledgeBaseLocationState | null;
+    if (state?.articleId) {
+      setSelectedId(state.articleId);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
+
   const articleQuery = useQuery({
     queryKey: ["knowledge-base", filters],
     queryFn: () => fetchKnowledgeArticles(filters),
@@ -133,6 +156,13 @@ const KnowledgeBase = () => {
     queryKey: ["knowledge-base", "count"],
     queryFn: countKnowledgeArticles,
     staleTime: 5 * 60 * 1000,
+  });
+
+  const assetOptionsQuery = useQuery({
+    queryKey: ["knowledge-base", "asset-options"],
+    queryFn: listAssetReferenceSummaries,
+    staleTime: 5 * 60 * 1000,
+    enabled: editorState.open,
   });
 
   const saveArticle = useMutation({
@@ -246,6 +276,26 @@ const KnowledgeBase = () => {
     return articles.find((article) => article.id === selectedId) ?? articles[0];
   }, [articles, selectedId]);
 
+  const relatedAssetsQuery = useQuery({
+    queryKey: [
+      "knowledge-base",
+      "article-assets",
+      activeArticle?.id ?? "none",
+      activeArticle?.related_asset_ids.join(",") ?? "",
+    ],
+    queryFn: () =>
+      activeArticle && activeArticle.related_asset_ids.length
+        ? lookupAssetReferenceSummaries(activeArticle.related_asset_ids)
+        : Promise.resolve([] as AssetReferenceSummary[]),
+    enabled: Boolean(activeArticle && activeArticle.related_asset_ids.length),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const relatedAssets = relatedAssetsQuery.data ?? [];
+  const relatedAssetError = relatedAssetsQuery.isError
+    ? (relatedAssetsQuery.error as Error)
+    : null;
+
   const categories = useMemo(() => {
     const tally = new Map<string, number>();
     for (const article of articles) {
@@ -269,6 +319,12 @@ const KnowledgeBase = () => {
       .slice(0, 30);
   }, [articles]);
 
+  const assetOptions = assetOptionsQuery.data ?? [];
+  const assetOptionMap = useMemo(() => {
+    return new Map(assetOptions.map((option) => [option.asset_id, option] as const));
+  }, [assetOptions]);
+  const selectedAssetIds = editorState.draft.relatedAssetIds ?? [];
+
   const updateDraft = (update: Partial<UpsertKnowledgeArticleInput>) => {
     setEditorState((prev) => ({
       ...prev,
@@ -277,6 +333,45 @@ const KnowledgeBase = () => {
         ...update,
       },
     }));
+  };
+
+  const addAssetReference = (assetId: string) => {
+    setEditorState((prev) => {
+      const current = prev.draft.relatedAssetIds ?? [];
+      if (current.includes(assetId)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        draft: {
+          ...prev.draft,
+          relatedAssetIds: [...current, assetId],
+        },
+      };
+    });
+  };
+
+  const removeAssetReference = (assetId: string) => {
+    setEditorState((prev) => {
+      const current = prev.draft.relatedAssetIds ?? [];
+      if (!current.includes(assetId)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        draft: {
+          ...prev.draft,
+          relatedAssetIds: current.filter((id) => id !== assetId),
+        },
+      };
+    });
+  };
+
+  const handleNavigateToAsset = (summary: AssetReferenceSummary) => {
+    setSelectedJump(summary.jump_id);
+    setActiveAssetType(summary.asset_type);
+    setSelectedAssetId(summary.asset_id);
+    navigate("/hub");
   };
 
   const openCreate = () => {
@@ -296,6 +391,7 @@ const KnowledgeBase = () => {
         content: article.content,
         tags: [...article.tags],
         source: article.source ?? "",
+        relatedAssetIds: [...article.related_asset_ids],
       },
     });
     setFeedback(null);
@@ -335,6 +431,7 @@ const KnowledgeBase = () => {
       content: trimmedContent,
       tags: editorState.draft.tags ?? [],
       source: trimmedSource.length ? trimmedSource : null,
+      relatedAssetIds: editorState.draft.relatedAssetIds ?? [],
     };
 
     saveArticle.mutate(payload);
@@ -357,7 +454,12 @@ const KnowledgeBase = () => {
     removeArticle.mutate(article.id);
   };
 
-  const renderArticle = (article: KnowledgeArticleRecord | null) => {
+  const renderArticle = (
+    article: KnowledgeArticleRecord | null,
+    references: AssetReferenceSummary[],
+    referencesLoading: boolean,
+    referencesError: Error | null
+  ) => {
     if (!article) {
       return (
         <div className="knowledge-base__empty">
@@ -405,6 +507,37 @@ const KnowledgeBase = () => {
         </header>
 
         {article.summary && <p className="knowledge-base__summary">{article.summary}</p>}
+
+        {referencesLoading && (
+          <section className="knowledge-base__references knowledge-base__references--loading">
+            <p>Loading jump references…</p>
+          </section>
+        )}
+
+        {referencesError && (
+          <section className="knowledge-base__references knowledge-base__references--error">
+            <p>Failed to load jump references. {referencesError.message}</p>
+          </section>
+        )}
+
+        {!referencesLoading && !referencesError && references.length > 0 && (
+          <section className="knowledge-base__references">
+            <h2>Referenced in Jump Hub</h2>
+            <div className="knowledge-base__reference-list">
+              {references.map((reference) => (
+                <button
+                  key={reference.asset_id}
+                  type="button"
+                  className="knowledge-base__reference-chip"
+                  onClick={() => handleNavigateToAsset(reference)}
+                >
+                  <span>{reference.asset_name}</span>
+                  <small>{reference.jump_title}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {article.tags.length > 0 && (
           <ul className="knowledge-base__tag-list">
@@ -576,7 +709,8 @@ const KnowledgeBase = () => {
           </div>
         )}
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
-        {!articleQuery.isLoading && renderArticle(activeArticle)}
+        {!articleQuery.isLoading &&
+          renderArticle(activeArticle, relatedAssets, relatedAssetsQuery.isLoading, relatedAssetError)}
       </section>
 
       {editorState.open && (
@@ -649,6 +783,74 @@ const KnowledgeBase = () => {
                   onChange={(event) => updateDraft({ source: event.target.value })}
                 />
               </label>
+
+              <section className="knowledge-base__editor-references">
+                <header>
+                  <h4>Jump Hub assets</h4>
+                  <p>Link this article to specific perks, items, or drawbacks.</p>
+                </header>
+                {assetOptionsQuery.isLoading ? (
+                  <p className="knowledge-base__editor-references-status">Loading assets…</p>
+                ) : assetOptionsQuery.isError ? (
+                  <p className="knowledge-base__editor-references-status">
+                    Failed to load assets. {(assetOptionsQuery.error as Error).message}
+                  </p>
+                ) : assetOptions.length === 0 ? (
+                  <p className="knowledge-base__editor-references-status">
+                    Add jump assets in the Jump Hub to enable cross-links.
+                  </p>
+                ) : (
+                  <>
+                    <div className="knowledge-base__editor-reference-chips">
+                      {selectedAssetIds.map((assetId) => {
+                        const summary = assetOptionMap.get(assetId);
+                        return (
+                          <span key={assetId} className="knowledge-base__editor-reference-chip">
+                            <strong>{summary?.asset_name ?? "Unknown asset"}</strong>
+                            <small>{summary?.jump_title ?? "Unavailable"}</small>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${summary?.asset_name ?? assetId}`}
+                              onClick={() => removeAssetReference(assetId)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {selectedAssetIds.length === 0 && (
+                        <p className="knowledge-base__editor-references-status">
+                          No assets linked yet.
+                        </p>
+                      )}
+                    </div>
+                    {assetOptions.length > selectedAssetIds.length && (
+                      <label className="knowledge-base__editor-reference-select">
+                        <span>Add reference</span>
+                        <select
+                          value=""
+                          onChange={(event) => {
+                            const value = event.currentTarget.value;
+                            if (value) {
+                              addAssetReference(value);
+                              event.currentTarget.value = "";
+                            }
+                          }}
+                        >
+                          <option value="">Select an asset…</option>
+                          {assetOptions
+                            .filter((option) => !selectedAssetIds.includes(option.asset_id))
+                            .map((option) => (
+                              <option key={option.asset_id} value={option.asset_id}>
+                                {option.asset_name} · {option.jump_title}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
+                  </>
+                )}
+              </section>
 
               <footer>
                 <button type="button" className="ghost" onClick={closeEditor} disabled={saveArticle.isPending}>
