@@ -28,7 +28,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { Plugin, PluginKey } from "prosemirror-state";
@@ -53,6 +53,8 @@ import { checkGrammar, createGrammarDebouncer, type GrammarSuggestion } from "..
 import { syncChapterMetadata } from "./indexer";
 import { exportChapter, exportStory, type StoryExportFormat } from "./exporters";
 import { confirmDialog } from "../../services/dialogService";
+import { studioTemplates, type StudioTemplate } from "./templates";
+import { insertTemplateContent } from "./templates/utils";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -226,6 +228,19 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const [hoveredGrammar, setHoveredGrammar] = useState<{ suggestion: GrammarSuggestionWithRange; rect: DOMRect } | null>(
     null,
   );
+  const [templatesOpen, setTemplatesOpen] = useState(true);
+  const [templateQuery, setTemplateQuery] = useState("");
+
+  const filteredTemplates = useMemo(() => {
+    const query = templateQuery.trim().toLowerCase();
+    if (!query) {
+      return studioTemplates;
+    }
+    return studioTemplates.filter((template) => {
+      const haystack = `${template.title} ${template.description}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [templateQuery]);
 
   const editor = useEditor({
     extensions: [
@@ -419,6 +434,11 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     }
   };
 
+  const handleInsertTemplate = (template: StudioTemplate) => {
+    if (!editor) return;
+    insertTemplateContent(editor, template);
+  };
+
   const handleExport = async () => {
     if (!story) return;
     setExporting(true);
@@ -523,6 +543,9 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
           <button type="button" onClick={handleRenameChapter}>Rename Chapter</button>
           <button type="button" onClick={() => handleReorder("prev")}>◀</button>
           <button type="button" onClick={() => handleReorder("next")}>▶</button>
+          <button type="button" onClick={() => setTemplatesOpen(!templatesOpen)} aria-pressed={templatesOpen}>
+            {templatesOpen ? "Hide Templates" : "Show Templates"}
+          </button>
           <label className="studio-export-menu">
             Scope
             <select value={exportScope} onChange={(event) => setExportScope(event.target.value as "chapter" | "story")}>
@@ -551,6 +574,41 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
       </header>
 
       <section className="studio-shell__content">
+        {templatesOpen && (
+          <aside className="studio-templates" aria-label="Templates sidebar">
+            <div className="studio-templates__header">
+              <h3>Templates</h3>
+              <input
+                type="search"
+                className="studio-templates__search"
+                placeholder="Search templates"
+                value={templateQuery}
+                onChange={(event) => setTemplateQuery(event.target.value)}
+                aria-label="Search templates"
+              />
+            </div>
+            <div className="studio-templates__body">
+              {filteredTemplates.length === 0 ? (
+                <p className="studio-templates__empty">No templates match that search.</p>
+              ) : (
+                <ul className="studio-templates__list">
+                  {filteredTemplates.map((template) => (
+                    <li key={template.id} className="studio-templates__item">
+                      <button
+                        type="button"
+                        className="studio-templates__button"
+                        onClick={() => handleInsertTemplate(template)}
+                      >
+                        <span className="studio-templates__title">{template.title}</span>
+                        <span className="studio-templates__description">{template.description}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+        )}
         <div className="studio-editor__content" data-grammar-state={grammarLoading ? "checking" : "idle"}>
           <EditorContent editor={editor} />
         </div>
