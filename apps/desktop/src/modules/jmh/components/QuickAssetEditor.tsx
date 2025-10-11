@@ -69,6 +69,8 @@ type AssetFormState = {
   stipendFrequency: StipendFrequency;
   stipendPeriods: number;
   stipendNotes: string;
+  attributes: AssetMetadata["attributes"];
+  altForms: AssetMetadata["altForms"];
 };
 
 const buildFormState = (asset: JumpAssetRecord): AssetFormState => {
@@ -89,6 +91,8 @@ const buildFormState = (asset: JumpAssetRecord): AssetFormState => {
     stipendFrequency: metadata.stipend?.frequency ?? "once",
     stipendPeriods: metadata.stipend?.periods ?? 1,
     stipendNotes: metadata.stipend?.notes ?? "",
+    attributes: metadata.attributes.map((attribute) => ({ ...attribute })),
+    altForms: metadata.altForms.map((form) => ({ ...form })),
   };
 };
 
@@ -194,6 +198,7 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
       setAutosaveState("saving");
       await queryClient.cancelQueries({ queryKey: ["jump-assets", jumpId] });
       const previous = queryClient.getQueryData<JumpAssetRecord[]>(["jump-assets", jumpId]);
+      const previousAsset = previous?.find((asset) => asset.id === payload.id) ?? null;
       const optimisticTimestamp = new Date().toISOString();
       if (previous) {
         const optimistic = previous.map((asset) =>
@@ -203,9 +208,9 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
         );
         queryClient.setQueryData(["jump-assets", jumpId], optimistic);
       }
-      return { previous };
+      return { previous, previousAsset };
     },
-    onSuccess: (asset) => {
+    onSuccess: (asset, _variables, context) => {
       if (jumpId) {
         queryClient.setQueryData<JumpAssetRecord[]>(["jump-assets", jumpId], (current) => {
           if (!current) return current;
@@ -214,6 +219,9 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
       }
       setFormState(buildFormState(asset));
       setAutosaveState("saved");
+      if (context?.previousAsset && context.previousAsset.asset_type !== asset.asset_type) {
+        invalidateBudget(jumpId, context.previousAsset.asset_type);
+      }
       invalidateBudget(jumpId, asset.asset_type);
     },
     onError: (_error, _payload, context) => {
@@ -314,24 +322,29 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
               notes: formState.stipendNotes.trim() || undefined,
             }
           : null,
-      attributes: [],
-      altForms: [],
+      attributes: formState.attributes.map((attribute) => ({ ...attribute })),
+      altForms: formState.altForms.map((form) => ({ ...form })),
     };
+
+    const updates: Parameters<typeof updateJumpAsset>[1] = {
+      name: trimmedName,
+      category: formState.category.trim() || null,
+      subcategory: formState.subcategory.trim() || null,
+      cost: Number.isFinite(formState.cost) ? formState.cost : 0,
+      quantity: Number.isFinite(formState.quantity) ? Math.max(1, formState.quantity) : 1,
+      discounted: formState.discounted,
+      freebie: formState.freebie,
+      notes: formState.notes.trim() || null,
+      metadata: buildAssetMetadata(metadata),
+    };
+
+    if (allowTypeSelection) {
+      updates.asset_type = formState.type;
+    }
 
     updateMutation.mutate({
       id: formState.id,
-      updates: {
-        name: trimmedName,
-        asset_type: formState.type,
-        category: formState.category.trim() || null,
-        subcategory: formState.subcategory.trim() || null,
-        cost: Number.isFinite(formState.cost) ? formState.cost : 0,
-        quantity: Number.isFinite(formState.quantity) ? Math.max(1, formState.quantity) : 1,
-        discounted: formState.discounted,
-        freebie: formState.freebie,
-        notes: formState.notes.trim() || null,
-        metadata: buildAssetMetadata(metadata),
-      },
+      updates,
     });
   };
 
