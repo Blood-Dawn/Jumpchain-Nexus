@@ -66,11 +66,108 @@ import {
   type EssentialEpAccessMode,
   type EssentialEpAccessModifier,
   type ExportPreferenceSettings,
+  type ExportPresetRecord,
   type JumpDefaultsSettings,
   type SupplementToggleSettings,
   type UniversalDrawbackSettings,
   type WarehouseModeOption,
 } from "../../db/dao";
+
+const EXPORT_PRESET_FORMAT_LABELS = {
+  markdown: "Markdown",
+  bbcode: "BBCode",
+  text: "Plain text",
+} as const;
+
+const EXPORT_PRESET_SECTION_DEFINITIONS = [
+  { key: "header", label: "Jumpchain Export" },
+  { key: "totals", label: "Chain Totals" },
+  { key: "jumps", label: "Jump Breakdown" },
+  { key: "inventory", label: "Inventory Snapshot" },
+  { key: "profiles", label: "Character Profiles" },
+  { key: "notes", label: "Notes Overview" },
+  { key: "recaps", label: "Recap Highlights" },
+] as const;
+
+type ExportPresetFormat = keyof typeof EXPORT_PRESET_FORMAT_LABELS;
+type ExportSectionPreferenceFormat = "markdown" | "bbcode";
+type ExportPresetSectionKey = (typeof EXPORT_PRESET_SECTION_DEFINITIONS)[number]["key"];
+
+interface ExportPresetSummarySection {
+  key: ExportPresetSectionKey;
+  label: string;
+  format: ExportSectionPreferenceFormat;
+  spoiler: boolean;
+}
+
+interface ExportPresetSummary {
+  format: ExportPresetFormat;
+  sections: ExportPresetSummarySection[];
+}
+
+const PREVIEW_FORMAT_LABELS: Record<ExportSectionPreferenceFormat, string> = {
+  markdown: "Markdown",
+  bbcode: "BBCode",
+};
+
+function isExportPresetFormat(value: unknown): value is ExportPresetFormat {
+  return value === "markdown" || value === "bbcode" || value === "text";
+}
+
+function isSectionPreferenceFormat(value: unknown): value is ExportSectionPreferenceFormat {
+  return value === "markdown" || value === "bbcode";
+}
+
+function parsePresetSummary(record: ExportPresetRecord | null): ExportPresetSummary | null {
+  if (!record) {
+    return null;
+  }
+
+  let parsed: Record<string, unknown> = {};
+  try {
+    if (record.options_json) {
+      const raw = JSON.parse(record.options_json) as unknown;
+      if (raw && typeof raw === "object") {
+        parsed = raw as Record<string, unknown>;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to parse export preset options", error);
+  }
+
+  const formatValue = parsed.format;
+  const format: ExportPresetFormat = isExportPresetFormat(formatValue) ? formatValue : "markdown";
+
+  const sectionPreferences = parsed.sectionPreferences;
+  const sections: ExportPresetSummarySection[] = EXPORT_PRESET_SECTION_DEFINITIONS.map((definition) => {
+    const preference =
+      sectionPreferences && typeof sectionPreferences === "object"
+        ? (sectionPreferences as Record<string, unknown>)[definition.key]
+        : null;
+
+    const preferenceFormat =
+      preference && typeof preference === "object"
+        ? (preference as Record<string, unknown>).format
+        : null;
+    const sectionFormat: ExportSectionPreferenceFormat = isSectionPreferenceFormat(preferenceFormat)
+      ? preferenceFormat
+      : "markdown";
+
+    const spoilerValue =
+      preference && typeof preference === "object"
+        ? (preference as Record<string, unknown>).spoiler
+        : null;
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      format: sectionFormat,
+      spoiler: spoilerValue === true,
+    } satisfies ExportPresetSummarySection;
+  });
+
+  return { format, sections } satisfies ExportPresetSummary;
+}
 
 interface SettingPayload {
   key: string;
@@ -254,6 +351,15 @@ const JumpchainOptions: React.FC = () => {
     }
     return new Map(settingsQuery.data.map((record) => [record.key, record]));
   }, [settingsQuery.data]);
+
+  const selectedPreset = useMemo(() => {
+    if (!defaultPresetId) {
+      return null;
+    }
+    return exportPresetsQuery.data?.find((preset) => preset.id === defaultPresetId) ?? null;
+  }, [defaultPresetId, exportPresetsQuery.data]);
+
+  const presetSummary = useMemo(() => parsePresetSummary(selectedPreset), [selectedPreset]);
 
   useEffect(() => {
     if (!settingsQuery.data) {
@@ -1316,6 +1422,44 @@ const JumpchainOptions: React.FC = () => {
             {!exportPresetsQuery.isLoading && !exportPresetsQuery.isError && !exportPresetsQuery.data?.length && (
               <p className="options__hint">Create presets in the Export module to enable quick switching.</p>
             )}
+            {presetSummary && (
+              <div className="options__preset-summary" data-testid="preset-summary">
+                <div className="options__preset-summary-row">
+                  <span className="options__preset-summary-label">Output format</span>
+                  <span
+                    className="options__preset-summary-value"
+                    data-testid="preset-summary-format-value"
+                  >
+                    {EXPORT_PRESET_FORMAT_LABELS[presetSummary.format]}
+                  </span>
+                </div>
+                <div className="options__preset-summary-sections" role="group" aria-label="Section formatting">
+                  {presetSummary.sections.map((section) => (
+                    <div
+                      key={section.key}
+                      className="options__preset-summary-section"
+                      data-testid={`preset-summary-section-${section.key}`}
+                    >
+                      <span className="options__preset-summary-section-title">{section.label}</span>
+                      <span className="options__preset-summary-section-meta">
+                        {`${PREVIEW_FORMAT_LABELS[section.format]} · ${section.spoiler ? "Spoiler" : "Visible"}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!presetSummary &&
+              !exportPresetsQuery.isLoading &&
+              !exportPresetsQuery.isError &&
+              !!exportPresetsQuery.data?.length &&
+              !defaultPresetId && <p className="options__hint">Select a preset to preview its formatting.</p>}
+            {defaultPresetId &&
+              !presetSummary &&
+              !exportPresetsQuery.isLoading &&
+              !exportPresetsQuery.isError && (
+                <p className="options__error">Selected preset is unavailable.</p>
+              )}
           </div>
           {sectionMessage("export-preferences")}
         </section>
