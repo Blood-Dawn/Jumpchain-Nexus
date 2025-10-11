@@ -1271,6 +1271,53 @@ describe("export preset dao", () => {
   });
 });
 
+describe("loadExportSnapshot", () => {
+  it("includes export presets with spoiler preferences", async () => {
+    const fakeDb = new FakeDb();
+    const now = "2025-01-12T00:00:00.000Z";
+    const options = {
+      includeNotes: true,
+      sectionPreferences: {
+        notes: { spoiler: true },
+      },
+    };
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM export_presets ORDER BY name"),
+      () => [
+        {
+          id: "preset-1",
+          name: "Spoiler Export",
+          description: null,
+          options_json: JSON.stringify(options),
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadExportSnapshot } = await importDao();
+    const snapshot = await loadExportSnapshot();
+
+    expect(snapshot.presets).toEqual([
+      {
+        id: "preset-1",
+        name: "Spoiler Export",
+        description: null,
+        options_json: JSON.stringify(options),
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+
+    const parsed = JSON.parse(snapshot.presets[0]?.options_json ?? "{}");
+    expect(parsed.sectionPreferences?.notes?.spoiler).toBe(true);
+  });
+});
+
 describe("warehouse personal reality summary", () => {
   it("aggregates WP and limit contributions", async () => {
     const fakeDb = new FakeDb();
