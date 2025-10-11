@@ -244,6 +244,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const [hoveredGrammar, setHoveredGrammar] = useState<{ suggestion: GrammarSuggestionWithRange; rect: DOMRect } | null>(
     null,
   );
+  const shellContentRef = useRef<HTMLDivElement | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -573,6 +574,20 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     );
   }
 
+  const shellContentRect = shellContentRef.current?.getBoundingClientRect();
+  const hoveredMentionStyle = hoveredMention
+    ? {
+        top: hoveredMention.rect.bottom + 8 - (shellContentRect?.top ?? 0),
+        left: hoveredMention.rect.left - (shellContentRect?.left ?? 0),
+      }
+    : null;
+  const hoveredGrammarStyle = hoveredGrammar
+    ? {
+        top: hoveredGrammar.rect.bottom + 8 - (shellContentRect?.top ?? 0),
+        left: hoveredGrammar.rect.left - (shellContentRect?.left ?? 0),
+      }
+    : null;
+
   return (
     <div className="studio-shell__editor-container">
       <header className="studio-shell__editor-header">
@@ -614,7 +629,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
         </div>
       </header>
 
-      <section className="studio-shell__content">
+      <section className="studio-shell__content" ref={shellContentRef}>
         <div className="studio-editor__content" data-grammar-state={grammarLoading ? "checking" : "idle"}>
           <EditorContent editor={editor} />
         </div>
@@ -626,27 +641,15 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
           onDismiss={handleDismissGrammar}
           onToggle={() => setGrammarEnabled(!grammarEnabled)}
         />
-        {hoveredMention && (
-          <div
-            className="notes-editor__hover-card"
-            style={{
-              top: hoveredMention.rect.bottom + 8,
-              left: hoveredMention.rect.left,
-            }}
-          >
+        {hoveredMention && hoveredMentionStyle && (
+          <div className="notes-editor__hover-card" style={hoveredMentionStyle}>
             <strong>{hoveredMention.entity.name}</strong>
             <span className="notes-editor__hover-type">{hoveredMention.entity.type}</span>
             {hoveredMention.entity.meta_json && <p>{hoveredMention.entity.meta_json}</p>}
           </div>
         )}
-        {hoveredGrammar && (
-          <div
-            className="studio-grammar__popover"
-            style={{
-              top: hoveredGrammar.rect.bottom + 8,
-              left: hoveredGrammar.rect.left,
-            }}
-          >
+        {hoveredGrammar && hoveredGrammarStyle && (
+          <div className="studio-grammar__popover" style={hoveredGrammarStyle}>
             <h3>{hoveredGrammar.suggestion.message}</h3>
             <p>{hoveredGrammar.suggestion.shortMessage || hoveredGrammar.suggestion.rule.description}</p>
             <div className="studio-settings__controls">
