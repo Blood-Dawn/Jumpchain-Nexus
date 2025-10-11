@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createJumpAsset,
   deleteJumpAsset,
@@ -32,11 +32,15 @@ import {
   summarizeJumpBudget,
   loadSupplementSettings,
   DEFAULT_SUPPLEMENT_SETTINGS,
+  loadUniversalDrawbackSettings,
+  DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS,
+  loadFormatterSettings,
   updateJumpAsset,
   type JumpAssetRecord,
   type JumpRecord,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatBudget } from "../../services/formatter";
 
 type Severity = "minor" | "moderate" | "severe";
 
@@ -92,24 +96,196 @@ const DrawbackSupplement: React.FC = () => {
     enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
+  const formatterQuery = useQuery({
+    queryKey: ["app-settings", "formatter"],
+    queryFn: loadFormatterSettings,
+    enabled: drawbackSupplementEnabled,
+  });
+
+  const universalQuery = useQuery({
+    queryKey: ["universal-drawbacks"],
+    queryFn: loadUniversalDrawbackSettings,
+    enabled: drawbackSupplementEnabled && supplements.enableUniversalDrawbacks,
+  });
+
   const [selectedDrawbackId, setSelectedDrawbackId] = useState<string | null>(null);
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  useEffect(() => {
-    if (!drawbacksQuery.data?.length) {
-      setSelectedDrawbackId(null);
-      setFormState(null);
-      return;
+  const selectedJump = useMemo(() => {
+    if (!selectedJumpId) {
+      return null;
     }
-    if (!selectedDrawbackId || !drawbacksQuery.data.some((asset) => asset.id === selectedDrawbackId)) {
-      setSelectedDrawbackId(drawbacksQuery.data[0].id);
-    }
-  }, [drawbacksQuery.data, selectedDrawbackId]);
+    return jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null;
+  }, [jumpsQuery.data, selectedJumpId]);
 
   const selectedDrawback = useMemo(
     () => drawbacksQuery.data?.find((asset) => asset.id === selectedDrawbackId) ?? null,
     [drawbacksQuery.data, selectedDrawbackId]
   );
+
+  const thousandsSeparator = formatterQuery.data?.thousandsSeparator ?? "none";
+
+  const formatValue = useCallback(
+    (value: number) => formatBudget(Number.isFinite(value) ? value : 0, thousandsSeparator),
+    [thousandsSeparator]
+  );
+
+  const formatNullable = useCallback(
+    (value: number | null | undefined) => (value === null || value === undefined ? "—" : formatValue(value)),
+    [formatValue]
+  );
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<string>();
+    let hasHouseRules = false;
+
+    for (const asset of drawbacksQuery.data ?? []) {
+      const trimmed = asset.category?.trim();
+      const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+      categories.add(normalized);
+      const metadata = parseMetadata(asset.metadata);
+      if (metadata.houseRule) {
+        hasHouseRules = true;
+      }
+    }
+
+    const options: Array<{ value: string; label: string }> = [
+      { value: "all", label: "All categories" },
+    ];
+
+    const sorted = Array.from(categories).sort((a, b) => a.localeCompare(b));
+    for (const category of sorted) {
+      options.push({ value: category, label: category });
+    }
+
+    if (hasHouseRules) {
+      options.push({ value: "house", label: "House rules" });
+    }
+
+    return options;
+  }, [drawbacksQuery.data]);
+
+  useEffect(() => {
+    if (!categoryOptions.some((option) => option.value === categoryFilter)) {
+      setCategoryFilter("all");
+    }
+  }, [categoryOptions, categoryFilter]);
+
+  const filteredDrawbacks = useMemo(() => {
+    const all = drawbacksQuery.data ?? [];
+    if (categoryFilter === "all") {
+      return all;
+    }
+
+    return all.filter((asset) => {
+      const metadata = parseMetadata(asset.metadata);
+      if (categoryFilter === "house") {
+        return metadata.houseRule === true;
+      }
+      const trimmed = asset.category?.trim();
+      const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+      return normalized === categoryFilter;
+    });
+  }, [drawbacksQuery.data, categoryFilter]);
+
+  useEffect(() => {
+    if (!filteredDrawbacks.length) {
+      if (selectedDrawbackId !== null) {
+        setSelectedDrawbackId(null);
+      }
+      return;
+    }
+
+    if (!selectedDrawbackId || !filteredDrawbacks.some((asset) => asset.id === selectedDrawbackId)) {
+      setSelectedDrawbackId(filteredDrawbacks[0].id);
+    }
+  }, [filteredDrawbacks, selectedDrawbackId]);
+
+  const universalSettings = universalQuery.data ?? DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS;
+
+  const universalRewardState = useMemo(() => {
+    const empty = { jumper: 0, companion: 0, item: 0, warehouse: 0 };
+
+    if (!supplements.enableUniversalDrawbacks) {
+      return {
+        stipend: empty,
+        eligible: false,
+        halved: false,
+        message: "Universal Drawback supplement disabled in Options.",
+      } as const;
+    }
+
+    if (universalQuery.isLoading) {
+      return {
+        stipend: empty,
+        eligible: false,
+        halved: false,
+        message: "Loading Universal Drawback defaults…",
+      } as const;
+    }
+
+    if (universalQuery.isError) {
+      return {
+        stipend: empty,
+        eligible: false,
+        halved: false,
+        message: "Failed to load Universal Drawback settings.",
+      } as const;
+    }
+
+    if (!selectedJump) {
+      return {
+        stipend: empty,
+        eligible: false,
+        halved: false,
+        message: "Select a jump to apply Universal Drawback stipends.",
+      } as const;
+    }
+
+    const isGauntlet = Boolean(selectedJump.status && /gauntlet/i.test(selectedJump.status));
+    if (isGauntlet && !universalSettings.allowGauntlet) {
+      return {
+        stipend: empty,
+        eligible: false,
+        halved: false,
+        message: "Gauntlet stipends disabled by Universal Drawback options.",
+      } as const;
+    }
+
+    const halved = isGauntlet && universalSettings.gauntletHalved;
+    const multiplier = halved ? 0.5 : 1;
+    const apply = (value: number) => Math.max(0, Math.floor((value ?? 0) * multiplier));
+    const stipend = {
+      jumper: apply(universalSettings.totalCP),
+      companion: apply(universalSettings.companionCP),
+      item: apply(universalSettings.itemCP),
+      warehouse: apply(universalSettings.warehouseWP),
+    };
+
+    const totalReward = stipend.jumper + stipend.companion + stipend.item + stipend.warehouse;
+    if (totalReward === 0) {
+      return {
+        stipend,
+        eligible: false,
+        halved,
+        message: "No Universal Drawback stipends configured.",
+      } as const;
+    }
+
+    return {
+      stipend,
+      eligible: true,
+      halved,
+      message: halved ? "Gauntlet stipends halved per Universal Drawback options." : null,
+    } as const;
+  }, [
+    supplements.enableUniversalDrawbacks,
+    universalQuery.isError,
+    universalQuery.isLoading,
+    universalSettings,
+    selectedJump,
+  ]);
 
   useEffect(() => {
     if (!selectedDrawback) {
@@ -136,9 +312,15 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbackSupplementEnabled]);
 
-  const totalCredit = useMemo(() => {
+  const manualCredit = useMemo(() => {
     return (drawbacksQuery.data ?? []).reduce((sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1), 0);
   }, [drawbacksQuery.data]);
+
+  const automaticCredit = universalRewardState.eligible ? universalRewardState.stipend.jumper : 0;
+  const totalCredit = manualCredit + automaticCredit;
+  const balanceWithGrants = budgetQuery.data ? budgetQuery.data.balance + automaticCredit : null;
+  const visibleCount = filteredDrawbacks.length;
+  const totalCount = drawbacksQuery.data?.length ?? 0;
 
   if (supplementsQuery.isLoading) {
     return (
@@ -279,27 +461,74 @@ const DrawbackSupplement: React.FC = () => {
       <div className="drawbacks__summary">
         <div>
           <strong>Total Credit</strong>
-          <span>{totalCredit}</span>
+          <span data-testid="total-credit">{formatValue(totalCredit)}</span>
         </div>
         <div>
-          <strong>Budget Balance</strong>
-          <span>{budgetQuery.data?.balance ?? "—"}</span>
+          <strong>Manual Drawbacks</strong>
+          <span data-testid="manual-credit">{formatValue(manualCredit)}</span>
         </div>
         <div>
-          <strong>Drawback Count</strong>
-          <span>{drawbacksQuery.data?.length ?? 0}</span>
+          <strong>Balance w/ Grants</strong>
+          <span data-testid="balance-with-grants">{formatNullable(balanceWithGrants)}</span>
         </div>
+        <div>
+          <strong>Visible Drawbacks</strong>
+          <span>
+            {visibleCount} / {totalCount}
+          </span>
+        </div>
+      </div>
+
+      <div className="drawbacks__rewards">
+        <strong>Universal Rewards</strong>
+        <dl data-testid="universal-rewards">
+          <div>
+            <dt>Jumper CP</dt>
+            <dd data-testid="reward-jumper">{formatValue(universalRewardState.stipend.jumper)}</dd>
+          </div>
+          <div>
+            <dt>Companion CP</dt>
+            <dd data-testid="reward-companion">{formatValue(universalRewardState.stipend.companion)}</dd>
+          </div>
+          <div>
+            <dt>Item CP</dt>
+            <dd data-testid="reward-item">{formatValue(universalRewardState.stipend.item)}</dd>
+          </div>
+          <div>
+            <dt>Warehouse WP</dt>
+            <dd data-testid="reward-warehouse">{formatValue(universalRewardState.stipend.warehouse)}</dd>
+          </div>
+        </dl>
+        {universalRewardState.message ? (
+          <p className="drawbacks__summary-note">{universalRewardState.message}</p>
+        ) : null}
+      </div>
+
+      <div className="drawbacks__controls">
+        <label>
+          <span>Filter by category</span>
+          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            {categoryOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="drawbacks__layout">
         <aside className="drawbacks__list">
           {drawbacksQuery.isLoading && <p className="drawbacks__empty">Loading drawbacks…</p>}
           {drawbacksQuery.isError && <p className="drawbacks__empty">Failed to load drawbacks.</p>}
-          {!drawbacksQuery.isLoading && (drawbacksQuery.data?.length ?? 0) === 0 && (
+          {!drawbacksQuery.isLoading && totalCount === 0 && (
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
+          {!drawbacksQuery.isLoading && totalCount > 0 && filteredDrawbacks.length === 0 && (
+            <p className="drawbacks__empty">No drawbacks match the selected filter.</p>
+          )}
           <ul>
-            {drawbacksQuery.data?.map((asset) => {
+            {filteredDrawbacks.map((asset) => {
               const metadata = parseMetadata(asset.metadata);
               return (
                 <li key={asset.id}>
@@ -316,7 +545,10 @@ const DrawbackSupplement: React.FC = () => {
                     </div>
                     <div className="drawbacks__item-meta">
                       <span>{asset.category ?? "Uncategorized"}</span>
-                      <span>Credit {asset.cost ?? 0}</span>
+                      <span>
+                        Credit {formatValue((asset.cost ?? 0) * (asset.quantity ?? 1))}
+                        {asset.quantity && asset.quantity > 1 ? ` (×${asset.quantity})` : null}
+                      </span>
                       {metadata.houseRule ? <span className="drawbacks__pill">House Rule</span> : null}
                     </div>
                   </button>
