@@ -46,6 +46,8 @@ import {
   type RandomizerRollRecord,
 } from "../../db/dao";
 import { drawWeightedWithoutReplacement, type WeightedEntry } from "./weightedPicker";
+// Add import for SavedRandomizerPreset type
+import type { SavedRandomizerPreset } from "../../db/dao";
 
 const LISTS_QUERY_KEY = ["randomizer", "lists"] as const;
 const groupsQueryKey = (listId: string) => ["randomizer", "groups", listId] as const;
