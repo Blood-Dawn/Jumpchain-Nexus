@@ -30,6 +30,7 @@ import {
   listJumps,
   reorderJumps,
   summarizeJumpBudget,
+  setJumpStipendToggle,
   type JumpRecord,
   type JumpBudgetSummary,
   loadFormatterSettings,
@@ -68,11 +69,33 @@ const JumpBudget: React.FC<{
   expanded: boolean;
   formatBudgetValue: (value: number) => string;
 }> = ({ jumpId, expanded, formatBudgetValue }) => {
+  const queryClient = useQueryClient();
+  const [pendingAssetId, setPendingAssetId] = useState<string | null>(null);
   const budgetQuery = useQuery({
     queryKey: ["jump-budget", jumpId],
     queryFn: () => summarizeJumpBudget(jumpId),
     enabled: expanded,
   });
+
+  const stipendToggleMutation = useMutation({
+    mutationFn: ({ assetId, enabled }: { assetId: string; enabled: boolean }) =>
+      setJumpStipendToggle(jumpId, assetId, enabled),
+    onMutate: ({ assetId }) => {
+      setPendingAssetId(assetId);
+    },
+    onSettled: () => {
+      setPendingAssetId(null);
+      queryClient.invalidateQueries({ queryKey: ["jump-budget", jumpId] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["jumps"] }).catch(() => undefined);
+    },
+  });
+
+  const handleToggleChange = useCallback(
+    (assetId: string, enabled: boolean) => {
+      stipendToggleMutation.mutate({ assetId, enabled });
+    },
+    [stipendToggleMutation]
+  );
 
   if (!expanded) {
     return null;
@@ -94,6 +117,12 @@ const JumpBudget: React.FC<{
         <strong>Spent:</strong> {formatBudgetValue(summary.netCost)}
       </div>
       <div>
+        <strong>Purchases:</strong> {formatBudgetValue(summary.purchasesNetCost)}
+      </div>
+      <div>
+        <strong>Companion Imports:</strong> {formatBudgetValue(summary.companionImportCost)}
+      </div>
+      <div>
         <strong>Discounted:</strong> {formatBudgetValue(summary.discounted)}
       </div>
       <div>
@@ -103,8 +132,76 @@ const JumpBudget: React.FC<{
         <strong>Drawback Credit:</strong> {formatBudgetValue(summary.drawbackCredit)}
       </div>
       <div>
+        <strong>Stipend Adjustments:</strong> {formatBudgetValue(summary.stipendAdjustments)}
+        {summary.stipendPotential > summary.stipendAdjustments && (
+          <small className="jump-hub__summary-note">
+            {" "}
+            of {formatBudgetValue(summary.stipendPotential)} available
+          </small>
+        )}
+      </div>
+      <div>
         <strong>Balance:</strong> {formatBudgetValue(summary.balance)}
       </div>
+
+      {summary.stipendToggles.length > 0 && (
+        <div className="jump-hub__summary-section">
+          <h4>Stipend Sources</h4>
+          <ul className="jump-hub__summary-list">
+            {summary.stipendToggles.map((entry) => {
+              const assetLabel = entry.assetName ?? "Stipend Source";
+              const disabled =
+                stipendToggleMutation.isPending && pendingAssetId === entry.assetId;
+              return (
+                <li key={entry.assetId}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={entry.enabled}
+                      onChange={(event) => handleToggleChange(entry.assetId, event.target.checked)}
+                      disabled={disabled}
+                    />
+                    <span>{assetLabel}</span>
+                  </label>
+                  <span className="jump-hub__summary-value">
+                    {formatBudgetValue(entry.amount)}
+                  </span>
+                  {entry.potentialAmount !== entry.amount && (
+                    <small className="jump-hub__summary-note">
+                      of {formatBudgetValue(entry.potentialAmount)}
+                    </small>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {summary.companionImportSelections.length > 0 && (
+        <div className="jump-hub__summary-section">
+          <h4>Companion Imports</h4>
+          {summary.companionImportSelections.some((entry) => entry.selected) ? (
+            <ul className="jump-hub__summary-list">
+              {summary.companionImportSelections
+                .filter((entry) => entry.selected)
+                .map((entry) => (
+                  <li key={entry.id}>
+                    <span>
+                      {entry.companionName}
+                      {entry.assetName ? ` — ${entry.assetName}` : ""}
+                    </span>
+                    <span className="jump-hub__summary-value">
+                      {formatBudgetValue(entry.optionValue)}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="jump-hub__summary-note">No companion import costs applied.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

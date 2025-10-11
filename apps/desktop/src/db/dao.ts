@@ -165,6 +165,20 @@ export interface JumpAssetRecord {
   updated_at: string;
 }
 
+interface JumpStipendToggleRow {
+  asset_id: string;
+  enabled: number;
+  override_total: number | null;
+}
+
+interface CompanionImportRow {
+  id: string;
+  asset_id: string;
+  companion_name: string;
+  option_value: number | null;
+  selected: number;
+}
+
 export interface CreateJumpAssetInput {
   jump_id: string;
   asset_type: JumpAssetType;
@@ -1958,9 +1972,32 @@ export interface BudgetComputation {
   netCost: number;
 }
 
+export interface JumpStipendToggleSummaryEntry {
+  assetId: string;
+  assetName: string | null;
+  enabled: boolean;
+  amount: number;
+  potentialAmount: number;
+}
+
+export interface CompanionImportSummaryEntry {
+  id: string;
+  assetId: string;
+  assetName: string | null;
+  companionName: string;
+  optionValue: number;
+  selected: boolean;
+}
+
 export interface JumpBudgetSummary extends BudgetComputation {
   drawbackCredit: number;
   balance: number;
+  purchasesNetCost: number;
+  stipendAdjustments: number;
+  stipendPotential: number;
+  stipendToggles: JumpStipendToggleSummaryEntry[];
+  companionImportCost: number;
+  companionImportSelections: CompanionImportSummaryEntry[];
 }
 
 export function computeBudget(purchases: PurchaseCostInput[]): BudgetComputation {
@@ -2025,6 +2062,8 @@ export async function clearAllData(): Promise<void> {
     await db.execute("DELETE FROM next_actions");
     await db.execute("DELETE FROM entities");
     await db.execute("DELETE FROM knowledge_articles");
+    await db.execute("DELETE FROM companion_imports");
+    await db.execute("DELETE FROM jump_stipend_toggles");
     await db.execute("DELETE FROM jumps");
   });
   knowledgeSeedInitialized = false;
@@ -2094,35 +2133,122 @@ export async function deleteNextAction(id: string): Promise<void> {
 }
 
 async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
-  const rows = (await db.select<JumpAssetRecord[]>(
-    `SELECT asset_type, cost, quantity, discounted, freebie
+  const assetRows = (await db.select<JumpAssetRecord[]>(
+    `SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata
      FROM jump_assets
      WHERE jump_id = $1`,
     [jumpId]
   )) as JumpAssetRecord[];
 
-  const purchases: PurchaseCostInput[] = [];
-  let drawbackCredit = 0;
+  const toggleRows = (await db.select<JumpStipendToggleRow[]>(
+    `SELECT asset_id, enabled, override_total
+     FROM jump_stipend_toggles
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpStipendToggleRow[];
 
-  for (const row of rows) {
-    const quantity = Math.max(row.quantity ?? 1, 1);
-    const cost = Math.max(row.cost ?? 0, 0) * quantity;
-    if (row.asset_type === "drawback") {
-      drawbackCredit += cost;
-      continue;
-    }
-    purchases.push({
-      cost,
-      discount: row.discounted === 1,
-      freebie: row.freebie === 1,
-    });
+  const companionImportRows = (await db.select<CompanionImportRow[]>(
+    `SELECT id, asset_id, companion_name, option_value, selected
+     FROM companion_imports
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as CompanionImportRow[];
+
+  const toggleMap = new Map<string, JumpStipendToggleRow>();
+  for (const row of toggleRows) {
+    toggleMap.set(row.asset_id, row);
   }
 
+  const assetNameMap = new Map<string, string | null>();
+  const purchases: PurchaseCostInput[] = [];
+  const stipendToggles: JumpStipendToggleSummaryEntry[] = [];
+  let stipendAdjustments = 0;
+  let stipendPotential = 0;
+  let drawbackCredit = 0;
+
+  for (const row of assetRows) {
+    const quantity = Math.max(row.quantity ?? 1, 1);
+    const cost = Math.max(row.cost ?? 0, 0) * quantity;
+    assetNameMap.set(row.id, row.name ?? null);
+
+    if (row.asset_type === "drawback") {
+      drawbackCredit += cost;
+    } else {
+      purchases.push({
+        cost,
+        discount: row.discounted === 1,
+        freebie: row.freebie === 1,
+      });
+    }
+
+    const metadata = parseAssetMetadata(row.metadata);
+    if (metadata.stipend) {
+      const baseAmount = Number.isFinite(metadata.stipend.total)
+        ? Number(metadata.stipend.total)
+        : 0;
+      const toggle = toggleMap.get(row.id);
+      const override = toggle?.override_total;
+      const overrideAmount =
+        override !== null && override !== undefined && Number.isFinite(override)
+          ? Number(override)
+          : null;
+      const appliedAmount = overrideAmount ?? baseAmount;
+      const enabled = toggle ? toggle.enabled === 1 : true;
+
+      stipendPotential += baseAmount;
+      if (enabled) {
+        stipendAdjustments += appliedAmount;
+      }
+
+      stipendToggles.push({
+        assetId: row.id,
+        assetName: row.name ?? null,
+        enabled,
+        amount: appliedAmount,
+        potentialAmount: baseAmount,
+      });
+    }
+  }
+
+  const companionImportSelections: CompanionImportSummaryEntry[] = companionImportRows.map((row) => {
+    const optionValueRaw = row.option_value ?? 0;
+    const optionValue = Number.isFinite(optionValueRaw) ? Number(optionValueRaw) : 0;
+    return {
+      id: row.id,
+      assetId: row.asset_id,
+      assetName: assetNameMap.get(row.asset_id) ?? null,
+      companionName: row.companion_name,
+      optionValue,
+      selected: row.selected === 1,
+    } satisfies CompanionImportSummaryEntry;
+  });
+
+  const companionImportCost = companionImportSelections.reduce((total, entry) => {
+    if (!entry.selected) {
+      return total;
+    }
+    const normalized = Number.isFinite(entry.optionValue) ? entry.optionValue : 0;
+    return total + normalized;
+  }, 0);
+
   const computation = computeBudget(purchases);
+  const purchasesNetCost = computation.netCost;
+  const netCost = purchasesNetCost + companionImportCost;
+  const balance = drawbackCredit + stipendAdjustments - netCost;
+
   return {
-    ...computation,
+    totalCost: computation.totalCost,
+    discounted: computation.discounted,
+    freebies: computation.freebies,
+    netCost,
+    purchasesNetCost,
     drawbackCredit,
-    balance: drawbackCredit - computation.netCost,
+    balance,
+    stipendAdjustments,
+    stipendPotential,
+    stipendToggles,
+    companionImportCost,
+    companionImportSelections,
   };
 }
 
@@ -2130,15 +2256,62 @@ export async function summarizeJumpBudget(jumpId: string): Promise<JumpBudgetSum
   return withInit((db) => summarizeJumpBudgetWithDb(db, jumpId));
 }
 
-async function updateJumpCostSummary(jumpId: string): Promise<void> {
+export async function setJumpStipendToggle(
+  jumpId: string,
+  assetId: string,
+  enabled: boolean,
+  overrideTotal?: number | null
+): Promise<void> {
   await withInit(async (db) => {
-    const summary = await summarizeJumpBudgetWithDb(db, jumpId);
-    await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
-      summary.netCost,
-      summary.drawbackCredit,
-      jumpId,
-    ]);
+    const now = new Date().toISOString();
+    await db.execute(
+      `INSERT INTO jump_stipend_toggles (jump_id, asset_id, enabled, override_total, updated_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(jump_id, asset_id) DO UPDATE SET
+         enabled = excluded.enabled,
+         override_total = excluded.override_total,
+         updated_at = excluded.updated_at`,
+      [jumpId, assetId, boolToInt(enabled), overrideTotal ?? null, now]
+    );
+    await updateJumpCostSummaryWithDb(db, jumpId);
   });
+}
+
+export async function setCompanionImportSelection(importId: string, selected: boolean): Promise<void> {
+  await withInit(async (db) => {
+    const rows = (await db.select<{ jump_id: string }[]>(
+      `SELECT jump_id FROM companion_imports WHERE id = $1`,
+      [importId]
+    )) as { jump_id: string }[];
+
+    if (!rows.length) {
+      return;
+    }
+
+    const jumpId = rows[0].jump_id;
+    const now = new Date().toISOString();
+    await db.execute(
+      `UPDATE companion_imports
+       SET selected = $2, updated_at = $3
+       WHERE id = $1`,
+      [importId, boolToInt(selected), now]
+    );
+
+    await updateJumpCostSummaryWithDb(db, jumpId);
+  });
+}
+
+async function updateJumpCostSummaryWithDb(db: Database, jumpId: string): Promise<void> {
+  const summary = await summarizeJumpBudgetWithDb(db, jumpId);
+  await db.execute(`UPDATE jumps SET cp_spent = $1, cp_income = $2 WHERE id = $3`, [
+    summary.netCost,
+    summary.drawbackCredit + summary.stipendAdjustments,
+    jumpId,
+  ]);
+}
+
+async function updateJumpCostSummary(jumpId: string): Promise<void> {
+  await withInit((db) => updateJumpCostSummaryWithDb(db, jumpId));
 }
 
 export async function listJumpAssets(
