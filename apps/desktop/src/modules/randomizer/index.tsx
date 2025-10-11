@@ -185,6 +185,10 @@ const JumpRandomizer: React.FC = () => {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState<EntryFormState | null>(null);
   const [entryFormError, setEntryFormError] = useState<string | null>(null);
+  const [newListName, setNewListName] = useState("");
+  const [listNameDraft, setListNameDraft] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupNameDraft, setGroupNameDraft] = useState("");
   const [drawCountInput, setDrawCountInput] = useState("1");
   const [seedInput, setSeedInput] = useState("");
   const [minWeightInput, setMinWeightInput] = useState("0");
@@ -210,12 +214,32 @@ const JumpRandomizer: React.FC = () => {
     [lists, selectedListId]
   );
 
+  useEffect(() => {
+    setListNameDraft(selectedList?.name ?? "");
+  }, [selectedList]);
+
   const groupsQuery = useQuery({
     queryKey: selectedListId ? groupsQueryKey(selectedListId) : ["randomizer", "groups", "none"],
     queryFn: () => listRandomizerGroups(selectedListId ?? ""),
     enabled: Boolean(selectedListId),
   });
   const groups = groupsQuery.data ?? [];
+
+  const selectedGroup = useMemo(
+    () =>
+      selectedGroupId === "all"
+        ? null
+        : groups.find((group) => group.id === selectedGroupId) ?? null,
+    [groups, selectedGroupId]
+  );
+
+  useEffect(() => {
+    setGroupNameDraft(selectedGroup?.name ?? "");
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    setNewGroupName("");
+  }, [selectedListId]);
 
   useEffect(() => {
     if (!selectedListId) {
@@ -366,6 +390,7 @@ const JumpRandomizer: React.FC = () => {
     onSuccess: (record) => {
       setSelectedListId(record.id);
       setSelectedGroupId("all");
+      setNewListName("");
       queryClient.invalidateQueries({ queryKey: LISTS_QUERY_KEY }).catch(() => undefined);
     },
   });
@@ -394,6 +419,7 @@ const JumpRandomizer: React.FC = () => {
     mutationFn: (input: Parameters<typeof createRandomizerGroup>[0]) => createRandomizerGroup(input),
     onSuccess: (record) => {
       setSelectedGroupId(record.id);
+      setNewGroupName("");
       queryClient.invalidateQueries({ queryKey: groupsQueryKey(record.list_id) }).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: entriesQueryKey(record.list_id) }).catch(() => undefined);
     },
@@ -474,19 +500,19 @@ const JumpRandomizer: React.FC = () => {
     },
   });
 
-  const handleCreateList = (): void => {
-    const name = typeof window !== "undefined" ? window.prompt("Name for the new list?") : null;
-    const trimmed = name?.trim();
-    createListMutation.mutate(trimmed ? { name: trimmed } : {});
+  const handleCreateList = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const trimmed = newListName.trim();
+    createListMutation.mutate(trimmed.length ? { name: trimmed } : {});
   };
 
-  const handleRenameList = (): void => {
+  const handleRenameList = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
     if (!selectedList) {
       return;
     }
-    const next = typeof window !== "undefined" ? window.prompt("Rename list", selectedList.name) : null;
-    const trimmed = next?.trim();
-    if (!trimmed || trimmed === selectedList.name) {
+    const trimmed = listNameDraft.trim();
+    if (!trimmed.length || trimmed === selectedList.name) {
       return;
     }
     updateListMutation.mutate({ id: selectedList.id, updates: { name: trimmed } });
@@ -508,54 +534,45 @@ const JumpRandomizer: React.FC = () => {
     deleteListMutation.mutate(selectedList.id);
   };
 
-  const handleCreateGroup = (): void => {
+  const handleCreateGroup = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
     if (!selectedListId) {
       return;
     }
-    const name = typeof window !== "undefined" ? window.prompt("Name for the new group?", "New Group") : null;
-    const trimmed = name?.trim();
     createGroupMutation.mutate({
       list_id: selectedListId,
-      name: trimmed && trimmed.length ? trimmed : undefined,
+      name: newGroupName.trim().length ? newGroupName.trim() : undefined,
     });
   };
 
-  const handleRenameGroup = (): void => {
-    if (!selectedGroupId || selectedGroupId === "all") {
+  const handleRenameGroup = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (!selectedGroupId || selectedGroupId === "all" || !selectedGroup) {
       return;
     }
-    const group = groups.find((item) => item.id === selectedGroupId);
-    if (!group) {
+    const trimmed = groupNameDraft.trim();
+    if (!trimmed.length || trimmed === selectedGroup.name) {
       return;
     }
-    const next = typeof window !== "undefined" ? window.prompt("Rename group", group.name) : null;
-    const trimmed = next?.trim();
-    if (!trimmed || trimmed === group.name) {
-      return;
-    }
-    updateGroupMutation.mutate({ id: group.id, updates: { name: trimmed } });
+    updateGroupMutation.mutate({ id: selectedGroup.id, updates: { name: trimmed } });
   };
 
   const handleDeleteGroup = (): void => {
-    if (!selectedGroupId || selectedGroupId === "all") {
+    if (!selectedGroupId || selectedGroupId === "all" || !selectedGroup) {
       return;
     }
     if (groups.length <= 1) {
       setCopyMessage("At least one group is required.");
       return;
     }
-    const group = groups.find((item) => item.id === selectedGroupId);
-    if (!group) {
-      return;
-    }
     const confirmDelete =
       typeof window === "undefined"
         ? false
-        : window.confirm(`Delete group "${group.name}" and all entries in it?`);
+        : window.confirm(`Delete group "${selectedGroup.name}" and all entries in it?`);
     if (!confirmDelete) {
       return;
     }
-    deleteGroupMutation.mutate(group.id);
+    deleteGroupMutation.mutate(selectedGroup.id);
   };
 
   const handleAddEntry = (): void => {
@@ -614,26 +631,17 @@ const JumpRandomizer: React.FC = () => {
     deleteEntryMutation.mutate(selectedEntryId);
   };
 
-  const handleListChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    if (!value) {
-      setSelectedListId(null);
-      setSelectedGroupId("all");
-      setSelectedEntryId(null);
-      setSelectedTags([]);
-      setDrawResults([]);
-      setLastDrawSummary(null);
-      setDrawError(null);
-      return;
-    }
-    setSelectedListId(value);
+  const handleSelectList = (id: string): void => {
+    setSelectedListId(id);
+    setSelectedGroupId("all");
+    setSelectedEntryId(null);
+    setSelectedTags([]);
     setDrawResults([]);
     setLastDrawSummary(null);
     setDrawError(null);
   };
 
-  const handleGroupChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
+  const handleSelectGroup = (value: string | "all"): void => {
     if (value === "all") {
       setSelectedGroupId("all");
       return;
@@ -911,10 +919,14 @@ const JumpRandomizer: React.FC = () => {
     setCopyMessage("Export downloaded.");
   };
 
-  const listControlsDisabled = createListMutation.isPending || deleteListMutation.isPending;
-  const groupControlsDisabled = createGroupMutation.isPending || deleteGroupMutation.isPending;
+  const listControlsDisabled =
+    createListMutation.isPending || deleteListMutation.isPending || updateListMutation.isPending;
+  const groupControlsDisabled =
+    createGroupMutation.isPending || deleteGroupMutation.isPending || updateGroupMutation.isPending;
   const entryControlsDisabled =
     createEntryMutation.isPending || updateEntryMutation.isPending || deleteEntryMutation.isPending;
+  const drawInProgress = recordRollMutation.isPending;
+  const historyBusy = clearHistoryMutation.isPending;
 
   useEffect(() => {
     if (!copyMessage || typeof window === "undefined") {
@@ -928,7 +940,7 @@ const JumpRandomizer: React.FC = () => {
     <section className="module randomizer">
       <header>
         <h1>Jump Randomizer</h1>
-        <p>Configuring randomizer placeholder.dataΓÇª</p>
+        <p>Manage lists, groups, and entries to run weighted draws.</p>
       </header>
       <div className="randomizer-layout">
         <aside className="randomizer-sidebar">
