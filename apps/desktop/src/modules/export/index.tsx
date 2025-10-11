@@ -24,7 +24,6 @@ SOFTWARE.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
-import createDOMPurify, { type DOMPurifyI } from "dompurify";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import TurndownService from "turndown";
 import { create } from "zustand";
@@ -47,6 +46,7 @@ import {
   type RecapRecord,
 } from "../../db/dao";
 import { confirmDialog } from "../../services/dialogService";
+import { sanitizeHtml } from "../../utils/sanitizeHtml";
 
 type ExportFormat = "markdown" | "bbcode" | "text";
 
@@ -285,21 +285,6 @@ function createBbcodeService(): TurndownService {
 
 function markdownToHtml(markdown: string): string {
   return (marked.parse(markdown, { async: false }) as string).trim();
-}
-
-const DOM_PURIFY: DOMPurifyI | null =
-  typeof window === "undefined" ? null : createDOMPurify(window);
-
-function sanitizeHtml(html: string): string {
-  if (DOM_PURIFY) {
-    return DOM_PURIFY.sanitize(html, { USE_PROFILES: { html: true } });
-  }
-
-  // Fallback for non-browser environments such as server-side rendering or tests
-  // where DOMPurify cannot initialize. The export previews are only rendered in
-  // the browser, but we defensively strip script tags to avoid executing them
-  // if this fallback is ever used.
-  return html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
 }
 
 function markdownToSanitizedHtml(markdown: string): string {
