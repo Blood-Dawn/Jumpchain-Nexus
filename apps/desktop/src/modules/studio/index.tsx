@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import "./Studio.css";
 import {
@@ -40,8 +40,10 @@ import ChapterListTop from "./ChapterListTop";
 import ChapterListSide from "./ChapterListSide";
 import StudioSettings from "./StudioSettings";
 import StudioEditor from "./Editor";
+import { loadSnapshot } from "../jmh/data";
+import { NotesEditor } from "../jmh/NotesEditor";
 
-const StoryStudio: React.FC = () => {
+const StoryComposerShell: React.FC = () => {
   const queryClient = useQueryClient();
   const setStories = useStudioStore((state) => state.setStories);
   const stories = useStudioStore((state) => state.stories);
@@ -295,6 +297,105 @@ const StoryStudio: React.FC = () => {
     <div className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
       {shellContent}
       {showSettings ? <StudioSettings /> : null}
+    </div>
+  );
+};
+
+const StudioNotesWorkbench: React.FC = () => {
+  const setJumps = useJmhStore((state) => state.setJumps);
+  const setEntities = useJmhStore((state) => state.setEntities);
+  const setNotes = useJmhStore((state) => state.setNotes);
+  const setRecaps = useJmhStore((state) => state.setRecaps);
+  const setNextActions = useJmhStore((state) => state.setNextActions);
+  const snapshotQuery = useQuery({
+    queryKey: ["story-studio-notes"],
+    queryFn: loadSnapshot,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (!snapshotQuery.data) {
+      return;
+    }
+    const { jumps, entities, notes, recaps, nextActions } = snapshotQuery.data;
+    setJumps(jumps);
+    setEntities(entities);
+    setNotes(notes);
+    setRecaps(recaps);
+    setNextActions(nextActions);
+
+    const state = useJmhStore.getState();
+    if (notes.length === 0) {
+      state.setSelectedNote(null);
+      state.setSelectedJump(null);
+    } else if (!state.selectedNoteId) {
+      state.setSelectedNote(notes[0].id);
+      state.setSelectedJump(notes[0].jump_id ?? null);
+    }
+  }, [snapshotQuery.data, setEntities, setJumps, setNextActions, setNotes, setRecaps]);
+
+  if (snapshotQuery.isLoading) {
+    return (
+      <div className="studio-notes-state">
+        <h2>Loading Story Studio…</h2>
+        <p>Fetching notes, mentions, and jump context.</p>
+      </div>
+    );
+  }
+
+  if (snapshotQuery.isError) {
+    const rawError = snapshotQuery.error as unknown;
+    const errorMessage =
+      rawError instanceof Error
+        ? rawError.message
+        : typeof rawError === "string"
+          ? rawError
+          : "Unknown error";
+    return (
+      <div className="studio-notes-state">
+        <div>
+          <h2>Story Studio failed to load</h2>
+          <p>{errorMessage}</p>
+        </div>
+        <button type="button" onClick={() => snapshotQuery.refetch()}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="studio-notes-shell">
+      <NotesEditor />
+    </div>
+  );
+};
+
+const StoryStudio: React.FC = () => {
+  const [mode, setMode] = useState<"chapters" | "notes">("notes");
+
+  return (
+    <div className="story-studio">
+      <div className="story-studio__tabs">
+        <button
+          type="button"
+          className={mode === "notes" ? "story-studio__tab story-studio__tab--active" : "story-studio__tab"}
+          onClick={() => setMode("notes")}
+        >
+          Session Notes
+        </button>
+        <button
+          type="button"
+          className={mode === "chapters" ? "story-studio__tab story-studio__tab--active" : "story-studio__tab"}
+          onClick={() => setMode("chapters")}
+        >
+          Chapters & Recaps
+        </button>
+      </div>
+      <div className="story-studio__content">
+        {mode === "notes" ? <StudioNotesWorkbench /> : <StoryComposerShell />}
+      </div>
     </div>
   );
 };

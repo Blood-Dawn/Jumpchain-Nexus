@@ -31,8 +31,7 @@ import { Timeline } from "./Timeline";
 import { NextActionsPanel } from "./NextActionsPanel";
 import { PageLayoutRightPane } from "../../components/PageLayout";
 import { AssetWorkbench } from "./AssetWorkbench";
-
-const NotesEditor = lazy(async () => import("./NotesEditor"));
+const NarrativeSummaryPanel = lazy(async () => import("./NarrativeSummaryPanel"));
 const HelpPane = lazy(async () => import("./HelpPane"));
 const OnboardingWizard = lazy(async () => import("./OnboardingWizard"));
 
@@ -132,8 +131,8 @@ export const JumpMemoryHub: React.FC = () => {
         </div>
       </section>
       <section className="hub-notes">
-        <Suspense fallback={<div className="hub-loading">Preparing Story Studio…</div>}>
-          <NotesEditor />
+        <Suspense fallback={<div className="hub-loading">Loading narrative highlights…</div>}>
+          <NarrativeSummaryPanel />
         </Suspense>
       </section>
       {showWizard && (
