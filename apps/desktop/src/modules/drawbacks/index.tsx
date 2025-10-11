@@ -36,6 +36,7 @@ import {
   DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS,
   loadFormatterSettings,
   updateJumpAsset,
+  reorderJumpAssets,
   type JumpAssetRecord,
   type JumpRecord,
 } from "../../db/dao";
@@ -110,14 +111,34 @@ const DrawbackSupplement: React.FC = () => {
 
   const [selectedDrawbackId, setSelectedDrawbackId] = useState<string | null>(null);
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [orderedDrawbacks, setOrderedDrawbacks] = useState<JumpAssetRecord[]>([]);
 
-  const selectedJump = useMemo(() => {
-    if (!selectedJumpId) {
-      return null;
+  useEffect(() => {
+    if (!drawbacksQuery.data?.length) {
+      setSelectedDrawbackId(null);
+      setFormState(null);
+      setOrderedDrawbacks([]);
+      return;
     }
     return jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null;
   }, [jumpsQuery.data, selectedJumpId]);
+
+  useEffect(() => {
+    if (!drawbacksQuery.data) {
+      setOrderedDrawbacks([]);
+      return;
+    }
+    setOrderedDrawbacks([...drawbacksQuery.data]);
+  }, [drawbacksQuery.data]);
+
+  useEffect(() => {
+    if (!orderedDrawbacks.length) {
+      return;
+    }
+    if (!selectedDrawbackId || !orderedDrawbacks.some((asset) => asset.id === selectedDrawbackId)) {
+      setSelectedDrawbackId(orderedDrawbacks[0]?.id ?? null);
+    }
+  }, [orderedDrawbacks, selectedDrawbackId]);
 
   const selectedDrawback = useMemo(
     () => drawbacksQuery.data?.find((asset) => asset.id === selectedDrawbackId) ?? null,
@@ -312,55 +333,45 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbackSupplementEnabled]);
 
-  const manualCredit = useMemo(() => {
-    return (drawbacksQuery.data ?? []).reduce((sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1), 0);
-  }, [drawbacksQuery.data]);
-
-  const automaticCredit = universalRewardState.eligible ? universalRewardState.stipend.jumper : 0;
-  const totalCredit = manualCredit + automaticCredit;
-  const balanceWithGrants = budgetQuery.data ? budgetQuery.data.balance + automaticCredit : null;
-  const visibleCount = filteredDrawbacks.length;
-  const totalCount = drawbacksQuery.data?.length ?? 0;
-
-  if (supplementsQuery.isLoading) {
-    return (
-      <section className="drawbacks">
-        <header className="drawbacks__header">
-          <h1>Drawback Supplement</h1>
-          <p>Track drawback purchases, house rules, and bonus CP.</p>
-        </header>
-        <p className="drawbacks__summary">Loading supplement preferences...</p>
-      </section>
+  const totalCredit = useMemo(() => {
+    return (orderedDrawbacks ?? []).reduce(
+      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
+      0
     );
-  }
+  }, [orderedDrawbacks]);
 
-  if (supplementsQuery.isError) {
-    return (
-      <section className="drawbacks">
-        <header className="drawbacks__header">
-          <h1>Drawback Supplement</h1>
-          <p>Track drawback purchases, house rules, and bonus CP.</p>
-        </header>
-        <p className="drawbacks__summary">
-          Unable to load supplement preferences. Try reopening the Options module.
-        </p>
-      </section>
-    );
-  }
+  const hasOrderChanges = useMemo(() => {
+    if (!drawbacksQuery.data?.length) {
+      return false;
+    }
+    if (!orderedDrawbacks.length) {
+      return false;
+    }
+    if (orderedDrawbacks.length !== drawbacksQuery.data.length) {
+      return true;
+    }
+    return orderedDrawbacks.some((asset, index) => asset.id !== drawbacksQuery.data[index].id);
+  }, [drawbacksQuery.data, orderedDrawbacks]);
 
-  if (!drawbackSupplementEnabled) {
-    return (
-      <section className="drawbacks">
-        <header className="drawbacks__header">
-          <h1>Drawback Supplement</h1>
-          <p>Track drawback purchases, house rules, and bonus CP.</p>
-        </header>
-        <p className="drawbacks__summary">
-          The Drawback Supplement is disabled. Enable it from Options &gt; Supplements to resume editing.
-        </p>
-      </section>
-    );
-  }
+  const moveDrawback = (fromIndex: number, toIndex: number) => {
+    setOrderedDrawbacks((prev) => {
+      if (toIndex < 0 || toIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const resetOrder = () => {
+    if (drawbacksQuery.data) {
+      setOrderedDrawbacks([...drawbacksQuery.data]);
+    } else {
+      setOrderedDrawbacks([]);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -406,6 +417,79 @@ const DrawbackSupplement: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["jumps"] }).catch(() => undefined);
     },
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: (payload: { jumpId: string; orderedIds: string[] }) =>
+      reorderJumpAssets(payload.jumpId, "drawback", payload.orderedIds),
+    onSuccess: (_, variables) => {
+      const { jumpId, orderedIds } = variables;
+      queryClient.setQueryData<JumpAssetRecord[] | undefined>(
+        ["jump-drawbacks", jumpId],
+        (existing) => {
+          if (!existing) {
+            return existing;
+          }
+          const lookup = new Map(existing.map((asset) => [asset.id, asset]));
+          return orderedIds
+            .map((id) => lookup.get(id))
+            .filter((asset): asset is JumpAssetRecord => Boolean(asset));
+        }
+      );
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["jump-drawbacks", selectedJumpId] }).catch(() => undefined);
+    },
+  });
+
+  const confirmOrder = () => {
+    if (!selectedJumpId || !orderedDrawbacks.length) {
+      return;
+    }
+    reorderMutation.mutate({
+      jumpId: selectedJumpId,
+      orderedIds: orderedDrawbacks.map((asset) => asset.id),
+    });
+  };
+
+  if (supplementsQuery.isLoading) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">Loading supplement preferences...</p>
+      </section>
+    );
+  }
+
+  if (supplementsQuery.isError) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">
+          Unable to load supplement preferences. Try reopening the Options module.
+        </p>
+      </section>
+    );
+  }
+
+  if (!drawbackSupplementEnabled) {
+    return (
+      <section className="drawbacks">
+        <header className="drawbacks__header">
+          <h1>Drawback Supplement</h1>
+          <p>Track drawback purchases, house rules, and bonus CP.</p>
+        </header>
+        <p className="drawbacks__summary">
+          The Drawback Supplement is disabled. Enable it from Options &gt; Supplements to resume editing.
+        </p>
+      </section>
+    );
+  }
 
   const handleSave = () => {
     if (!formState) return;
@@ -524,11 +608,8 @@ const DrawbackSupplement: React.FC = () => {
           {!drawbacksQuery.isLoading && totalCount === 0 && (
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
-          {!drawbacksQuery.isLoading && totalCount > 0 && filteredDrawbacks.length === 0 && (
-            <p className="drawbacks__empty">No drawbacks match the selected filter.</p>
-          )}
-          <ul>
-            {filteredDrawbacks.map((asset) => {
+          <ul aria-label="Drawback order">
+            {orderedDrawbacks.map((asset, index) => {
               const metadata = parseMetadata(asset.metadata);
               return (
                 <li key={asset.id}>
@@ -552,10 +633,49 @@ const DrawbackSupplement: React.FC = () => {
                       {metadata.houseRule ? <span className="drawbacks__pill">House Rule</span> : null}
                     </div>
                   </button>
+                  <div className="drawbacks__order-buttons" role="group" aria-label={`Reorder ${asset.name}`}>
+                    <button
+                      type="button"
+                      aria-label={`Move ${asset.name} earlier`}
+                      onClick={() => moveDrawback(index, index - 1)}
+                      disabled={index === 0 || reorderMutation.isPending}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move ${asset.name} later`}
+                      onClick={() => moveDrawback(index, index + 1)}
+                      disabled={index === orderedDrawbacks.length - 1 || reorderMutation.isPending}
+                    >
+                      ↓
+                    </button>
+                  </div>
                 </li>
               );
             })}
           </ul>
+          <div className="drawbacks__order-controls" aria-live="polite">
+            <button
+              type="button"
+              onClick={confirmOrder}
+              disabled={!hasOrderChanges || reorderMutation.isPending || !selectedJumpId}
+            >
+              {reorderMutation.isPending ? "Saving Order…" : "Save Order"}
+            </button>
+            <button
+              type="button"
+              onClick={resetOrder}
+              disabled={!hasOrderChanges || reorderMutation.isPending}
+            >
+              Reset Order
+            </button>
+            {reorderMutation.isError ? (
+              <p role="alert" className="drawbacks__order-feedback">
+                Unable to update drawback order. Please try again.
+              </p>
+            ) : null}
+          </div>
         </aside>
 
         <div className="drawbacks__detail">

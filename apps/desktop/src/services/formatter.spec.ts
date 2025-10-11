@@ -51,6 +51,16 @@ describe("formatInputText", () => {
     });
     expect(result).toBe(`Chunk${String.fromCharCode(0)}Data`);
   });
+
+  it("deduplicates paragraph spacing and trims trailing whitespace", () => {
+    const input = " Intro\n\nParagraph    one\n  Paragraph two\t\t";
+    const result = formatInputText(input, {
+      removeAllLineBreaks: false,
+      leaveDoubleLineBreaks: true,
+      xmlSafe: true,
+    });
+    expect(result).toBe("Intro\n\nParagraph one Paragraph two");
+  });
 });
 
 describe("formatBudget", () => {
@@ -73,5 +83,13 @@ describe("formatBudget", () => {
   it("coerces non-finite values to zero", () => {
     expect(formatBudget(Number.POSITIVE_INFINITY, "comma")).toBe("0");
     expect(formatBudget(Number.NaN, "comma")).toBe("0");
+  });
+
+  it("falls back to plain digits for unknown formats", () => {
+    expect(formatBudget(12345, "mystery" as never)).toBe("12345");
+  });
+
+  it("truncates fractional values when formatting", () => {
+    expect(formatBudget(9876.54, "space")).toBe("9 876");
   });
 });

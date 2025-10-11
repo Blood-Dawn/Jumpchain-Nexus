@@ -24,7 +24,6 @@ SOFTWARE.
 
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import type { UpsertKnowledgeArticleInput } from "../db/dao";
-import { readPdfText } from "./pdfText";
 import {
   buildArticleDraft,
   extractFileName,
@@ -58,6 +57,7 @@ async function buildDraftFromFile(path: string): Promise<KnowledgeBaseArticleDra
   const ext = getExtension(path);
 
   if (ext === "pdf") {
+    const { readPdfText } = await import("./pdfText");
     const result = await readPdfText(path);
     const text = result.text;
     return buildArticleDraft(path, text, "Imported");

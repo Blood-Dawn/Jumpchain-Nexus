@@ -368,4 +368,15 @@ FodyWeavers.xsd
 /JumpList.txt
 
 tools/
+!apps/desktop/tools/
+
+# Desktop app generated artifacts
+apps/desktop/coverage/
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+apps/desktop/app.db
+apps/desktop/app.db-journal
+apps/desktop/app.db-shm
+apps/desktop/app.db-wal
+apps/desktop/**/*.sqlite
 

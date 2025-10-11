@@ -159,6 +159,26 @@ CREATE TABLE IF NOT EXISTS jump_assets (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS jump_stipend_toggles (
+    jump_id TEXT NOT NULL REFERENCES jumps(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES jump_assets(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    override_total INTEGER,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (jump_id, asset_id)
+);
+
+CREATE TABLE IF NOT EXISTS companion_imports (
+    id TEXT PRIMARY KEY,
+    jump_id TEXT NOT NULL REFERENCES jumps(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES jump_assets(id) ON DELETE CASCADE,
+    companion_name TEXT NOT NULL,
+    option_value INTEGER DEFAULT 0,
+    selected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS inventory_items (
     id TEXT PRIMARY KEY,
     scope TEXT NOT NULL,
