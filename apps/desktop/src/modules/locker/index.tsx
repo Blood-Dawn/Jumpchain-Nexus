@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_SUPPLEMENT_SETTINGS,
   createInventoryItem,
@@ -34,6 +34,7 @@ import {
   type InventoryScope,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FixedSizeList, type ListChildComponentProps } from "react-window";
 
 import {
   type BodyModType,
@@ -63,6 +64,91 @@ interface LockerFormState {
 }
 
 const LOCKER_SCOPE_KEY = ["locker-items"] as const;
+
+const LOCKER_ROW_HEIGHT = 148;
+
+type LockerListItem = ReturnType<typeof mapLockerItems>[number];
+
+interface LockerListItemData {
+  items: LockerListItem[];
+  selectedId: string | null;
+  setSelectedId: (id: string) => void;
+  togglePacked: (id: string, packed: boolean) => void;
+  supplements: typeof DEFAULT_SUPPLEMENT_SETTINGS;
+  warningsById: Record<string, LockerWarning[]>;
+}
+
+const LockerListRow: React.FC<ListChildComponentProps<LockerListItemData>> = ({ index, style, data }) => {
+  const entry = data.items[index];
+  const isActive = entry.item.id === data.selectedId;
+  const bodyModInactive =
+    (entry.bodyModType === "essential" && !data.supplements.enableEssentialBodyMod) ||
+    (entry.bodyModType === "universal" && !data.supplements.allowCompanionBodyMod);
+  const bodyModClassName = [
+    "locker__badge",
+    "locker__badge--bodymod",
+    `locker__badge--bodymod-${entry.bodyModType}`,
+    bodyModInactive ? "locker__badge--inactive" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const handleSelect = () => {
+    data.setSelectedId(entry.item.id);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " " || event.key === "Spacebar" || event.key === "Space") {
+      event.preventDefault();
+      handleSelect();
+    }
+  };
+
+  return (
+    <li style={{ ...style, width: "100%" }} className="locker__list-row">
+      <div
+        role="button"
+        tabIndex={0}
+        className={isActive ? "locker__item locker__item--active" : "locker__item"}
+        onClick={handleSelect}
+        onKeyDown={handleKeyDown}
+      >
+        <div className="locker__item-header">
+          <strong>{entry.item.name}</strong>
+          <label>
+            <input
+              type="checkbox"
+              checked={entry.packed}
+              onChange={(event) => data.togglePacked(entry.item.id, event.target.checked)}
+            />
+            Packed
+          </label>
+        </div>
+        <div className="locker__item-meta">
+          <span>{entry.item.category ?? "General"}</span>
+          <span>Qty {entry.item.quantity ?? 1}</span>
+          <span className={`locker__badge locker__badge--${entry.priority}`}>{entry.priority}</span>
+          {entry.bodyModType && (
+            <span className={bodyModClassName}>
+              {entry.bodyModType === "essential" ? "Essential" : "Universal"}
+            </span>
+          )}
+          {entry.hasBooster && <span className="locker__badge locker__badge--booster">Booster</span>}
+          {(data.warningsById[entry.item.id]?.length ?? 0) > 0 && (
+            <span className="locker__item-warning">Needs attention</span>
+          )}
+        </div>
+        {entry.tags.length > 0 && (
+          <div className="locker__item-tags">
+            {entry.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+};
 
 const CosmicLocker: React.FC = () => {
   const queryClient = useQueryClient();
@@ -209,13 +295,16 @@ const CosmicLocker: React.FC = () => {
     });
   };
 
-  const togglePacked = (id: string, packed: boolean) => {
-    const existing = itemsQuery.data?.find((item) => item.id === id);
-    if (!existing) return;
-    const metadata = parseLockerMetadata(existing.metadata);
-    metadata.packed = packed;
-    updateMutation.mutate({ id, updates: { metadata } });
-  };
+  const togglePacked = useCallback(
+    (id: string, packed: boolean) => {
+      const existing = itemsQuery.data?.find((item) => item.id === id);
+      if (!existing) return;
+      const metadata = parseLockerMetadata(existing.metadata);
+      metadata.packed = packed;
+      updateMutation.mutate({ id, updates: { metadata } });
+    },
+    [itemsQuery.data, updateMutation]
+  );
 
   const handleDelete = () => {
     if (selectedId) {
@@ -228,6 +317,84 @@ const CosmicLocker: React.FC = () => {
       moveMutation.mutate({ id: selectedId, scope: "warehouse" });
     }
   };
+
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  const listContainerRef = useRef<HTMLElement | null>(null);
+  const listHeaderRef = useRef<HTMLDivElement | null>(null);
+  const [detailHeight, setDetailHeight] = useState(0);
+  const [listPadding, setListPadding] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [headerMargin, setHeaderMargin] = useState(0);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const node = detailRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const next = Math.round(entry.contentRect.height);
+      setDetailHeight(next);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const node = listContainerRef.current;
+    if (!node || typeof window === "undefined") return;
+    const computed = window.getComputedStyle(node);
+    const paddingTop = Number.parseFloat(computed.paddingTop ?? "0");
+    const paddingBottom = Number.parseFloat(computed.paddingBottom ?? "0");
+    const totalPadding = Math.round(
+      (Number.isFinite(paddingTop) ? paddingTop : 0) + (Number.isFinite(paddingBottom) ? paddingBottom : 0)
+    );
+    setListPadding((previous) => (previous === totalPadding ? previous : totalPadding));
+  }, [detailHeight]);
+
+  useEffect(() => {
+    const node = listHeaderRef.current;
+    if (!node || typeof window === "undefined") {
+      setHeaderMargin(0);
+      return;
+    }
+    const computed = window.getComputedStyle(node);
+    const margin = Number.parseFloat(computed.marginBottom ?? "0");
+    const nextMargin = Number.isFinite(margin) ? Math.round(margin) : 0;
+    setHeaderMargin((previous) => (previous === nextMargin ? previous : nextMargin));
+  }, [categories.length, itemsQuery.isLoading, itemsQuery.isError, filteredItems.length]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const node = listHeaderRef.current;
+    if (!node) {
+      setHeaderHeight(0);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const next = Math.round(entry.contentRect.height);
+      setHeaderHeight((previous) => (previous === next ? previous : next));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [categories.length, itemsQuery.isLoading, itemsQuery.isError, filteredItems.length]);
+
+  const fallbackHeight = Math.min(Math.max(filteredItems.length, 1), 6) * LOCKER_ROW_HEIGHT;
+  const availableFromDetail = detailHeight - listPadding - headerHeight - headerMargin;
+  const resolvedListHeight = Math.max(
+    LOCKER_ROW_HEIGHT,
+    Math.min(
+      filteredItems.length * LOCKER_ROW_HEIGHT || LOCKER_ROW_HEIGHT,
+      availableFromDetail > 0 ? availableFromDetail : fallbackHeight
+    )
+  );
+
+  const rowData = useMemo<LockerListItemData>(
+    () => ({ items: filteredItems, selectedId, setSelectedId, togglePacked, supplements, warningsById }),
+    [filteredItems, selectedId, togglePacked, supplements, warningsById]
+  );
 
   return (
     <section className="locker">
@@ -379,73 +546,43 @@ const CosmicLocker: React.FC = () => {
       </div>
 
       <div className="locker__layout">
-        <aside className="locker__list">
-          {categories.length > 0 && (
-            <div className="locker__categories">
-              {categories.map((category) => (
-                <span key={category}>{category}</span>
-              ))}
-            </div>
-          )}
-          {itemsQuery.isLoading && <p className="locker__empty">Loading locker inventory…</p>}
-          {itemsQuery.isError && <p className="locker__empty">Failed to load locker inventory.</p>}
-          {!itemsQuery.isLoading && filteredItems.length === 0 && (
-            <p className="locker__empty">No items match the active filters.</p>
-          )}
-          <ul>
-            {filteredItems.map((entry) => (
-              <li key={entry.item.id}>
-                <button
-                  type="button"
-                  className={entry.item.id === selectedId ? "locker__item locker__item--active" : "locker__item"}
-                  onClick={() => setSelectedId(entry.item.id)}
-                >
-                  <div className="locker__item-header">
-                    <strong>{entry.item.name}</strong>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={entry.packed}
-                        onChange={(event) => togglePacked(entry.item.id, event.target.checked)}
-                      />
-                      Packed
-                    </label>
-                  </div>
-                  <div className="locker__item-meta">
-                    <span>{entry.item.category ?? "General"}</span>
-                    <span>Qty {entry.item.quantity ?? 1}</span>
-                    <span className={`locker__badge locker__badge--${entry.priority}`}>{entry.priority}</span>
-                    {entry.bodyModType && (
-                      <span
-                        className={`locker__badge locker__badge--bodymod locker__badge--bodymod-${entry.bodyModType}${
-                          (entry.bodyModType === "essential" && !supplements.enableEssentialBodyMod) ||
-                          (entry.bodyModType === "universal" && !supplements.allowCompanionBodyMod)
-                            ? " locker__badge--inactive"
-                            : ""
-                        }`}
-                      >
-                        {entry.bodyModType === "essential" ? "Essential" : "Universal"}
-                      </span>
-                    )}
-                    {entry.hasBooster && <span className="locker__badge locker__badge--booster">Booster</span>}
-                    {(warningsById[entry.item.id]?.length ?? 0) > 0 && (
-                      <span className="locker__item-warning">Needs attention</span>
-                    )}
-                  </div>
-                  {entry.tags.length > 0 && (
-                    <div className="locker__item-tags">
-                      {entry.tags.map((tag) => (
-                        <span key={tag}>{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+        <aside
+          className="locker__list"
+          ref={listContainerRef}
+          style={detailHeight ? { height: detailHeight } : undefined}
+        >
+          <div className="locker__list-header" ref={listHeaderRef}>
+            {categories.length > 0 && (
+              <div className="locker__categories">
+                {categories.map((category) => (
+                  <span key={category}>{category}</span>
+                ))}
+              </div>
+            )}
+            {itemsQuery.isLoading && <p className="locker__empty">Loading locker inventory…</p>}
+            {itemsQuery.isError && <p className="locker__empty">Failed to load locker inventory.</p>}
+            {!itemsQuery.isLoading && filteredItems.length === 0 && (
+              <p className="locker__empty">No items match the active filters.</p>
+            )}
+          </div>
+          <div className="locker__list-viewport">
+            {filteredItems.length > 0 && !itemsQuery.isLoading && !itemsQuery.isError ? (
+              <FixedSizeList
+                height={resolvedListHeight}
+                width="100%"
+                itemCount={filteredItems.length}
+                itemSize={LOCKER_ROW_HEIGHT}
+                itemData={rowData}
+                innerElementType="ul"
+                className="locker__list-items"
+              >
+                {LockerListRow}
+              </FixedSizeList>
+            ) : null}
+          </div>
         </aside>
 
-        <div className="locker__detail">
+        <div className="locker__detail" ref={detailRef}>
           {formState ? (
             <form
               className="locker__form"
