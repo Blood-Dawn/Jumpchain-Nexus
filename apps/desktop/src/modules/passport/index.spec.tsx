@@ -283,8 +283,13 @@ describe("PassportAggregations", () => {
         companionStatuses={[
           { id: "companion-asset-1", name: "Shield Maiden", jumpTitle: "Trials", synced: false },
         ]}
+        pendingCompanionIds={[]}
+        syncingCompanions={false}
         onSyncAltForms={onSyncAltForms}
         onSyncCompanions={onSyncCompanions}
+        onAddCompanion={() => {
+          /* noop */
+        }}
       />
     );
 
@@ -294,5 +299,41 @@ describe("PassportAggregations", () => {
     expect(screen.getByText("Add 1 form(s)")).toBeInTheDocument();
     expect(screen.getByText("Sync 1 companion(s)")).toBeInTheDocument();
     expect(screen.getByText(/Derived: 1 · Recorded/i)).toBeInTheDocument();
+  });
+
+  it("adds missing companions with a single checkbox click", () => {
+    const Wrapper: React.FC = () => {
+      const [statuses, setStatuses] = React.useState([
+        { id: "companion-asset-1", name: "Shield Maiden", jumpTitle: "Trials", synced: false },
+      ]);
+      return (
+        <PassportAggregations
+          form={mockForm}
+          derived={mockDerived}
+          derivedLoading={false}
+          essenceSettings={{ ...DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS, essenceMode: "dual" }}
+          essences={essenceRecords}
+          companionStatuses={statuses}
+          pendingCompanionIds={[]}
+          syncingCompanions={false}
+          onSyncAltForms={() => {
+            /* noop */
+          }}
+          onSyncCompanions={() => {
+            /* noop */
+          }}
+          onAddCompanion={(entry) =>
+            setStatuses((prev) =>
+              prev.map((item) => (item.id === entry.id ? { ...item, synced: true } : item))
+            )
+          }
+        />
+      );
+    };
+
+    render(<Wrapper />);
+    fireEvent.click(screen.getByLabelText("Add Shield Maiden to manual companions"));
+    expect(screen.getByText("Synced")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Add Shield Maiden to manual companions")).not.toBeInTheDocument();
   });
 });
