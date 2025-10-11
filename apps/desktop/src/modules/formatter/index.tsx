@@ -45,6 +45,7 @@ const InputFormatter: React.FC = () => {
   const [removeAllLineBreaks, setRemoveAllLineBreaks] = useState(false);
   const [leaveDoubleLineBreaks, setLeaveDoubleLineBreaks] = useState(false);
   const [separator, setSeparator] = useState<ThousandsSeparatorOption>("none");
+  const [spellcheckEnabled, setSpellcheckEnabled] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const settingsQuery = useQuery({
@@ -60,6 +61,7 @@ const InputFormatter: React.FC = () => {
     setRemoveAllLineBreaks(settingsQuery.data.removeAllLineBreaks);
     setLeaveDoubleLineBreaks(settingsQuery.data.leaveDoubleLineBreaks);
     setSeparator(settingsQuery.data.thousandsSeparator);
+    setSpellcheckEnabled(settingsQuery.data.spellcheckEnabled);
   }, [settingsQuery.data]);
 
   const formattingOptions = useMemo(
@@ -112,6 +114,12 @@ const InputFormatter: React.FC = () => {
 
   const updatePreferences = (overrides: Partial<FormatterSettings>) => {
     preferencesMutation.mutate(overrides);
+  };
+
+  const handleToggleSpellcheck = () => {
+    const nextSpellcheck = !spellcheckEnabled;
+    setSpellcheckEnabled(nextSpellcheck);
+    updatePreferences({ spellcheckEnabled: nextSpellcheck });
   };
 
   const handleToggleRemoveAll = () => {
@@ -188,6 +196,15 @@ const InputFormatter: React.FC = () => {
         <label>
           <input
             type="checkbox"
+            checked={spellcheckEnabled}
+            onChange={handleToggleSpellcheck}
+            disabled={preferencesMutation.isPending}
+          />
+          Enable spellcheck in editors
+        </label>
+        <label>
+          <input
+            type="checkbox"
             checked={removeAllLineBreaks}
             onChange={handleToggleRemoveAll}
             disabled={preferencesMutation.isPending}
@@ -237,6 +254,7 @@ const InputFormatter: React.FC = () => {
             onChange={(event) => setInputText(event.target.value)}
             placeholder="Paste perk text, drawback descriptions, or PDF extractions here."
             rows={18}
+            spellCheck={spellcheckEnabled}
           />
           <footer>
             <span>{metrics.inputCharacters} characters</span>
@@ -259,7 +277,7 @@ const InputFormatter: React.FC = () => {
               Failed to load formatter preferences.
             </div>
           ) : (
-            <textarea value={outputText} readOnly rows={18} />
+            <textarea value={outputText} readOnly rows={18} spellCheck={spellcheckEnabled} />
           )}
           <footer>
             <span>{metrics.outputCharacters} characters</span>

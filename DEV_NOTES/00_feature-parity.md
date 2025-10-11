@@ -3,7 +3,7 @@
 _Last updated: 2025-10-09 (Dialog service shared across knowledge base, studio, export)_
 
 ## Scope & Method
-- Legacy reference: `apps/desktop/legacy/old-wpf/JumpchainCharacterBuilder/` (WPF net8.0 MVVM).
+- Legacy reference: `apps/desktop/legacy/old-wpf/` (WPF net8.0 MVVM solution archive).
 - Modern target: `apps/desktop/src/` (React + Vite + Tauri).
 - Status codes: ✅ complete · ⚠️ partial · 🚧 not started · 🛠 in progress · ❌ missing/blocked.
 - Each row links the authoritative legacy artifact to the modern implementation and highlights gaps plus migration/QA follow-ups.

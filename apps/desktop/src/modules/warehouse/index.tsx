@@ -34,6 +34,7 @@ import {
   type JumpRecord,
   loadWarehouseModeSetting,
   loadCategoryPresets,
+  loadWarehousePersonalRealitySummary,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -54,6 +55,16 @@ interface UpdatePayload {
 }
 
 const scopeKey = ["warehouse-items"] as const;
+const personalRealityKey = ["warehouse-personal-reality"] as const;
+
+const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+
+const formatNumber = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return numberFormatter.format(value);
+};
 
 const parseTags = (raw: string | null): string[] => {
   if (!raw) return [];
@@ -81,10 +92,17 @@ const CosmicWarehouse: React.FC = () => {
   const warehouseModeQuery = useQuery({ queryKey: ["warehouse-mode"], queryFn: loadWarehouseModeSetting });
   const categoryPresetsQuery = useQuery({ queryKey: ["category-presets"], queryFn: loadCategoryPresets });
 
+  const warehouseMode = warehouseModeQuery.data?.mode ?? "generic";
   const warehouseModeLabel = useMemo(() => {
-    const mode = warehouseModeQuery.data?.mode ?? "generic";
-    return mode === "personal-reality" ? "Personal Reality mode" : "Generic mode";
-  }, [warehouseModeQuery.data?.mode]);
+    return warehouseMode === "personal-reality" ? "Personal Reality mode" : "Generic mode";
+  }, [warehouseMode]);
+  const isPersonalReality = warehouseMode === "personal-reality";
+
+  const personalRealityQuery = useQuery({
+    queryKey: personalRealityKey,
+    queryFn: loadWarehousePersonalRealitySummary,
+    enabled: isPersonalReality,
+  });
 
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -100,6 +118,9 @@ const CosmicWarehouse: React.FC = () => {
       }),
     onSuccess: (item) => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      if (isPersonalReality) {
+        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+      }
       setSelectedId(item.id);
     },
   });
@@ -109,6 +130,9 @@ const CosmicWarehouse: React.FC = () => {
     onSuccess: (item) => {
       setSelectedId(item.id);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      if (isPersonalReality) {
+        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+      }
     },
   });
 
@@ -117,6 +141,9 @@ const CosmicWarehouse: React.FC = () => {
     onSuccess: () => {
       setSelectedId(null);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      if (isPersonalReality) {
+        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+      }
     },
   });
 
@@ -125,6 +152,9 @@ const CosmicWarehouse: React.FC = () => {
     onSuccess: () => {
       setSelectedId(null);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      if (isPersonalReality) {
+        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+      }
     },
   });
 
@@ -170,6 +200,29 @@ const CosmicWarehouse: React.FC = () => {
     () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,
     [itemsQuery.data, selectedId]
   );
+
+  const personalRealitySummary = personalRealityQuery.data;
+  const personalRealityWarnings = useMemo(() => {
+    if (!isPersonalReality || !personalRealitySummary) {
+      return [] as string[];
+    }
+    const warnings: string[] = [];
+    if (
+      personalRealitySummary.wpCap !== null &&
+      personalRealitySummary.wpCap !== undefined &&
+      personalRealitySummary.wpTotal > personalRealitySummary.wpCap
+    ) {
+      const overage = personalRealitySummary.wpTotal - personalRealitySummary.wpCap;
+      warnings.push(`Warehouse Points exceed stipend by ${formatNumber(overage)} WP.`);
+    }
+    personalRealitySummary.limits.forEach((limit) => {
+      if (limit.used > limit.provided) {
+        const overage = limit.used - limit.provided;
+        warnings.push(`${limit.label} limit exceeded by ${formatNumber(overage)}.`);
+      }
+    });
+    return warnings;
+  }, [isPersonalReality, personalRealitySummary]);
 
   const [editState, setEditState] = useState<WarehouseFormState | null>(null);
 
@@ -237,6 +290,81 @@ const CosmicWarehouse: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {isPersonalReality && (
+        <section className="warehouse__pr-panel">
+          <header className="warehouse__pr-header">
+            <h2>Personal Reality Limits</h2>
+            <p>Track stipend usage and structure limits unlocked by Personal Reality mode.</p>
+          </header>
+          {personalRealityQuery.isLoading ? (
+            <p className="warehouse__pr-empty">Loading Personal Reality counters…</p>
+          ) : personalRealityQuery.isError ? (
+            <p className="warehouse__pr-empty">Failed to load Personal Reality counters.</p>
+          ) : personalRealitySummary ? (
+            <>
+              <dl className="warehouse__pr-summary">
+                <div>
+                  <dt>Warehouse Points</dt>
+                  <dd>
+                    {formatNumber(personalRealitySummary.wpTotal)}
+                    {personalRealitySummary.wpCap !== null
+                      ? ` / ${formatNumber(personalRealitySummary.wpCap)}`
+                      : ""}
+                  </dd>
+                  {personalRealitySummary.wpCap !== null ? (
+                    <span className="warehouse__pr-remaining">
+                      {personalRealitySummary.wpTotal > personalRealitySummary.wpCap
+                        ? `Over by ${formatNumber(personalRealitySummary.wpTotal - personalRealitySummary.wpCap)} WP`
+                        : `Remaining ${formatNumber(personalRealitySummary.wpCap - personalRealitySummary.wpTotal)} WP`}
+                    </span>
+                  ) : (
+                    <span className="warehouse__pr-remaining">No stipend cap recorded</span>
+                  )}
+                </div>
+              </dl>
+              {personalRealitySummary.limits.length ? (
+                <div className="warehouse__pr-grid">
+                  {personalRealitySummary.limits.map((limit) => {
+                    const remaining = limit.provided - limit.used;
+                    const overBudget = remaining < 0;
+                    return (
+                      <div key={limit.key} className="warehouse__pr-card">
+                        <span className="warehouse__pr-label">{limit.label}</span>
+                        <strong className="warehouse__pr-value">
+                          {formatNumber(limit.used)} / {formatNumber(limit.provided)}
+                        </strong>
+                        <span
+                          className={
+                            overBudget
+                              ? "warehouse__pr-remaining warehouse__pr-remaining--over"
+                              : "warehouse__pr-remaining"
+                          }
+                        >
+                          {overBudget
+                            ? `Over by ${formatNumber(Math.abs(remaining))}`
+                            : `Remaining ${formatNumber(remaining)}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="warehouse__pr-empty">No Personal Reality limits have been recorded yet.</p>
+              )}
+              {personalRealityWarnings.length > 0 && (
+                <ul className="warehouse__alerts">
+                  {personalRealityWarnings.map((warning) => (
+                    <li key={warning} className="warehouse__alert" role="alert">
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : null}
+        </section>
+      )}
 
       <div className="warehouse__filters">
         <input

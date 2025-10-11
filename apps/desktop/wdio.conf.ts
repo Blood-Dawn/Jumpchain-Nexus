@@ -22,10 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import type { Options } from "@wdio/types";
 import ChromedriverService from "./test/wdio/chromedriver-service";
 
 const chromedriverPort = Number.parseInt(process.env.CHROMEDRIVER_PORT ?? "9515", 10);
+const wdioArtifactsRoot = path.resolve("test-results", "wdio");
 
 export const config: Options.Testrunner = {
   runner: "local",
@@ -41,7 +44,17 @@ export const config: Options.Testrunner = {
   port: chromedriverPort,
   path: "/wd/hub",
   framework: "mocha",
-  reporters: ["spec"],
+  outputDir: path.join(wdioArtifactsRoot, "logs"),
+  reporters: [
+    "spec",
+    [
+      "junit",
+      {
+        outputDir: path.join(wdioArtifactsRoot, "junit"),
+        outputFileFormat: (options: { cid: string }) => `wdio-${options.cid}.xml`,
+      },
+    ],
+  ],
   autoCompileOpts: {
     autoCompile: true,
     tsNodeOpts: {
@@ -61,6 +74,17 @@ export const config: Options.Testrunner = {
   mochaOpts: {
     ui: "bdd",
     timeout: 60000,
+  },
+  afterTest: async function (_test, _context, { error }) {
+    if (!error) {
+      return;
+    }
+    const safeTitle = _test.title.replace(/[^a-z0-9-]+/gi, "_").toLowerCase();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const screenshotDir = path.join(wdioArtifactsRoot, "screenshots");
+    mkdirSync(screenshotDir, { recursive: true });
+    const screenshotPath = path.join(screenshotDir, `${timestamp}-${safeTitle}.png`);
+    await browser.saveScreenshot(screenshotPath);
   },
 };
 

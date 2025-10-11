@@ -22,16 +22,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?worker&module";
-import {
-  getDocument,
-  GlobalWorkerOptions,
-  type PDFDocumentProxy,
-} from "pdfjs-dist";
+import { readFile } from "@tauri-apps/plugin-fs";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getPlatform } from "../services/platform";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 
-GlobalWorkerOptions.workerPort = new pdfjsWorker();
+type PdfWorkerConstructor = new () => Worker;
+
+let pdfjsModulePromise:
+  | Promise<{
+      getDocument: typeof import("pdfjs-dist")["getDocument"];
+    }>
+  | null = null;
+
+async function loadPdfjs() {
+  if (!pdfjsModulePromise) {
+    pdfjsModulePromise = Promise.all([
+      import("pdfjs-dist"),
+      import("pdfjs-dist/build/pdf.worker.mjs?worker&module"),
+    ]).then(([pdfjs, workerModule]) => {
+      const WorkerConstructor = (workerModule.default ?? workerModule) as PdfWorkerConstructor;
+      if (!pdfjs.GlobalWorkerOptions.workerPort) {
+        pdfjs.GlobalWorkerOptions.workerPort = new WorkerConstructor();
+      }
+      return { getDocument: pdfjs.getDocument };
+    });
+  }
+  return pdfjsModulePromise;
+}
 
 export interface PdfViewerProps {
   filePath: string;
@@ -90,8 +107,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       setError(null);
       setRenderState(null);
       try {
-        const platform = await getPlatform();
-        const data = await platform.fs.readBinaryFile(filePath);
+        const data = await readFile(filePath);
+        const { getDocument } = await loadPdfjs();
         const task = getDocument({ data });
         const doc = await task.promise;
         activeDoc = doc;
