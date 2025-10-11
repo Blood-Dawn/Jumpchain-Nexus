@@ -37,6 +37,7 @@ module.exports = {
     'vitest.config.ts',
     'playwright.config.*',
     'wdio.conf.ts',
+    'tools/**/*',
     '**/*.d.ts',
     'src/db/**/*.js',
     'src/modules/jmh/NarrativeSummaryPanel.tsx',
