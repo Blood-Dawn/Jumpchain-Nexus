@@ -146,8 +146,29 @@ describe("Jumpchain desktop smoke flows", function () {
 
     const deleteButton = await assetForm.$(".//button[contains(., 'Delete')]");
     if (await deleteButton.isExisting()) {
-      await browser.acceptAlert().catch(() => undefined);
       await deleteButton.click();
+
+      let alertShown = false;
+      try {
+        await browser.waitUntil(
+          async () => {
+            try {
+              await browser.getAlertText();
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 3000, interval: 100 }
+        );
+        alertShown = true;
+      } catch {
+        alertShown = false;
+      }
+
+      if (alertShown) {
+        await browser.acceptAlert().catch(() => undefined);
+      }
     }
 
     const emptyState = await browser.$("//*[contains(@class, 'asset-board__empty')]");
