@@ -4406,6 +4406,17 @@ a:hover {
   gap: 0.8rem;
 }
 
+.exports__section-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.8rem;
+  background: rgba(122, 203, 255, 0.08);
+  border: 1px solid rgba(122, 203, 255, 0.18);
+}
+
 .exports__options-row label,
 .exports__options-grid label {
   display: flex;
