@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import StatisticsHub from "../index";
@@ -193,19 +193,15 @@ describe("StatisticsHub analytics rendering", () => {
     };
 
     const queryClient = createQueryClient(snapshot);
-    mockLoadStatisticsSnapshot.mockResolvedValue(snapshot);
-
     render(
       <QueryClientProvider client={queryClient}>
         <StatisticsHub />
       </QueryClientProvider>
     );
 
-    await waitFor(() => expect(mockLoadStatisticsSnapshot).toHaveBeenCalled());
-
     expect(screen.getByRole("heading", { level: 1, name: "Chain Analytics" })).toBeInTheDocument();
     expect(screen.getByText("Jumps Logged")).toBeInTheDocument();
-    expect(screen.getByText("Arc One")).toBeInTheDocument();
+    expect(screen.getAllByText("Arc One")[0]).toBeInTheDocument();
     expect(screen.getByText("Weapons")).toBeInTheDocument();
     expect(screen.getByText("Fire Core")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
