@@ -678,7 +678,12 @@ const JumpRandomizer: React.FC = () => {
     if (!selectedListId) {
       return;
     }
+    if (recordRollMutation.isPending) {
+      setDrawError("A draw is already in progress.");
+      return;
+    }
     setDrawError(null);
+    setCopyMessage(null);
     const drawCount = Number.parseInt(drawCountInput, 10);
     if (Number.isNaN(drawCount)) {
       setDrawError("Draw count must be a number.");
@@ -728,6 +733,7 @@ const JumpRandomizer: React.FC = () => {
           scope: filters.scope,
           tags: filters.tags,
           minWeight: filters.minWeight,
+          groupId: filters.groupId,
         },
         picks: picks.map((entry) => ({
           entryId: entry.id,
@@ -1327,7 +1333,11 @@ const JumpRandomizer: React.FC = () => {
                 <button type="submit" disabled={drawInProgress || !selectedListId}>
                   {drawInProgress ? "Recording…" : "Draw"}
                 </button>
-                <button type="button" onClick={handleCopyDrawResults} disabled={!drawResults.length}>
+                <button
+                  type="button"
+                  onClick={handleCopyDrawResults}
+                  disabled={drawInProgress || !drawResults.length}
+                >
                   Copy Results
                 </button>
               </div>
@@ -1382,13 +1392,25 @@ const JumpRandomizer: React.FC = () => {
                       {entry.tags.length ? <span>{` · ${entry.tags.join(", ")}`}</span> : null}
                     </div>
                     <div className="form-actions">
-                      <button type="button" onClick={() => handleCopyResult(entry, "name")}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "name")}
+                        disabled={drawInProgress}
+                      >
                         Copy Name
                       </button>
-                      <button type="button" onClick={() => handleCopyResult(entry, "full")}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "full")}
+                        disabled={drawInProgress}
+                      >
                         Copy Line
                       </button>
-                      <button type="button" onClick={() => handleCopyResult(entry, "link")} disabled={!entry.link}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyResult(entry, "link")}
+                        disabled={drawInProgress || !entry.link}
+                      >
                         Copy Link
                       </button>
                     </div>
