@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import "./Studio.css";
 import {
@@ -31,10 +31,11 @@ import {
   deleteChapter,
   listStories,
   reorderChapters,
+  saveChapterText,
   updateChapter,
   updateStory,
 } from "../../db/dao";
-import type { StoryWithChapters } from "../../db/dao";
+import type { ChapterRecord, StoryWithChapters } from "../../db/dao";
 import { useStudioStore } from "./store";
 import ChapterListTop from "./ChapterListTop";
 import ChapterListSide from "./ChapterListSide";
@@ -43,6 +44,11 @@ import StudioEditor from "./Editor";
 import { loadSnapshot } from "../jmh/data";
 import { NotesEditor } from "../jmh/NotesEditor";
 import { useJmhStore } from "../jmh/store";
+import {
+  collectStoryChapterDraftsFromPaths,
+  type StoryChapterImportError,
+} from "../../services/storyStudioImporter";
+import { getPlatform } from "../../services/platform";
 
 const StoryComposerShell: React.FC = () => {
   const queryClient = useQueryClient();
@@ -54,6 +60,10 @@ const StoryComposerShell: React.FC = () => {
   const selectStory = useStudioStore((state) => state.selectStory);
   const selectedChapterId = useStudioStore((state) => state.selectedChapterId);
   const selectChapter = useStudioStore((state) => state.selectChapter);
+  const [dropActive, setDropActive] = useState(false);
+  const [dropFeedback, setDropFeedback] = useState<string | null>(null);
+  const [dropIssues, setDropIssues] = useState<StoryChapterImportError[] | null>(null);
+  const dropContainerRef = useRef<HTMLElement | null>(null);
 
   const storiesQuery = useQuery<StoryWithChapters[], Error>({
     queryKey: ["stories"],
@@ -113,6 +123,110 @@ const StoryComposerShell: React.FC = () => {
   const refreshStories = async () => {
     await queryClient.invalidateQueries({ queryKey: ["stories"] });
   };
+
+  const handleDroppedChapters = useCallback(
+    async (paths: string[]) => {
+      if (!paths.length) {
+        return;
+      }
+      if (!currentStory) {
+        setDropFeedback("Create a story before importing chapters.");
+        return;
+      }
+
+      try {
+        setDropFeedback(null);
+        setDropIssues(null);
+        const selection = await collectStoryChapterDraftsFromPaths(paths);
+        const combinedErrors: StoryChapterImportError[] = [...selection.errors];
+        const createdChapters: ChapterRecord[] = [];
+
+        for (const draft of selection.drafts) {
+          try {
+            const chapter = await createChapter({
+              story_id: currentStory.id,
+              title: draft.title,
+              synopsis: draft.synopsis ?? undefined,
+            });
+            await saveChapterText({ chapter_id: chapter.id, json: draft.json, plain: draft.plain });
+            createdChapters.push(chapter);
+          } catch (error) {
+            combinedErrors.push({
+              path: draft.path,
+              reason: error instanceof Error ? error.message : "Failed to import chapter",
+            });
+          }
+        }
+
+        if (createdChapters.length > 0) {
+          patchStories((list) =>
+            list.map((story) =>
+              story.id === currentStory.id
+                ? { ...story, chapters: [...story.chapters, ...createdChapters] }
+                : story,
+            ),
+          );
+          await refreshStories();
+          selectStory(currentStory.id);
+          const lastChapter = createdChapters[createdChapters.length - 1] ?? null;
+          if (lastChapter) {
+            selectChapter(lastChapter.id);
+          }
+          setDropFeedback(
+            `Imported ${createdChapters.length} chapter${createdChapters.length === 1 ? "" : "s"}`,
+          );
+        } else if (combinedErrors.length === 0) {
+          setDropFeedback("No supported files found.");
+        }
+
+        if (combinedErrors.length > 0) {
+          console.warn("Story Studio drop issues", combinedErrors);
+          setDropIssues(combinedErrors);
+        } else {
+          setDropIssues(null);
+        }
+      } catch (error) {
+        console.error("Story Studio drop import failed", error);
+        setDropFeedback(error instanceof Error ? error.message : "Failed to import dropped files");
+      }
+    },
+    [currentStory, patchStories, refreshStories, selectChapter, selectStory]
+  );
+
+  useEffect(() => {
+    const element = dropContainerRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const platform = await getPlatform();
+        if (disposed) {
+          return;
+        }
+        cleanup = platform.drop.registerDropTarget(element, {
+          onHover: () => setDropActive(true),
+          onLeave: () => setDropActive(false),
+          onDrop: (paths) => {
+            setDropActive(false);
+            void handleDroppedChapters(paths);
+          },
+        });
+      } catch (error) {
+        console.error("Failed to register Story Studio drop target", error);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      setDropActive(false);
+      cleanup?.();
+    };
+  }, [handleDroppedChapters]);
 
   const handleCreateStory = async () => {
     const title = window.prompt("Story title", "Untitled Story");
@@ -294,9 +408,46 @@ const StoryComposerShell: React.FC = () => {
     );
   }
 
+  const stageClassName = dropActive
+    ? "studio-shell__stage studio-shell__stage--drop"
+    : "studio-shell__stage";
+
   return (
     <div className={`studio-shell${focusMode ? " studio-shell--focus" : ""}`}>
-      {shellContent}
+      <div ref={dropContainerRef} className={stageClassName}>
+        {dropActive && (
+          <div className="studio-shell__drop-indicator" role="status" aria-live="polite">
+            <strong>Drop text or markdown files to create chapters</strong>
+          </div>
+        )}
+        {dropFeedback && (
+          <div className="studio-shell__drop-feedback" role="status" aria-live="polite">
+            {dropFeedback}
+          </div>
+        )}
+        {dropIssues && (
+          <div className="studio-shell__drop-issues" role="status" aria-live="polite">
+            <header>
+              <h3>Skipped files</h3>
+              <p>We couldn't import the following chapters. Fix the issues and try again.</p>
+            </header>
+            <ul>
+              {dropIssues.map((issue) => (
+                <li key={issue.path}>
+                  <code title={issue.path}>{issue.path}</code>
+                  <span>{issue.reason}</span>
+                </li>
+              ))}
+            </ul>
+            <footer>
+              <button type="button" className="ghost" onClick={() => setDropIssues(null)}>
+                Dismiss
+              </button>
+            </footer>
+          </div>
+        )}
+        {shellContent}
+      </div>
       {showSettings ? <StudioSettings /> : null}
     </div>
   );
