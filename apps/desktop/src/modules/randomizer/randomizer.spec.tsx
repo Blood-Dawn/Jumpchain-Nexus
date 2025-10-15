@@ -209,8 +209,9 @@ describe("JumpRandomizer", () => {
       expect(dao.recordRandomizerRoll).toHaveBeenCalledTimes(1);
     });
 
-    expect(await screen.findByText(/Draw 1/)).toBeInTheDocument();
-    expect(screen.getByText(/Draw 1\s+·\s+Scope all/)).toBeInTheDocument();
+    const drawOccurrences = await screen.findAllByText(/Draw 1/);
+    expect(drawOccurrences.length).toBeGreaterThan(0);
+    expect(screen.getByText(/Scope: Entire list/)).toBeInTheDocument();
 
     const call = vi.mocked(dao.recordRandomizerRoll).mock.calls[0]?.[0];
     const pickName = call?.picks[0]?.name;

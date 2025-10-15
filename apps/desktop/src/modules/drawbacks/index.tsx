@@ -112,16 +112,7 @@ const DrawbackSupplement: React.FC = () => {
   const [selectedDrawbackId, setSelectedDrawbackId] = useState<string | null>(null);
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
   const [orderedDrawbacks, setOrderedDrawbacks] = useState<JumpAssetRecord[]>([]);
-
-  useEffect(() => {
-    if (!drawbacksQuery.data?.length) {
-      setSelectedDrawbackId(null);
-      setFormState(null);
-      setOrderedDrawbacks([]);
-      return;
-    }
-    return jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null;
-  }, [jumpsQuery.data, selectedJumpId]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   useEffect(() => {
     if (!drawbacksQuery.data) {
@@ -130,6 +121,11 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId]
+  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {
@@ -209,6 +205,13 @@ const DrawbackSupplement: React.FC = () => {
       return normalized === categoryFilter;
     });
   }, [drawbacksQuery.data, categoryFilter]);
+
+  const manualDrawbackTotal = useMemo(() => {
+    return (orderedDrawbacks ?? []).reduce(
+      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
+      0
+    );
+  }, [orderedDrawbacks]);
 
   useEffect(() => {
     if (!filteredDrawbacks.length) {
@@ -308,6 +311,16 @@ const DrawbackSupplement: React.FC = () => {
     selectedJump,
   ]);
 
+  const totalCount = drawbacksQuery.data?.length ?? 0;
+  const visibleCount = filteredDrawbacks.length;
+  const budgetSummary = budgetQuery.data;
+  const manualCredit = budgetSummary?.drawbackCredit ?? manualDrawbackTotal;
+  const balanceWithGrants =
+    budgetSummary && Number.isFinite(budgetSummary.balance)
+      ? budgetSummary.balance + universalRewardState.stipend.jumper
+      : null;
+  const totalCredit = manualCredit + universalRewardState.stipend.jumper;
+
   useEffect(() => {
     if (!selectedDrawback) {
       setFormState(null);
@@ -332,13 +345,6 @@ const DrawbackSupplement: React.FC = () => {
       setFormState(null);
     }
   }, [drawbackSupplementEnabled]);
-
-  const totalCredit = useMemo(() => {
-    return (orderedDrawbacks ?? []).reduce(
-      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
-      0
-    );
-  }, [orderedDrawbacks]);
 
   const hasOrderChanges = useMemo(() => {
     if (!drawbacksQuery.data?.length) {
