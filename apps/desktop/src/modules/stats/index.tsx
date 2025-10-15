@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FixedSizeList as List, type ListChildComponentProps } from "react-window";
 import { loadStatisticsSnapshot, type JumpAssetType, type StatisticsSnapshot } from "../../db/dao";
@@ -41,6 +41,8 @@ const assetLabels: Record<JumpAssetType, string> = {
   companion: "Companions",
   drawback: "Drawbacks",
 };
+
+const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 
 const EMPTY_STATS: StatisticsSnapshot = {
   cp: {
@@ -91,6 +93,31 @@ const StatisticsHub: React.FC = () => {
   const gauntletSummary = snapshot.gauntlet;
   const boosterSummary = snapshot.boosters;
 
+  const [assetFilter, setAssetFilter] = useState<JumpAssetType | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const filteredAssetBreakdown = useMemo(() => {
+    if (assetFilter === "all") {
+      return assetBreakdown;
+    }
+    return assetBreakdown.filter((entry) => entry.assetType === assetFilter);
+  }, [assetBreakdown, assetFilter]);
+
+  const statusOptions = useMemo(() => {
+    const unique = new Set<string>();
+    cpRows.forEach((row) => {
+      unique.add(normalizeStatus(row.status));
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [cpRows]);
+
+  const filteredCpRows = useMemo(() => {
+    if (statusFilter === "all") {
+      return cpRows;
+    }
+    return cpRows.filter((row) => normalizeStatus(row.status) === statusFilter);
+  }, [cpRows, statusFilter]);
+
   const totalJumps = cpRows.length;
   const totalPurchases = useMemo(
     () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.itemCount, 0),
@@ -105,9 +132,35 @@ const StatisticsHub: React.FC = () => {
     [assetBreakdown]
   );
 
+  const filteredTotalSpend = useMemo(
+    () =>
+      filteredAssetBreakdown
+        .filter((entry) => entry.assetType !== "drawback")
+        .reduce((sum, entry) => sum + entry.netCost, 0),
+    [filteredAssetBreakdown]
+  );
+  const filteredTotalCredit = useMemo(
+    () => filteredAssetBreakdown.find((entry) => entry.assetType === "drawback")?.credit ?? 0,
+    [filteredAssetBreakdown]
+  );
+
+  const filteredJumpTotals = useMemo(
+    () =>
+      filteredCpRows.reduce(
+        (acc, row) => ({
+          budget: acc.budget + row.budget,
+          spent: acc.spent + row.spent,
+          earned: acc.earned + row.earned,
+          net: acc.net + row.net,
+        }),
+        { budget: 0, spent: 0, earned: 0, net: 0 }
+      ),
+    [filteredCpRows]
+  );
+
   const cpRowRenderer = useCallback(
     ({ index, style }: ListChildComponentProps) => {
-      const row = cpRows[index];
+      const row = filteredCpRows[index];
       if (!row) return null;
       return (
         <div style={style} className="stats__table-row stats__table-row--cp">
@@ -120,7 +173,7 @@ const StatisticsHub: React.FC = () => {
         </div>
       );
     },
-    [cpRows]
+    [filteredCpRows]
   );
 
   const inventoryRowRenderer = useCallback(
@@ -185,7 +238,7 @@ const StatisticsHub: React.FC = () => {
     [boosterSummary.entries]
   );
 
-  const cpListHeight = Math.max(1, Math.min(cpRows.length, 8)) * ROW_HEIGHT;
+  const cpListHeight = Math.max(1, Math.min(filteredCpRows.length, 8)) * ROW_HEIGHT;
   const inventoryListHeight = Math.max(1, Math.min(inventoryCategories.length, 8)) * ROW_HEIGHT;
   const gauntletListHeight = Math.max(1, Math.min(gauntletSummary.rows.length, 6)) * GAUNTLET_ROW_HEIGHT;
   const boosterListHeight = Math.max(1, Math.min(boosterSummary.entries.length, 8)) * BOOSTER_ROW_HEIGHT;
@@ -248,19 +301,40 @@ const StatisticsHub: React.FC = () => {
           <div className="stats__grid">
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>CP Breakdown</h2>
-                <span>{formatCP(cpTotals.spent)} CP spent • {formatCP(totalCredit)} CP earned</span>
+                <div className="stats__panel-heading">
+                  <h2>CP Breakdown</h2>
+                  <span>
+                    {formatCP(filteredTotalSpend)} CP spent • {formatCP(filteredTotalCredit)} CP earned
+                  </span>
+                </div>
+                <div className="stats__panel-controls">
+                  <label>
+                    <span>Asset Type</span>
+                    <select
+                      value={assetFilter}
+                      onChange={(event) => setAssetFilter(event.target.value as JumpAssetType | "all")}
+                      data-testid="asset-filter"
+                    >
+                      <option value="all">All asset types</option>
+                      {assetTypeOrder.map((type) => (
+                        <option key={type} value={type}>
+                          {assetLabels[type] ?? type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </header>
-              {assetBreakdown.length ? (
-                <div className="stats__asset-grid">
-                  {assetBreakdown.map((asset) => {
+              {filteredAssetBreakdown.length ? (
+                <div className="stats__asset-grid" data-testid="asset-breakdown-grid">
+                  {filteredAssetBreakdown.map((asset) => {
                     const label = assetLabels[asset.assetType] ?? asset.assetType;
                     const share = asset.assetType === "drawback"
-                      ? totalCredit > 0
-                        ? asset.credit / totalCredit
+                      ? filteredTotalCredit > 0
+                        ? asset.credit / filteredTotalCredit
                         : 0
-                      : totalSpend > 0
-                        ? asset.netCost / totalSpend
+                      : filteredTotalSpend > 0
+                        ? asset.netCost / filteredTotalSpend
                         : 0;
                     return (
                       <article key={asset.assetType} className="stats__asset-card">
@@ -306,17 +380,40 @@ const StatisticsHub: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <p className="stats__empty">No purchases recorded yet.</p>
+                <p className="stats__empty">No purchases match the selected filters.</p>
               )}
             </section>
 
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>Spend &amp; Credit by Jump</h2>
-                <span>{formatCount(totalJumps)} jumps</span>
+                <div className="stats__panel-heading">
+                  <h2>Spend &amp; Credit by Jump</h2>
+                  <span>
+                    {formatCount(filteredCpRows.length)} {filteredCpRows.length === 1 ? "jump" : "jumps"} •
+                    {" "}
+                    {formatCP(filteredJumpTotals.spent)} CP spent • {formatCP(filteredJumpTotals.earned)} CP earned
+                  </span>
+                </div>
+                <div className="stats__panel-controls">
+                  <label>
+                    <span>Jump Status</span>
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                      data-testid="status-filter"
+                    >
+                      <option value="all">All statuses</option>
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </header>
-              {cpRows.length ? (
-                <div className="stats__table">
+              {filteredCpRows.length ? (
+                <div className="stats__table" data-testid="cp-table" data-row-count={filteredCpRows.length}>
                   <div className="stats__table-header stats__table-row--cp">
                     <span>Jump</span>
                     <span>Status</span>
@@ -326,9 +423,10 @@ const StatisticsHub: React.FC = () => {
                     <span>Net</span>
                   </div>
                   <List
+                    className="stats__virtual-list stats__virtual-list--cp"
                     height={cpListHeight}
-                    itemCount={cpRows.length}
-                    itemKey={(index) => cpRows[index]?.jumpId ?? index}
+                    itemCount={filteredCpRows.length}
+                    itemKey={(index) => filteredCpRows[index]?.jumpId ?? index}
                     itemSize={ROW_HEIGHT}
                     width="100%"
                   >
@@ -336,7 +434,7 @@ const StatisticsHub: React.FC = () => {
                   </List>
                 </div>
               ) : (
-                <p className="stats__empty">No jump budgets available yet.</p>
+                <p className="stats__empty">No jump budgets match the selected filters.</p>
               )}
             </section>
 
