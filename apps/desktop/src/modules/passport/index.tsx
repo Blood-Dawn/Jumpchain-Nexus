@@ -48,6 +48,124 @@ import type {
 } from "../../db/dao";
 import { useJmhStore } from "../jmh/store";
 
+type PassportMetadataCategory = "perk" | "companion" | "trait" | "stipend";
+
+interface IconDefinition {
+  symbol: string;
+  description: string;
+  keywords: string[];
+}
+
+const ASSET_PILL_CLASS: Record<PassportMetadataCategory, string> = {
+  perk: "passport__pill--perk",
+  companion: "passport__pill--companion",
+  trait: "passport__pill--trait",
+  stipend: "passport__pill--stipend",
+};
+
+const TRAIT_ICON_DEFINITIONS: IconDefinition[] = [
+  { symbol: "🛡️", description: "Defense or protection trait", keywords: ["defens", "resist", "guard", "shield", "durab", "ward"] },
+  { symbol: "⚔️", description: "Offense or combat trait", keywords: ["combat", "battle", "attack", "weapon", "martial", "fight"] },
+  { symbol: "✨", description: "Magic, arcane, or supernatural trait", keywords: ["magic", "arcane", "sorcery", "spell", "mystic", "supernatural", "divine"] },
+  { symbol: "🧠", description: "Mental, psionic, or knowledge trait", keywords: ["mind", "psion", "mental", "intell", "cogni", "psy", "knowledge", "learn"] },
+  { symbol: "⚙️", description: "Technology or engineering trait", keywords: ["tech", "engineer", "machine", "device", "gadget", "cyber", "mechan"] },
+  { symbol: "🪽", description: "Mobility or travel trait", keywords: ["speed", "swift", "travel", "flight", "move", "mobility", "teleport"] },
+  { symbol: "💖", description: "Support, healing, or empathy trait", keywords: ["heal", "support", "aid", "care", "empathy", "love", "charisma", "diplom"] },
+  { symbol: "🕵️", description: "Stealth or subterfuge trait", keywords: ["stealth", "spy", "rogue", "sneak", "shadow", "infil"] },
+  { symbol: "💰", description: "Wealth, resources, or stipend trait", keywords: ["wealth", "gold", "money", "stipend", "income", "econom", "resource"] },
+];
+
+const METRIC_ICON_DEFINITIONS: IconDefinition[] = [
+  { symbol: "💪", description: "Physical strength metric", keywords: ["strength", "str", "might", "power"] },
+  { symbol: "🎯", description: "Accuracy, dexterity, or precision metric", keywords: ["dex", "dexterity", "precision", "accuracy", "agility"] },
+  { symbol: "🧬", description: "Resilience, vitality, or constitution metric", keywords: ["con", "vital", "stam", "endur", "constitution", "resilience"] },
+  { symbol: "🧠", description: "Intelligence or knowledge metric", keywords: ["int", "intel", "knowledge", "logic", "reason", "science"] },
+  { symbol: "👁️", description: "Wisdom, perception, or insight metric", keywords: ["wis", "percep", "insight", "sense", "awaren"] },
+  { symbol: "🗣️", description: "Charisma, influence, or social metric", keywords: ["cha", "charisma", "social", "influence", "presence"] },
+  { symbol: "🌟", description: "General power or rating metric", keywords: ["rating", "rank", "tier", "power", "level", "grade"] },
+  { symbol: "📈", description: "Progress, score, or numerical metric", keywords: ["score", "value", "points", "progress", "total", "amount"] },
+];
+
+const DEFAULT_TRAIT_ICON: IconDefinition = {
+  symbol: "🔖",
+  description: "General trait tag",
+  keywords: [],
+};
+
+const DEFAULT_METRIC_ICON: IconDefinition = {
+  symbol: "📊",
+  description: "General attribute metric",
+  keywords: [],
+};
+
+const ICON_LEGEND_DEFINITIONS: IconDefinition[] = Array.from(
+  new Map(
+    [...TRAIT_ICON_DEFINITIONS, DEFAULT_TRAIT_ICON, ...METRIC_ICON_DEFINITIONS, DEFAULT_METRIC_ICON].map((definition) => [
+      definition.description,
+      definition,
+    ])
+  ).values()
+);
+
+function resolveIconDefinition(label: string, definitions: IconDefinition[], fallback: IconDefinition): IconDefinition {
+  const normalized = label.trim().toLowerCase();
+  if (!normalized.length) {
+    return fallback;
+  }
+  const match = definitions.find((definition) =>
+    definition.keywords.some((keyword) => normalized.includes(keyword))
+  );
+  return match ?? fallback;
+}
+
+function getTraitIcon(tag: string): IconDefinition {
+  return resolveIconDefinition(tag, TRAIT_ICON_DEFINITIONS, DEFAULT_TRAIT_ICON);
+}
+
+function getMetricIcon(key: string): IconDefinition {
+  return resolveIconDefinition(key, METRIC_ICON_DEFINITIONS, DEFAULT_METRIC_ICON);
+}
+
+const METADATA_COLOR_LEGEND: Array<{ label: string; category: PassportMetadataCategory }> = [
+  { label: "Perk metadata", category: "perk" },
+  { label: "Companion metadata", category: "companion" },
+  { label: "Trait tallies", category: "trait" },
+  { label: "Stipend details", category: "stipend" },
+];
+
+const PassportLegend: React.FC = () => {
+  return (
+    <section className="passport__legend" aria-label="Legend for derived passport metadata">
+      <h4 className="passport__legend-title">Legend</h4>
+      <div className="passport__legend-groups">
+        <div className="passport__legend-group">
+          <h5>Color coding</h5>
+          <ul className="passport__legend-list">
+            {METADATA_COLOR_LEGEND.map((entry) => (
+              <li key={entry.category}>
+                <span className={`passport__pill passport__pill--legend ${ASSET_PILL_CLASS[entry.category]}`}>
+                  <span>{entry.label}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="passport__legend-group">
+          <h5>Icon meanings</h5>
+          <ul className="passport__legend-list passport__legend-list--icons">
+            {ICON_LEGEND_DEFINITIONS.map((definition) => (
+              <li key={definition.description}>
+                <span className="passport__pill-icon" aria-hidden="true">{definition.symbol}</span>
+                <span>{definition.description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 export interface AttributeMatrixRow {
   key: string;
   manualEntries: Array<AttributeEntry & { numericValue: number | null }>;
@@ -959,10 +1077,16 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
     );
   }
 
-  const renderAssetList = (assets: PassportDerivedSnapshot["perks"], emptyMessage: string) => {
+  const renderAssetList = (
+    assets: PassportDerivedSnapshot["perks"],
+    emptyMessage: string,
+    category: Extract<PassportMetadataCategory, "perk" | "companion">
+  ) => {
     if (!assets.length) {
       return <p className="passport__empty">{emptyMessage}</p>;
     }
+    const categoryClass = ASSET_PILL_CLASS[category];
+    const categoryLabel = category === "perk" ? "Perk" : "Companion";
     return (
       <ul className="passport__derived-list">
         {assets.map((asset) => (
@@ -973,21 +1097,43 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
             </div>
             {asset.traitTags.length ? (
               <div className="passport__derived-tags">
-                {asset.traitTags.map((tag) => (
-                  <span key={`${asset.id}-${tag}`} className="passport__pill">
-                    {tag}
-                  </span>
-                ))}
+                {asset.traitTags.map((tag) => {
+                  const traitIcon = getTraitIcon(tag);
+                  return (
+                    <span
+                      key={`${asset.id}-${tag}`}
+                      className={`passport__pill passport__pill--tag ${categoryClass}`}
+                      title={`${categoryLabel} trait tag: ${tag}`}
+                      aria-label={`${categoryLabel} trait tag ${tag}. ${traitIcon.description}.`}
+                    >
+                      <span className="passport__pill-icon" aria-hidden="true">
+                        {traitIcon.symbol}
+                      </span>
+                      <span>{tag}</span>
+                    </span>
+                  );
+                })}
               </div>
             ) : null}
             {asset.attributes.length ? (
               <div className="passport__derived-tags passport__derived-tags--metrics">
-                {asset.attributes.map((attribute, index) => (
-                  <span key={`${asset.id}-attr-${index}`} className="passport__pill passport__pill--metric">
-                    <span>{attribute.key}</span>
-                    <span>{attribute.value}</span>
-                  </span>
-                ))}
+                {asset.attributes.map((attribute, index) => {
+                  const metricIcon = getMetricIcon(attribute.key);
+                  return (
+                    <span
+                      key={`${asset.id}-attr-${index}`}
+                      className={`passport__pill passport__pill--metric ${categoryClass}`}
+                      title={`${categoryLabel} metric ${attribute.key}: ${attribute.value}`}
+                      aria-label={`${categoryLabel} metric ${attribute.key} ${attribute.value}. ${metricIcon.description}.`}
+                    >
+                      <span className="passport__pill-icon" aria-hidden="true">
+                        {metricIcon.symbol}
+                      </span>
+                      <span>{attribute.key}</span>
+                      <span>{attribute.value}</span>
+                    </span>
+                  );
+                })}
               </div>
             ) : null}
             {asset.notes ? <p className="passport__derived-notes">{asset.notes}</p> : null}
@@ -999,12 +1145,13 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
 
   return (
     <div className="passport__derived">
+      <PassportLegend />
       <section className="passport__section passport__section--readonly">
         <header>
           <h3>Auto Perks</h3>
           <span>{derived.perks.length}</span>
         </header>
-        {renderAssetList(derived.perks, "No perks captured from jumps yet.")}
+        {renderAssetList(derived.perks, "No perks captured from jumps yet.", "perk")}
       </section>
 
       <section className="passport__section passport__section--readonly">
@@ -1012,7 +1159,7 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
           <h3>Auto Companions</h3>
           <span>{derived.companions.length}</span>
         </header>
-        {renderAssetList(derived.companions, "No companions recruited from jumps yet.")}
+        {renderAssetList(derived.companions, "No companions recruited from jumps yet.", "companion")}
       </section>
 
       <section className="passport__section passport__section--readonly">
@@ -1023,7 +1170,7 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
         {derived.traits.length ? (
           <div className="passport__derived-tags">
             {derived.traits.map((trait) => (
-              <span key={trait.name.toLowerCase()} className="passport__pill passport__pill--tally">
+              <span key={trait.name.toLowerCase()} className="passport__pill passport__pill--tally passport__pill--trait" title={`Trait tally for ${trait.name}`} aria-label={`Trait tally for ${trait.name} with ${trait.sources.length} sources.`}>
                 <span>{trait.name}</span>
                 <span className="passport__pill-count">{trait.sources.length}</span>
               </span>
@@ -1063,21 +1210,31 @@ const DerivedCollections: React.FC<{ derived: PassportDerivedSnapshot | undefine
             <span>{derived.stipends.length}</span>
           </header>
           <ul className="passport__derived-list passport__derived-list--compact">
-            {derived.stipends.map((entry) => (
-              <li key={`${entry.assetId}-stipend`} className="passport__derived-item passport__derived-item--compact">
-                <div className="passport__derived-item-header">
-                  <strong>{entry.assetName}</strong>
-                  {entry.jumpTitle ? <span>{entry.jumpTitle}</span> : null}
-                </div>
-                <div className="passport__derived-stipend">
-                  <span className="passport__pill passport__pill--metric">
-                    <span>{entry.frequency}</span>
-                    <span>{entry.amount}</span>
-                  </span>
-                  {entry.notes ? <p className="passport__derived-notes">{entry.notes}</p> : null}
-                </div>
-              </li>
-            ))}
+            {derived.stipends.map((entry) => {
+              const stipendIcon = getMetricIcon(entry.amount);
+              return (
+                <li key={`${entry.assetId}-stipend`} className="passport__derived-item passport__derived-item--compact">
+                  <div className="passport__derived-item-header">
+                    <strong>{entry.assetName}</strong>
+                    {entry.jumpTitle ? <span>{entry.jumpTitle}</span> : null}
+                  </div>
+                  <div className="passport__derived-stipend">
+                    <span
+                      className="passport__pill passport__pill--metric passport__pill--stipend"
+                      title={`Stipend paid ${entry.frequency} for ${entry.amount}`}
+                      aria-label={`Stipend frequency ${entry.frequency} amount ${entry.amount}. ${stipendIcon.description}.`}
+                    >
+                      <span className="passport__pill-icon" aria-hidden="true">
+                        {stipendIcon.symbol}
+                      </span>
+                      <span>{entry.frequency}</span>
+                      <span>{entry.amount}</span>
+                    </span>
+                    {entry.notes ? <p className="passport__derived-notes">{entry.notes}</p> : null}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
