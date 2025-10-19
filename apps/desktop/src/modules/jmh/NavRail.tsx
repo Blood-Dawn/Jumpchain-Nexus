@@ -25,6 +25,7 @@ SOFTWARE.
 import React from "react";
 import { NavLink } from "react-router-dom";
 import { modules, resolveModulePath, sectionLabels, sectionOrder } from "../registry";
+import Icon from "../../components/Icon";
 
 export const NavRail: React.FC = () => {
   const sections = sectionOrder
@@ -50,8 +51,12 @@ export const NavRail: React.FC = () => {
                     className={({ isActive }: { isActive: boolean }) =>
                       `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
                     }
+                    aria-label={`${module.title} — ${module.description}`}
                   >
-                    <span className="jmh-nav__label">{module.title}</span>
+                    <span className="jmh-nav__button-header">
+                      <Icon name={module.icon ?? "module"} className="jmh-nav__icon" />
+                      <span className="jmh-nav__label">{module.title}</span>
+                    </span>
                     <span className="jmh-nav__hint">{module.description}</span>
                   </NavLink>
                 </li>

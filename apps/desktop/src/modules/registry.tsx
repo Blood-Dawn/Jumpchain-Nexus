@@ -2,6 +2,7 @@ import { lazy } from "react";
 import type { ComponentProps, ComponentType, LazyExoticComponent } from "react";
 
 import { RouteProfiler } from "../components/perf/RouteProfiler";
+import type { IconName } from "../components/Icon";
 
 export type ModuleSection = "build" | "supplements" | "tools" | "story";
 
@@ -12,7 +13,7 @@ export interface ModuleDef {
   path: string;
   section: ModuleSection;
   element: LazyExoticComponent<ComponentType>;
-  icon?: string;
+  icon?: IconName;
   badge?: string;
   requiredPermissions?: string[];
 }
@@ -38,6 +39,7 @@ const moduleList: ModuleDef[] = [
     path: "hub",
     section: "build",
     element: lazyModule("Jump Hub", () => import("./jmh")),
+    icon: "compass",
     requiredPermissions: ["jump-hub-sql"],
   },
   {
@@ -47,6 +49,7 @@ const moduleList: ModuleDef[] = [
     path: "passport",
     section: "supplements",
     element: lazyModule("Cosmic Passport", () => import("./passport")),
+    icon: "passport",
     requiredPermissions: ["cosmic-passport-sql"],
   },
   {
@@ -56,6 +59,7 @@ const moduleList: ModuleDef[] = [
     path: "warehouse",
     section: "supplements",
     element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
+    icon: "warehouse",
     requiredPermissions: ["cosmic-warehouse-sql"],
   },
   {
@@ -65,6 +69,7 @@ const moduleList: ModuleDef[] = [
     path: "locker",
     section: "supplements",
     element: lazyModule("Cosmic Locker", () => import("./locker")),
+    icon: "locker",
     requiredPermissions: ["cosmic-locker-sql"],
   },
   {
@@ -74,6 +79,7 @@ const moduleList: ModuleDef[] = [
     path: "drawbacks",
     section: "supplements",
     element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
+    icon: "balance",
     requiredPermissions: ["drawback-supplement-sql"],
   },
   {
@@ -83,6 +89,7 @@ const moduleList: ModuleDef[] = [
     path: "export",
     section: "tools",
     element: lazyModule("Exports", () => import("./export")),
+    icon: "share",
     requiredPermissions: ["export-tools"],
   },
   {
@@ -92,6 +99,7 @@ const moduleList: ModuleDef[] = [
     path: "stats",
     section: "tools",
     element: lazyModule("Statistics", () => import("./stats")),
+    icon: "chart",
     requiredPermissions: ["statistics-sql"],
   },
   {
@@ -101,6 +109,7 @@ const moduleList: ModuleDef[] = [
     path: "options",
     section: "tools",
     element: lazyModule("Jump Options", () => import("./options")),
+    icon: "sliders",
     requiredPermissions: ["jump-options-sql"],
   },
   {
@@ -110,6 +119,7 @@ const moduleList: ModuleDef[] = [
     path: "knowledge",
     section: "tools",
     element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
+    icon: "book",
     requiredPermissions: ["knowledge-base-sql"],
   },
   {
@@ -119,6 +129,7 @@ const moduleList: ModuleDef[] = [
     path: "formatter",
     section: "tools",
     element: lazyModule("Input Formatter", () => import("./formatter")),
+    icon: "wand",
     requiredPermissions: ["input-formatter-tools"],
   },
   {
@@ -128,6 +139,7 @@ const moduleList: ModuleDef[] = [
     path: "studio",
     section: "story",
     element: lazyModule("Story Studio", () => import("./studio")),
+    icon: "feather",
     requiredPermissions: ["story-studio-sql"],
   },
 ];
@@ -142,6 +154,7 @@ if (devToolsEnabled) {
     path: "devtools",
     section: "tools",
     element: lazyModule("Developer Tools", () => import("./devtools")),
+    icon: "terminal",
     requiredPermissions: ["devtools-shell"],
   });
 }
