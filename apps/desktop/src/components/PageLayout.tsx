@@ -25,6 +25,7 @@ SOFTWARE.
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 import NavRail from "../modules/jmh/NavRail";
+import StarfieldBackground from "./StarfieldBackground";
 
 interface PageLayoutContextValue {
   setRightPane: (node: React.ReactNode | null) => void;
@@ -53,7 +54,11 @@ export const PageLayoutRightPane: React.FC<{ children: React.ReactNode | null }>
   return null;
 };
 
-export const PageLayout: React.FC = () => {
+interface PageLayoutProps {
+  enableBackgroundEffects?: boolean;
+}
+
+export const PageLayout: React.FC<PageLayoutProps> = ({ enableBackgroundEffects }) => {
   const [rightPane, setRightPane] = useState<React.ReactNode | null>(null);
 
   const contextValue = useMemo<PageLayoutContextValue>(
@@ -65,12 +70,15 @@ export const PageLayout: React.FC = () => {
 
   return (
     <PageLayoutContext.Provider value={contextValue}>
-      <div className="hub-shell">
-        <NavRail />
-        <main className="hub-main">
-          <Outlet />
-        </main>
-        {rightPane}
+      <div className="hub-environment">
+        {enableBackgroundEffects ? <StarfieldBackground /> : null}
+        <div className="hub-shell">
+          <NavRail />
+          <main className="hub-main">
+            <Outlet />
+          </main>
+          {rightPane}
+        </div>
       </div>
     </PageLayoutContext.Provider>
   );

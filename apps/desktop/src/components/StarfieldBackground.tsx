@@ -21,43 +21,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-import React, { Suspense } from "react";
-import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
-import "./App.css";
-import PageLayout from "./components/PageLayout";
-import { defaultModule, modules } from "./modules/registry";
 
-const enableBackgroundEffects = import.meta.env.VITE_ENABLE_STARFIELD === "true";
+import React from "react";
 
-const fallback = <div className="app-loading">Loading module…</div>;
+interface StarfieldBackgroundProps {
+  className?: string;
+}
 
-const router = createHashRouter([
-  {
-    path: "/",
-    element: <PageLayout enableBackgroundEffects={enableBackgroundEffects} />,
-    children: [
-      ...modules.map((module) => ({
-        path: module.path,
-        element: (
-          <Suspense fallback={fallback}>
-            <module.element />
-          </Suspense>
-        ),
-      })),
-      {
-        index: true,
-        element: <Navigate to={`/${defaultModule.path}`} replace />,
-      },
-      {
-        path: "*",
-        element: <Navigate to={`/${defaultModule.path}`} replace />,
-      },
-    ],
-  },
-]);
+const StarfieldBackground: React.FC<StarfieldBackgroundProps> = ({ className }) => {
+  const classes = ["hub-environment__backdrop", className].filter(Boolean).join(" ");
 
-const App: React.FC = () => {
-  return <RouterProvider router={router} />;
+  return (
+    <div className={classes} aria-hidden="true">
+      <div className="hub-environment__layer hub-environment__layer--nebula" />
+      <div className="hub-environment__layer hub-environment__layer--stars" />
+      <div className="hub-environment__layer hub-environment__layer--twinkle" />
+    </div>
+  );
 };
 
-export default App;
+export default StarfieldBackground;
