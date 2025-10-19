@@ -23,14 +23,16 @@ SOFTWARE.
 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import JumpchainOptions from "./index";
 import InputFormatter from "../formatter";
 import {
+  CATEGORY_PRESETS_SETTING_KEY,
   DEFAULT_SUPPLEMENT_SETTINGS,
   DEFAULT_WAREHOUSE_MODE,
+  getAppSetting,
   loadSupplementSettings,
   loadWarehouseModeSetting,
   loadFormatterSettings,
@@ -302,5 +304,67 @@ describe("JumpchainOptions", () => {
     await waitFor(() => expect(formatterToggle).not.toBeChecked());
     formatterRender.unmount();
     formatterClient.clear();
+  });
+
+  it("allows reordering categories and keeps the order after reload", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const first = render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const perkList = await screen.findByRole("list", { name: /perk categories/i });
+    const perkColumn = perkList.parentElement as HTMLElement;
+    const perkInput = within(perkColumn).getByPlaceholderText("Add perk category");
+    const addPerkButton = within(perkColumn).getByRole("button", { name: "Add perk category" });
+
+    for (const category of ["Alpha", "Beta", "Gamma"]) {
+      await user.type(perkInput, category);
+      await user.click(addPerkButton);
+    }
+
+    const readOrder = (list: HTMLElement) =>
+      within(list)
+        .queryAllByRole("listitem")
+        .map((item) => item.querySelector(".options__category-label")?.textContent?.trim())
+        .filter((value): value is string => Boolean(value));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Alpha", "Beta", "Gamma"]);
+    });
+
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    await waitFor(async () => {
+      const record = await getAppSetting(CATEGORY_PRESETS_SETTING_KEY);
+      const parsed = parseCategoryPresets(record ?? null);
+      expect(parsed.perkCategories).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    first.unmount();
+    queryClient.clear();
+
+    const secondClient = createTestQueryClient();
+    const second = render(
+      <QueryClientProvider client={secondClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const restoredList = await screen.findByRole("list", { name: /perk categories/i });
+    await waitFor(() => {
+      expect(readOrder(restoredList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    second.unmount();
+    secondClient.clear();
   });
 });
