@@ -201,11 +201,23 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
       const previousAsset = previous?.find((asset) => asset.id === payload.id) ?? null;
       const optimisticTimestamp = new Date().toISOString();
       if (previous) {
-        const optimistic = previous.map((asset) =>
-          asset.id === payload.id
-            ? { ...asset, ...payload.updates, updated_at: optimisticTimestamp }
-            : asset,
-        );
+        const optimistic = previous.map((asset) => {
+          if (asset.id !== payload.id) {
+            return asset;
+          }
+          const metadataUpdate =
+            payload.updates.metadata === undefined
+              ? asset.metadata
+              : payload.updates.metadata === null
+                ? null
+                : JSON.stringify(payload.updates.metadata);
+          return {
+            ...asset,
+            ...payload.updates,
+            metadata: metadataUpdate,
+            updated_at: optimisticTimestamp,
+          };
+        });
         queryClient.setQueryData(["jump-assets", jumpId], optimistic);
       }
       return { previous, previousAsset };
@@ -307,6 +319,53 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
     });
   }, [formState]);
 
+  const handleAttributeAdd = () => {
+    setFormState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        attributes: [
+          ...current.attributes,
+          { key: "", value: "", numericValue: null },
+        ],
+      } satisfies AssetFormState;
+    });
+  };
+
+  const handleAttributeRemove = (index: number) => {
+    setFormState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        attributes: current.attributes.filter((_, attrIndex) => attrIndex !== index),
+      } satisfies AssetFormState;
+    });
+  };
+
+  const handleAttributeChange = (index: number, field: "key" | "value", value: string) => {
+    setFormState((current) => {
+      if (!current) return current;
+      const nextAttributes = current.attributes.map((attribute, attrIndex) => {
+        if (attrIndex !== index) {
+          return attribute;
+        }
+        if (field === "key") {
+          return { ...attribute, key: value };
+        }
+        const numericCandidate = Number(value);
+        return {
+          ...attribute,
+          value,
+          numericValue: Number.isFinite(numericCandidate) ? numericCandidate : null,
+        };
+      });
+      return {
+        ...current,
+        attributes: nextAttributes,
+      } satisfies AssetFormState;
+    });
+  };
+
   const handleSave = () => {
     if (!formState) return;
     const trimmedName = formState.name.trim() || "Unnamed Asset";
@@ -323,7 +382,10 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
             }
           : null,
       attributes: formState.attributes.map((attribute) => ({ ...attribute })),
-      altForms: formState.altForms.map((form) => ({ ...form })),
+      altForms: formState.altForms.map((form) => ({
+        name: form.name.trim(),
+        summary: form.summary.trim(),
+      })),
     };
 
     const updates: Parameters<typeof updateJumpAsset>[1] = {
@@ -365,6 +427,31 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
       ...formState,
       traitTags: formState.traitTags.filter((entry) => entry !== tag),
     });
+  };
+
+  const mutateAltForms = (
+    updater: (current: AssetFormState["altForms"]) => AssetFormState["altForms"],
+  ) => {
+    setFormState((prev) => (prev ? { ...prev, altForms: updater(prev.altForms) } : prev));
+  };
+
+  const handleAltFormAdd = () => {
+    mutateAltForms((current) => [...current, { name: "", summary: "" }]);
+  };
+
+  const handleAltFormRemove = (index: number) => {
+    mutateAltForms((current) => current.filter((_, entryIndex) => entryIndex !== index));
+  };
+
+  const handleAltFormChange = (
+    index: number,
+    updates: Partial<AssetFormState["altForms"][number]>,
+  ) => {
+    mutateAltForms((current) =>
+      current.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, ...updates } : entry,
+      ),
+    );
   };
 
   const renderAutosave = () => {
@@ -546,6 +633,43 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
                 </label>
 
                 <fieldset className="quick-asset__fieldset">
+                  <legend>Attributes</legend>
+                  {formState.attributes.map((attribute, index) => (
+                    <div key={`attribute-${index}`} className="quick-asset__attribute-row">
+                      <label>
+                        <span>Attribute Key</span>
+                        <input
+                          value={attribute.key}
+                          onChange={(event) => handleAttributeChange(index, "key", event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>Attribute Value</span>
+                        <input
+                          value={attribute.value}
+                          onChange={(event) => handleAttributeChange(index, "value", event.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="quick-asset__danger"
+                        aria-label={`Remove attribute ${index + 1}`}
+                        onClick={() => handleAttributeRemove(index)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    data-testid="quick-asset-attribute-add"
+                    onClick={handleAttributeAdd}
+                  >
+                    Add attribute
+                  </button>
+                </fieldset>
+
+                <fieldset className="quick-asset__fieldset">
                   <legend>Trait Tags</legend>
                   <div className="quick-asset__tags">
                     {formState.traitTags.map((tag) => (
@@ -576,6 +700,47 @@ export const QuickAssetEditor: React.FC<QuickAssetEditorProps> = ({
                       Add
                     </button>
                   </div>
+                </fieldset>
+
+                <fieldset className="quick-asset__fieldset">
+                  <legend>Alternate Forms</legend>
+                  {formState.altForms.length === 0 ? (
+                    <p className="quick-asset__empty">No alternate forms yet.</p>
+                  ) : (
+                    formState.altForms.map((altForm, index) => (
+                      <div key={`${index}-${formState.id}`} className="quick-asset__alt-form">
+                        <label>
+                          <span>{`Alt Form ${index + 1} Name`}</span>
+                          <input
+                            value={altForm.name}
+                            onChange={(event) =>
+                              handleAltFormChange(index, { name: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>{`Alt Form ${index + 1} Summary`}</span>
+                          <textarea
+                            value={altForm.summary}
+                            onChange={(event) =>
+                              handleAltFormChange(index, { summary: event.target.value })
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="quick-asset__danger"
+                          onClick={() => handleAltFormRemove(index)}
+                          aria-label={`Remove Alt Form ${index + 1}`}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  <button type="button" onClick={handleAltFormAdd} data-testid="quick-asset-alt-form-add">
+                    Add Alternate Form
+                  </button>
                 </fieldset>
 
                 <fieldset className="quick-asset__fieldset">

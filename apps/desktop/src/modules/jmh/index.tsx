@@ -22,10 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { Suspense, lazy, useEffect } from "react";
+import React, { Suspense, lazy, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { loadSnapshot } from "./data";
-import { useJmhStore } from "./store";
+import { useJmhShallow } from "./store";
 import { GlobalSearch } from "./GlobalSearch";
 import { Timeline } from "./Timeline";
 import { NextActionsPanel } from "./NextActionsPanel";
@@ -36,32 +36,56 @@ const HelpPane = lazy(async () => import("./HelpPane"));
 const OnboardingWizard = lazy(async () => import("./OnboardingWizard"));
 
 export const JumpMemoryHub: React.FC = () => {
-  const setJumps = useJmhStore((state) => state.setJumps);
-  const setEntities = useJmhStore((state) => state.setEntities);
-  const setNotes = useJmhStore((state) => state.setNotes);
-  const setRecaps = useJmhStore((state) => state.setRecaps);
-  const setNextActions = useJmhStore((state) => state.setNextActions);
-  const setOnboardingComplete = useJmhStore((state) => state.setOnboardingComplete);
-  const onboardingComplete = useJmhStore((state) => state.onboardingComplete);
-  const helpPaneOpen = useJmhStore((state) => state.helpPaneOpen);
-  const setHelpPaneOpen = useJmhStore((state) => state.setHelpPaneOpen);
-  const onboardingOpen = useJmhStore((state) => state.onboardingOpen);
-  const setOnboardingOpen = useJmhStore((state) => state.setOnboardingOpen);
-  const selectedJumpId = useJmhStore((state) => state.selectedJumpId);
-  const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
+  const [
+    setJumps,
+    setEntities,
+    setNotes,
+    setRecaps,
+    setNextActions,
+    setOnboardingComplete,
+    onboardingComplete,
+    helpPaneOpen,
+    setHelpPaneOpen,
+    onboardingOpen,
+    setOnboardingOpen,
+    selectedJumpId,
+    setSelectedJump,
+  ] = useJmhShallow((state) =>
+    [
+      state.setJumps,
+      state.setEntities,
+      state.setNotes,
+      state.setRecaps,
+      state.setNextActions,
+      state.setOnboardingComplete,
+      state.onboardingComplete,
+      state.helpPaneOpen,
+      state.setHelpPaneOpen,
+      state.onboardingOpen,
+      state.setOnboardingOpen,
+      state.selectedJumpId,
+      state.setSelectedJump,
+    ] as const,
+  );
 
   const snapshotQuery = useQuery({
     queryKey: ["jmh-snapshot"],
     queryFn: loadSnapshot,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    networkMode: "offlineFirst",
+    structuralSharing: true,
+    retry: 1,
   });
 
   useEffect(() => {
-    if (!snapshotQuery.data) {
+    const snapshot = snapshotQuery.data;
+    if (!snapshot) {
       return;
     }
-    const { jumps, entities, notes, recaps, nextActions } = snapshotQuery.data;
+    const { jumps, entities, notes, recaps, nextActions } = snapshot;
     setJumps(jumps);
     setEntities(entities);
     setNotes(notes);
@@ -88,11 +112,16 @@ export const JumpMemoryHub: React.FC = () => {
 
   const showWizard = onboardingOpen;
 
-  const rightPane = helpPaneOpen ? (
-    <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
-      <HelpPane />
-    </Suspense>
-  ) : null;
+  const rightPane = useMemo(() => {
+    if (!helpPaneOpen) {
+      return null;
+    }
+    return (
+      <Suspense fallback={<div className="help-pane help-pane--loading">Loading help…</div>}>
+        <HelpPane />
+      </Suspense>
+    );
+  }, [helpPaneOpen]);
 
   return (
     <>

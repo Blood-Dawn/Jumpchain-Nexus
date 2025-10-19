@@ -72,6 +72,31 @@ async function buildDraftFromFile(path: string): Promise<KnowledgeBaseArticleDra
   throw new Error(`Unsupported file type: ${ext ? `.${ext}` : "unknown"}`);
 }
 
+async function buildSelectionFromPaths(paths: string[]): Promise<KnowledgeBaseImportSelection> {
+  const drafts: KnowledgeBaseArticleDraft[] = [];
+  const errors: KnowledgeBaseImportError[] = [];
+
+  for (const path of paths) {
+    try {
+      const draft = await buildDraftFromFile(path);
+      drafts.push(draft);
+    } catch (error) {
+      errors.push({
+        path,
+        reason: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return { drafts, errors };
+}
+
+export async function collectKnowledgeBaseDraftsFromPaths(
+  paths: string[]
+): Promise<KnowledgeBaseImportSelection> {
+  return buildSelectionFromPaths(paths);
+}
+
 export async function promptKnowledgeBaseImport(): Promise<KnowledgeBaseImportSelection | null> {
   const selection = await openFileDialog({
     title: "Import knowledge base articles",
@@ -87,22 +112,9 @@ export async function promptKnowledgeBaseImport(): Promise<KnowledgeBaseImportSe
     return null;
   }
 
-  const drafts: KnowledgeBaseArticleDraft[] = [];
-  const errors: KnowledgeBaseImportError[] = [];
+  const result = await buildSelectionFromPaths(selection);
 
-  for (const path of selection) {
-    try {
-      const draft = await buildDraftFromFile(path);
-      drafts.push(draft);
-    } catch (error) {
-      errors.push({
-        path,
-        reason: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  }
-
-  return { drafts, errors };
+  return result;
 }
 
 export async function importKnowledgeBaseArticles(

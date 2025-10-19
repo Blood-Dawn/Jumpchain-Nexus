@@ -28,6 +28,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import DrawbackSupplement from "./index";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 
 vi.mock("../../db/dao", () => {
   const DEFAULT_SUPPLEMENT_SETTINGS = {
@@ -162,7 +163,8 @@ async function renderDrawbackSupplement(options: {
     removeAllLineBreaks: false,
     leaveDoubleLineBreaks: false,
     thousandsSeparator: options.thousandsSeparator ?? "comma",
-  };
+    spellcheckEnabled: true,
+  } as const;
 
   loadSupplementSettings.mockResolvedValue(supplements);
   loadUniversalDrawbackSettings.mockResolvedValue(universal);
@@ -174,7 +176,7 @@ async function renderDrawbackSupplement(options: {
   const queryClient = createTestQueryClient();
   const firstJumpId = jumps[0]?.id ?? "jump-1";
   queryClient.setQueryData(["supplement-settings"], supplements);
-  queryClient.setQueryData(["app-settings", "formatter"], formatter);
+  queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, formatter);
   queryClient.setQueryData(["jumps"], jumps);
   queryClient.setQueryData(["jump-drawbacks", firstJumpId], assets);
   queryClient.setQueryData(["jump-budget", firstJumpId], budget);
