@@ -48,7 +48,13 @@ import {
   mapLockerItems,
   parseLockerMetadata,
 } from "./lockerUtils";
-import { formatChipLabel, getChipStyle, getChipVisual } from "../chipAppearance";
+
+const filterAccents = {
+  packed: { icon: "📦", className: "locker__chip--status" },
+  priority: { icon: "⚡", className: "locker__chip--priority" },
+  bodyMod: { icon: "🧬", className: "locker__chip--bodymod" },
+  booster: { icon: "🚀", className: "locker__chip--booster" },
+} as const;
 
 interface LockerFormState {
   id: string;
@@ -447,26 +453,20 @@ const CosmicLocker: React.FC = () => {
                 { label: "All", value: "all" },
                 { label: "Packed", value: "packed" },
                 { label: "Unpacked", value: "unpacked" },
-              ].map((option) => {
-                const visual = getChipVisual(option.label);
-                const isActive = filters.packed === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={isActive ? "locker__chip locker__chip--active" : "locker__chip"}
-                    style={getChipStyle(visual)}
-                    aria-pressed={isActive}
-                    aria-label={option.value === "all" ? "All status states" : undefined}
-                    onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as LockerFilters["packed"] }))}
-                  >
-                    <span aria-hidden="true" className="locker__chip-icon">
-                      {visual.icon}
-                    </span>
-                    <span className="locker__chip-label">{formatChipLabel(option.label)}</span>
-                  </button>
-                );
-              })}
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`locker__chip ${filterAccents.packed.className}${
+                    filters.packed === option.value ? " locker__chip--active" : ""
+                  }`}
+                  onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as LockerFilters["packed"] }))}
+                >
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.packed.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="locker__filter-group">
@@ -477,31 +477,25 @@ const CosmicLocker: React.FC = () => {
                 { label: "High", value: "high" },
                 { label: "Medium", value: "medium" },
                 { label: "Low", value: "low" },
-              ].map((option) => {
-                const visual = getChipVisual(option.label);
-                const isActive = filters.priority === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={isActive ? "locker__chip locker__chip--active" : "locker__chip"}
-                    style={getChipStyle(visual)}
-                    aria-pressed={isActive}
-                    aria-label={option.value === "all" ? "All priorities" : undefined}
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        priority: option.value as LockerFilters["priority"],
-                      }))
-                    }
-                  >
-                    <span aria-hidden="true" className="locker__chip-icon">
-                      {visual.icon}
-                    </span>
-                    <span className="locker__chip-label">{formatChipLabel(option.label)}</span>
-                  </button>
-                );
-              })}
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`locker__chip ${filterAccents.priority.className}${
+                    filters.priority === option.value ? " locker__chip--active" : ""
+                  }`}
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      priority: option.value as LockerFilters["priority"],
+                    }))
+                  }
+                >
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.priority.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="locker__filter-group">
@@ -512,31 +506,25 @@ const CosmicLocker: React.FC = () => {
                 { label: "Universal", value: "universal" },
                 { label: "Essential", value: "essential" },
                 { label: "Unflagged", value: "none" },
-              ].map((option) => {
-                const visual = getChipVisual(option.label);
-                const isActive = filters.bodyMod === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={isActive ? "locker__chip locker__chip--active" : "locker__chip"}
-                    style={getChipStyle(visual)}
-                    aria-pressed={isActive}
-                    aria-label={option.value === "all" ? "All body mod options" : undefined}
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        bodyMod: option.value as LockerFilters["bodyMod"],
-                      }))
-                    }
-                  >
-                    <span aria-hidden="true" className="locker__chip-icon">
-                      {visual.icon}
-                    </span>
-                    <span className="locker__chip-label">{formatChipLabel(option.label)}</span>
-                  </button>
-                );
-              })}
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`locker__chip ${filterAccents.bodyMod.className}${
+                    filters.bodyMod === option.value ? " locker__chip--active" : ""
+                  }`}
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      bodyMod: option.value as LockerFilters["bodyMod"],
+                    }))
+                  }
+                >
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.bodyMod.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="locker__filter-group">
@@ -546,76 +534,61 @@ const CosmicLocker: React.FC = () => {
                 { label: "All", value: "all" },
                 { label: "Boosters", value: "booster" },
                 { label: "Non-boosters", value: "non-booster" },
-              ].map((option) => {
-                const visual = getChipVisual(option.label);
-                const isActive = filters.booster === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={isActive ? "locker__chip locker__chip--active" : "locker__chip"}
-                    style={getChipStyle(visual)}
-                    aria-pressed={isActive}
-                    aria-label={option.value === "all" ? "All item types" : undefined}
-                    onClick={() =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        booster: option.value as LockerFilters["booster"],
-                      }))
-                    }
-                  >
-                    <span aria-hidden="true" className="locker__chip-icon">
-                      {visual.icon}
-                    </span>
-                    <span className="locker__chip-label">{formatChipLabel(option.label)}</span>
-                  </button>
-                );
-              })}
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`locker__chip ${filterAccents.booster.className}${
+                    filters.booster === option.value ? " locker__chip--active" : ""
+                  }`}
+                  onClick={() =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      booster: option.value as LockerFilters["booster"],
+                    }))
+                  }
+                >
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.booster.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
+                </button>
+              ))}
             </div>
           </div>
+          <p className="locker__filters-hint">
+            Active status filters add a blue {filterAccents.packed.icon} band, priority chips glow amber with{" "}
+            {filterAccents.priority.icon}, body mods use a violet {filterAccents.bodyMod.icon}, and boosters pulse green
+            with {filterAccents.booster.icon} so color and icon cues reinforce one another.
+          </p>
           {tagOptions.length > 0 && (
             <div className="locker__filter-group">
               <span>Tags</span>
               <div>
-                {(() => {
-                  const visual = getChipVisual("All Tags");
-                  const isActive = activeTags.length === 0;
-                  return (
-                    <button
-                      type="button"
-                      className={
-                        isActive ? "locker__chip locker__chip--active" : "locker__chip"
-                      }
-                      style={getChipStyle(visual)}
-                      aria-pressed={isActive}
-                      onClick={() => setActiveTags([])}
-                    >
-                      <span aria-hidden="true" className="locker__chip-icon">
-                        {visual.icon}
-                      </span>
-                      <span className="locker__chip-label">{formatChipLabel("All")}</span>
-                    </button>
-                  );
-                })()}
-                {tagOptions.map((option) => {
-                  const visual = getChipVisual(option.label);
-                  const isActive = activeTags.includes(option.value);
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={isActive ? "locker__chip locker__chip--active" : "locker__chip"}
-                      style={getChipStyle(visual)}
-                      aria-pressed={isActive}
-                      onClick={() => toggleTagFilter(option.value)}
-                    >
-                      <span aria-hidden="true" className="locker__chip-icon">
-                        {visual.icon}
-                      </span>
-                      <span className="locker__chip-label">{formatChipLabel(option.label)}</span>
-                    </button>
-                  );
-                })}
+                <button
+                  type="button"
+                  className={
+                    activeTags.length === 0
+                      ? "locker__chip locker__chip--active"
+                      : "locker__chip"
+                  }
+                  onClick={() => setActiveTags([])}
+                >
+                  All
+                </button>
+                {tagOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={
+                      activeTags.includes(option.value)
+                        ? "locker__chip locker__chip--active"
+                        : "locker__chip"
+                    }
+                    onClick={() => toggleTagFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
