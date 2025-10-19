@@ -4378,6 +4378,48 @@ a:hover {
   letter-spacing: 0.08em;
 }
 
+.stats__panel-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stats__panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.stats__panel-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(240, 247, 255, 0.7);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stats__panel-controls select {
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(122, 203, 255, 0.28);
+  background: rgba(6, 10, 18, 0.9);
+  color: #f0f7ff;
+  font-size: 0.9rem;
+  letter-spacing: normal;
+  text-transform: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stats__panel-controls select:focus {
+  outline: none;
+  border-color: rgba(122, 203, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(122, 203, 255, 0.25);
+}
+
 .stats__distribution {
   margin: 0;
   padding: 0;

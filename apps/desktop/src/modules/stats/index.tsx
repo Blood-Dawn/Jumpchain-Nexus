@@ -239,7 +239,7 @@ const StatisticsHub: React.FC = () => {
 
   const cpRowRenderer = useCallback(
     ({ index, style }: ListChildComponentProps) => {
-      const row = cpRows[index];
+      const row = filteredCpRows[index];
       if (!row) return null;
       return (
         <div style={style} className="stats__table-row stats__table-row--cp">
@@ -252,7 +252,7 @@ const StatisticsHub: React.FC = () => {
         </div>
       );
     },
-    [cpRows]
+    [filteredCpRows]
   );
 
   const inventoryRowRenderer = useCallback(
@@ -317,7 +317,7 @@ const StatisticsHub: React.FC = () => {
     [boosterSummary.entries]
   );
 
-  const cpListHeight = Math.max(1, Math.min(cpRows.length, 8)) * ROW_HEIGHT;
+  const cpListHeight = Math.max(1, Math.min(filteredCpRows.length, 8)) * ROW_HEIGHT;
   const inventoryListHeight = Math.max(1, Math.min(inventoryCategories.length, 8)) * ROW_HEIGHT;
   const gauntletListHeight = Math.max(1, Math.min(gauntletSummary.rows.length, 6)) * GAUNTLET_ROW_HEIGHT;
   const boosterListHeight = Math.max(1, Math.min(boosterSummary.entries.length, 8)) * BOOSTER_ROW_HEIGHT;
@@ -380,8 +380,29 @@ const StatisticsHub: React.FC = () => {
           <div className="stats__grid">
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>CP Breakdown</h2>
-                <span>{formatCP(cpTotals.spent)} CP spent • {formatCP(totalCredit)} CP earned</span>
+                <div className="stats__panel-heading">
+                  <h2>CP Breakdown</h2>
+                  <span>
+                    {formatCP(filteredTotalSpend)} CP spent • {formatCP(filteredTotalCredit)} CP earned
+                  </span>
+                </div>
+                <div className="stats__panel-controls">
+                  <label>
+                    <span>Asset Type</span>
+                    <select
+                      value={assetFilter}
+                      onChange={(event) => setAssetFilter(event.target.value as JumpAssetType | "all")}
+                      data-testid="asset-filter"
+                    >
+                      <option value="all">All asset types</option>
+                      {assetTypeOrder.map((type) => (
+                        <option key={type} value={type}>
+                          {assetLabels[type] ?? type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </header>
               {assetBreakdown.length ? (
                 <div className="stats__panel-stack">
@@ -471,17 +492,40 @@ const StatisticsHub: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <p className="stats__empty">No purchases recorded yet.</p>
+                <p className="stats__empty">No purchases match the selected filters.</p>
               )}
             </section>
 
             <section className="stats__panel">
               <header className="stats__panel-header">
-                <h2>Spend &amp; Credit by Jump</h2>
-                <span>{formatCount(totalJumps)} jumps</span>
+                <div className="stats__panel-heading">
+                  <h2>Spend &amp; Credit by Jump</h2>
+                  <span>
+                    {formatCount(filteredCpRows.length)} {filteredCpRows.length === 1 ? "jump" : "jumps"} •
+                    {" "}
+                    {formatCP(filteredJumpTotals.spent)} CP spent • {formatCP(filteredJumpTotals.earned)} CP earned
+                  </span>
+                </div>
+                <div className="stats__panel-controls">
+                  <label>
+                    <span>Jump Status</span>
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                      data-testid="status-filter"
+                    >
+                      <option value="all">All statuses</option>
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </header>
-              {cpRows.length ? (
-                <div className="stats__table">
+              {filteredCpRows.length ? (
+                <div className="stats__table" data-testid="cp-table" data-row-count={filteredCpRows.length}>
                   <div className="stats__table-header stats__table-row--cp">
                     <span>Jump</span>
                     <span>Status</span>
@@ -491,9 +535,10 @@ const StatisticsHub: React.FC = () => {
                     <span>Net</span>
                   </div>
                   <List
+                    className="stats__virtual-list stats__virtual-list--cp"
                     height={cpListHeight}
-                    itemCount={cpRows.length}
-                    itemKey={(index) => cpRows[index]?.jumpId ?? index}
+                    itemCount={filteredCpRows.length}
+                    itemKey={(index) => filteredCpRows[index]?.jumpId ?? index}
                     itemSize={ROW_HEIGHT}
                     width="100%"
                   >
@@ -501,7 +546,7 @@ const StatisticsHub: React.FC = () => {
                   </List>
                 </div>
               ) : (
-                <p className="stats__empty">No jump budgets available yet.</p>
+                <p className="stats__empty">No jump budgets match the selected filters.</p>
               )}
             </section>
 
