@@ -38,9 +38,26 @@ interface RowData {
 const TimelineRow: React.FC<ListChildComponentProps<RowData>> = ({ index, style, data }) => {
   const recap = data.items[index];
   const jump = recap.jump_id ? data.jumpLookup.get(recap.jump_id) ?? null : null;
+  const total = data.items.length;
+  const isFirst = index === 0;
+  const isLast = index === total - 1;
+  const classes = ["timeline__row"];
+
+  if (isFirst) {
+    classes.push("timeline__row--first");
+  }
+  if (isLast) {
+    classes.push("timeline__row--last");
+  }
+  if (total === 1) {
+    classes.push("timeline__row--single");
+  }
+
   return (
-    <div style={style} className="timeline__row">
-      <RecapCard recap={recap} jump={jump} />
+    <div style={style} className={classes.join(" ")}>
+      <div className="timeline__row-content">
+        <RecapCard recap={recap} jump={jump} />
+      </div>
     </div>
   );
 };
@@ -87,6 +104,7 @@ export const Timeline: React.FC = () => {
         </div>
       ) : (
         <List
+          className="timeline__list"
           height={Math.min(filtered.length * ITEM_HEIGHT, ITEM_HEIGHT * 4)}
           itemCount={filtered.length}
           itemSize={ITEM_HEIGHT}
