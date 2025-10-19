@@ -30,6 +30,36 @@ import type { RankedSearchResult } from "../../db/dao";
 import { useJmhStore } from "./store";
 import { useStudioStore } from "../studio/store";
 
+const SOURCE_META: Record<
+  RankedSearchResult["source"],
+  { icon: string; label: string; emptyTitle: string; emptyDescription: string }
+> = {
+  chapter: {
+    icon: "📘",
+    label: "Chapter",
+    emptyTitle: "No chapters found",
+    emptyDescription: "Try different keywords or explore another story.",
+  },
+  note: {
+    icon: "📝",
+    label: "Note",
+    emptyTitle: "No notes match your search",
+    emptyDescription: "Search by jump name, tags, or add a new note to the hub.",
+  },
+  file: {
+    icon: "📄",
+    label: "PDF",
+    emptyTitle: "No PDFs indexed yet",
+    emptyDescription: "Upload a PDF to the archive or broaden your search scope.",
+  },
+  entity: {
+    icon: "🧠",
+    label: "Entity",
+    emptyTitle: "No entities discovered",
+    emptyDescription: "Check your spelling or explore another topic.",
+  },
+};
+
 export const GlobalSearch: React.FC = () => {
   const [term, setTerm] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -124,22 +154,50 @@ export const GlobalSearch: React.FC = () => {
       {
         title: "Chapters",
         items: searchResults.chapters,
-        empty: "No chapters match that query.",
+        empty: (
+          <ResultGroupEmpty
+            variant="chapter"
+            icon={SOURCE_META.chapter.icon}
+            title={SOURCE_META.chapter.emptyTitle}
+            description={SOURCE_META.chapter.emptyDescription}
+          />
+        ),
       },
       {
         title: "Notes",
         items: searchResults.notes,
-        empty: "No notes match that query.",
+        empty: (
+          <ResultGroupEmpty
+            variant="note"
+            icon={SOURCE_META.note.icon}
+            title={SOURCE_META.note.emptyTitle}
+            description={SOURCE_META.note.emptyDescription}
+          />
+        ),
       },
       {
         title: "PDFs",
         items: searchResults.files,
-        empty: "No indexed PDFs yet.",
+        empty: (
+          <ResultGroupEmpty
+            variant="file"
+            icon={SOURCE_META.file.icon}
+            title={SOURCE_META.file.emptyTitle}
+            description={SOURCE_META.file.emptyDescription}
+          />
+        ),
       },
       {
         title: "Entities",
         items: searchResults.entities,
-        empty: "No entities matched.",
+        empty: (
+          <ResultGroupEmpty
+            variant="entity"
+            icon={SOURCE_META.entity.icon}
+            title={SOURCE_META.entity.emptyTitle}
+            description={SOURCE_META.entity.emptyDescription}
+          />
+        ),
       },
     ];
   }, [searchResults]);
@@ -375,7 +433,7 @@ export const GlobalSearch: React.FC = () => {
 interface ResultGroupProps {
   title: string;
   items: RankedSearchResult[];
-  EmptyFallback: string;
+  EmptyFallback: React.ReactNode;
   onSelect: (item: RankedSearchResult) => void;
   onHighlight: (index: number) => void;
   activeIndex: number | null;
@@ -395,12 +453,13 @@ const ResultGroup: React.FC<ResultGroupProps> = ({
         <h2>{title}</h2>
       </header>
       {items.length === 0 ? (
-        <p className="jmh-search__empty">{EmptyFallback}</p>
+        EmptyFallback
       ) : (
         <ul role="group" aria-label={title}>
           {items.map((item, index) => {
             const isActive = index === activeIndex;
             const optionId = `global-search-${item.id}`;
+            const sourceMeta = SOURCE_META[item.source];
             return (
               <li key={item.id}>
                 <button
@@ -413,8 +472,18 @@ const ResultGroup: React.FC<ResultGroupProps> = ({
                   aria-selected={isActive}
                   id={optionId}
                 >
-                  <strong>{item.title}</strong>
-                  <span>{item.snippet || "No preview available"}</span>
+                  <div className="jmh-search__result-top">
+                    <span className={`jmh-search__source-chip jmh-search__source-chip--${item.source}`}>
+                      <span className="jmh-search__source-icon" aria-hidden="true">
+                        {sourceMeta.icon}
+                      </span>
+                      <span className="jmh-search__source-text">{sourceMeta.label}</span>
+                    </span>
+                    <strong className="jmh-search__result-title">{item.title}</strong>
+                  </div>
+                  <span className="jmh-search__result-snippet">
+                    {item.snippet || "No preview available"}
+                  </span>
                 </button>
               </li>
             );
@@ -428,11 +497,36 @@ const ResultGroup: React.FC<ResultGroupProps> = ({
 interface ResultGroupShape {
   title: string;
   items: RankedSearchResult[];
-  empty: string;
+  empty: React.ReactNode;
 }
 
 interface SelectionState {
   groupIndex: number;
   itemIndex: number;
+}
+
+interface ResultGroupEmptyProps {
+  variant: RankedSearchResult["source"];
+  icon: string;
+  title: string;
+  description: string;
+}
+
+function ResultGroupEmpty({ variant, icon, title, description }: ResultGroupEmptyProps) {
+  return (
+    <div
+      className={`jmh-search__empty jmh-search__empty--${variant}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="jmh-search__empty-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <div className="jmh-search__empty-copy">
+        <strong>{title}</strong>
+        <p>{description}</p>
+      </div>
+    </div>
+  );
 }
 
