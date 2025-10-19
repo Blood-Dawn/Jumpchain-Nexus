@@ -727,6 +727,9 @@ a:hover {
   gap: 0.25rem;
   text-decoration: none;
   transition: background 0.15s ease, border 0.15s ease;
+  --module-accent: 210 100% 74%;
+  --module-accent-border: hsl(var(--module-accent) / 0.55);
+  --module-accent-glow: hsl(var(--module-accent) / 0.18);
 }
 
 .jmh-nav__button:hover {
@@ -734,9 +737,10 @@ a:hover {
 }
 
 .jmh-nav__button--active {
-  border-color: rgba(122, 203, 255, 0.65);
+  border-color: var(--module-accent-border);
   color: #f0f7ff;
-  background: rgba(31, 54, 92, 0.65);
+  background: linear-gradient(135deg, var(--module-accent-glow), rgba(31, 54, 92, 0.75));
+  box-shadow: 0 6px 18px rgba(6, 12, 24, 0.35), 0 0 0 1px hsl(var(--module-accent) / 0.22);
 }
 
 .jmh-nav__label {

@@ -15,6 +15,7 @@ export interface ModuleDef {
   icon?: string;
   badge?: string;
   requiredPermissions?: string[];
+  accent?: string;
 }
 
 const lazyModule = <T extends ComponentType<any>>(id: string, loader: () => Promise<{ default: T }>) =>
@@ -30,6 +31,13 @@ const lazyModule = <T extends ComponentType<any>>(id: string, loader: () => Prom
     return { default: Wrapped } as { default: ComponentType };
   });
 
+const sectionAccents: Record<ModuleSection, string> = {
+  build: "210 100% 74%",
+  supplements: "174 73% 64%",
+  tools: "266 84% 76%",
+  story: "350 100% 78%",
+};
+
 const moduleList: ModuleDef[] = [
   {
     id: "jump-hub",
@@ -39,6 +47,7 @@ const moduleList: ModuleDef[] = [
     section: "build",
     element: lazyModule("Jump Hub", () => import("./jmh")),
     requiredPermissions: ["jump-hub-sql"],
+    accent: sectionAccents.build,
   },
   {
     id: "cosmic-passport",
@@ -48,6 +57,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Passport", () => import("./passport")),
     requiredPermissions: ["cosmic-passport-sql"],
+    accent: sectionAccents.supplements,
   },
   {
     id: "cosmic-warehouse",
@@ -57,6 +67,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
     requiredPermissions: ["cosmic-warehouse-sql"],
+    accent: sectionAccents.supplements,
   },
   {
     id: "cosmic-locker",
@@ -66,6 +77,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Locker", () => import("./locker")),
     requiredPermissions: ["cosmic-locker-sql"],
+    accent: sectionAccents.supplements,
   },
   {
     id: "drawback-supplement",
@@ -75,6 +87,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
     requiredPermissions: ["drawback-supplement-sql"],
+    accent: sectionAccents.supplements,
   },
   {
     id: "exporter",
@@ -84,6 +97,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Exports", () => import("./export")),
     requiredPermissions: ["export-tools"],
+    accent: sectionAccents.tools,
   },
   {
     id: "statistics",
@@ -93,6 +107,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Statistics", () => import("./stats")),
     requiredPermissions: ["statistics-sql"],
+    accent: sectionAccents.tools,
   },
   {
     id: "jump-options",
@@ -102,6 +117,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Jump Options", () => import("./options")),
     requiredPermissions: ["jump-options-sql"],
+    accent: sectionAccents.tools,
   },
   {
     id: "knowledge-base",
@@ -111,6 +127,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
     requiredPermissions: ["knowledge-base-sql"],
+    accent: sectionAccents.tools,
   },
   {
     id: "input-formatter",
@@ -120,6 +137,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Input Formatter", () => import("./formatter")),
     requiredPermissions: ["input-formatter-tools"],
+    accent: sectionAccents.tools,
   },
   {
     id: "story-studio",
@@ -129,6 +147,7 @@ const moduleList: ModuleDef[] = [
     section: "story",
     element: lazyModule("Story Studio", () => import("./studio")),
     requiredPermissions: ["story-studio-sql"],
+    accent: sectionAccents.story,
   },
 ];
 
@@ -143,6 +162,7 @@ if (devToolsEnabled) {
     section: "tools",
     element: lazyModule("Developer Tools", () => import("./devtools")),
     requiredPermissions: ["devtools-shell"],
+    accent: sectionAccents.tools,
   });
 }
 
