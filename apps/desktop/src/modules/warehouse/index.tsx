@@ -133,6 +133,9 @@ const CosmicWarehouse: React.FC = () => {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+
+  const hasActiveFilters = Boolean(activeCategory) || activeTags.length > 0 || search.length > 0;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -209,10 +212,23 @@ const CosmicWarehouse: React.FC = () => {
     return Array.from(all).sort((a, b) => a.localeCompare(b));
   }, [categoryPresetsQuery.data, itemsQuery.data]);
 
+  const tags = useMemo(() => {
+    const all = new Set<string>();
+    itemsQuery.data?.forEach((item) => {
+      parseTags(item.tags).forEach((tag) => {
+        if (tag) {
+          all.add(tag);
+        }
+      });
+    });
+    return Array.from(all).sort((a, b) => a.localeCompare(b));
+  }, [itemsQuery.data]);
+
   const filteredItems = useMemo(() => {
     const base = itemsQuery.data ?? [];
     const normalizedSearch = search.trim().toLowerCase();
     return base.filter((item) => {
+      const itemTags = parseTags(item.tags);
       const matchesCategory = !activeCategory || item.category === activeCategory;
       if (!normalizedSearch) {
         return matchesCategory;
@@ -223,7 +239,7 @@ const CosmicWarehouse: React.FC = () => {
       const matchesSearch = haystack.some((value) => value.includes(normalizedSearch));
       return matchesCategory && matchesSearch;
     });
-  }, [itemsQuery.data, activeCategory, search]);
+  }, [itemsQuery.data, activeCategory, activeTags, search]);
 
   const selectedItem = useMemo(
     () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,
@@ -508,7 +524,15 @@ const CosmicWarehouse: React.FC = () => {
           </p>
         </div>
         <div className="warehouse__actions">
-          <button type="button" onClick={() => setActiveCategory(null)} disabled={!activeCategory}>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveCategory(null);
+              setActiveTags([]);
+              setSearch("");
+            }}
+            disabled={!hasActiveFilters}
+          >
             Clear Filters
           </button>
           <button type="button" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
@@ -686,10 +710,39 @@ const CosmicWarehouse: React.FC = () => {
               className={activeCategory === category ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
               onClick={() => setActiveCategory(category)}
             >
-              {category}
-            </button>
+            {category}
+          </button>
           ))}
         </div>
+        {tags.length > 0 && (
+          <div className="warehouse__tags">
+            <span className="warehouse__tags-label">Tags</span>
+            <div className="warehouse__tags-chips">
+              {tags.map((tag) => {
+                const isActive = activeTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={
+                      isActive ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"
+                    }
+                    aria-pressed={isActive}
+                    onClick={() =>
+                      setActiveTags((prev) =>
+                        prev.includes(tag)
+                          ? prev.filter((existing) => existing !== tag)
+                          : [...prev, tag]
+                      )
+                    }
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="warehouse__layout">
