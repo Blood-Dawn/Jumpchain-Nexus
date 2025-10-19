@@ -59,6 +59,7 @@ interface ExportPresetOptions {
   includeProfiles: boolean;
   includeNotes: boolean;
   includeRecaps: boolean;
+  sectionPreferences: SectionPreferences;
 }
 
 interface PresetFormState {
@@ -105,6 +106,48 @@ const SECTION_PREFERENCE_FALLBACK: SectionPreference = Object.freeze({
   spoiler: false,
 });
 
+function cloneSectionPreferences(preferences: SectionPreferences): SectionPreferences {
+  return PREVIEW_SECTION_ORDER.reduce((acc, item) => {
+    const source = preferences[item.key] ?? SECTION_PREFERENCE_FALLBACK;
+    acc[item.key] = { ...source };
+    return acc;
+  }, {} as SectionPreferences);
+}
+
+function mergeSectionPreferences(
+  base: SectionPreferences,
+  partial: unknown
+): SectionPreferences {
+  const next = cloneSectionPreferences(base);
+  if (!partial || typeof partial !== "object") {
+    return next;
+  }
+
+  const overrides = partial as Partial<Record<ExportSectionKey, Partial<SectionPreference>>>;
+
+  for (const { key } of PREVIEW_SECTION_ORDER) {
+    const override = overrides[key];
+    if (!override || typeof override !== "object") {
+      continue;
+    }
+
+    const current = next[key] ?? SECTION_PREFERENCE_FALLBACK;
+    const updated: SectionPreference = { ...current };
+
+    if (override.format === "markdown" || override.format === "bbcode") {
+      updated.format = override.format;
+    }
+
+    if (typeof override.spoiler === "boolean") {
+      updated.spoiler = override.spoiler;
+    }
+
+    next[key] = updated;
+  }
+
+  return next;
+}
+
 type FormStateUpdater =
   | PresetFormState
   | null
@@ -118,6 +161,7 @@ export interface ExportConfigState {
   setFormState: (updater: FormStateUpdater) => void;
   setSectionFormat: (key: ExportSectionKey, format: PreviewFormat) => void;
   setSectionSpoiler: (key: ExportSectionKey, spoiler: boolean) => void;
+  setSectionPreferences: (preferences: SectionPreferences) => void;
   updateOption: <K extends keyof ExportPresetOptions>(key: K, value: ExportPresetOptions[K]) => void;
   toggleAsset: (type: JumpAssetType, enabled: boolean) => void;
   reset: () => void;
@@ -131,26 +175,114 @@ export const useExportConfigStore = create<ExportConfigState>()(
       sectionPreferences: createDefaultSectionPreferences(),
       setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
       setFormState: (updater) =>
-        set((state) => ({
-          formState:
-            typeof updater === "function"
-              ? (updater as (prev: PresetFormState | null) => PresetFormState | null)(state.formState)
-              : updater,
-        })),
+        set((state) => {
+          if (typeof updater === "function") {
+            const nextFormState = (updater as (
+              prev: PresetFormState | null
+            ) => PresetFormState | null)(state.formState);
+            if (!nextFormState) {
+              return {
+                formState: null,
+                sectionPreferences: createDefaultSectionPreferences(),
+              };
+            }
+            return { formState: nextFormState };
+          }
+
+          const nextFormState = updater;
+          return {
+            formState: nextFormState,
+            sectionPreferences: nextFormState
+              ? cloneSectionPreferences(nextFormState.options.sectionPreferences)
+              : createDefaultSectionPreferences(),
+          };
+        }),
       setSectionFormat: (key, format) =>
-        set((state) => ({
-          sectionPreferences: {
+        set((state) => {
+          const nextSectionPreferences: SectionPreferences = {
             ...state.sectionPreferences,
-            [key]: { ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK), format },
-          },
-        })),
+            [key]: {
+              ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK),
+              format,
+            },
+          };
+
+          if (!state.formState) {
+            return { sectionPreferences: nextSectionPreferences };
+          }
+
+          const currentFormPreferences =
+            state.formState.options.sectionPreferences ?? createDefaultSectionPreferences();
+
+          return {
+            sectionPreferences: nextSectionPreferences,
+            formState: {
+              ...state.formState,
+              options: {
+                ...state.formState.options,
+                sectionPreferences: {
+                  ...currentFormPreferences,
+                  [key]: {
+                    ...(currentFormPreferences[key] ?? SECTION_PREFERENCE_FALLBACK),
+                    format,
+                  },
+                },
+              },
+            },
+          };
+        }),
       setSectionSpoiler: (key, spoiler) =>
-        set((state) => ({
-          sectionPreferences: {
+        set((state) => {
+          const nextSectionPreferences: SectionPreferences = {
             ...state.sectionPreferences,
-            [key]: { ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK), spoiler },
-          },
-        })),
+            [key]: {
+              ...(state.sectionPreferences[key] ?? SECTION_PREFERENCE_FALLBACK),
+              spoiler,
+            },
+          };
+
+          if (!state.formState) {
+            return { sectionPreferences: nextSectionPreferences };
+          }
+
+          const currentFormPreferences =
+            state.formState.options.sectionPreferences ?? createDefaultSectionPreferences();
+
+          return {
+            sectionPreferences: nextSectionPreferences,
+            formState: {
+              ...state.formState,
+              options: {
+                ...state.formState.options,
+                sectionPreferences: {
+                  ...currentFormPreferences,
+                  [key]: {
+                    ...(currentFormPreferences[key] ?? SECTION_PREFERENCE_FALLBACK),
+                    spoiler,
+                  },
+                },
+              },
+            },
+          };
+        }),
+      setSectionPreferences: (preferences) =>
+        set((state) => {
+          const cloned = cloneSectionPreferences(preferences);
+          if (!state.formState) {
+            return { sectionPreferences: cloned };
+          }
+
+          return {
+            sectionPreferences: cloned,
+            formState: {
+              ...state.formState,
+              options: {
+                ...state.formState.options,
+                sectionPreferences: cloneSectionPreferences(preferences),
+              },
+            },
+          };
+        }),
       updateOption: (key, value) =>
         set((state) =>
           state.formState
@@ -221,6 +353,27 @@ const FORMAT_METADATA: Record<ExportFormat, { label: string; mime: string; exten
   bbcode: { label: "BBCode", mime: "text/plain", extension: "bbcode" },
   text: { label: "Plain Text", mime: "text/plain", extension: "txt" },
 };
+
+type SectionToggleOption =
+  | "includeTotals"
+  | "includeJumpMetadata"
+  | "includeInventory"
+  | "includeProfiles"
+  | "includeNotes"
+  | "includeRecaps";
+
+const SECTION_TOGGLE_CONFIG: Array<{
+  option: SectionToggleOption;
+  label: string;
+  sectionKey: Exclude<ExportSectionKey, "header">;
+}> = [
+  { option: "includeTotals", label: "Chain totals", sectionKey: "totals" },
+  { option: "includeJumpMetadata", label: "Jump metadata", sectionKey: "jumps" },
+  { option: "includeInventory", label: "Inventory snapshot", sectionKey: "inventory" },
+  { option: "includeProfiles", label: "Character profiles", sectionKey: "profiles" },
+  { option: "includeNotes", label: "Notes overview", sectionKey: "notes" },
+  { option: "includeRecaps", label: "Recap summaries", sectionKey: "recaps" },
+];
 
 function createBbcodeService(): TurndownService {
   const service = new TurndownService({ bulletListMarker: "-" });
@@ -510,6 +663,7 @@ export function createDefaultOptions(): ExportPresetOptions {
     includeProfiles: true,
     includeNotes: false,
     includeRecaps: false,
+    sectionPreferences: createDefaultSectionPreferences(),
   };
 }
 
@@ -519,6 +673,7 @@ function mergeOptions(partial: unknown): ExportPresetOptions {
     return base;
   }
   const options = partial as Partial<ExportPresetOptions>;
+  const rawSectionPreferences = (options as { sectionPreferences?: unknown }).sectionPreferences;
   return {
     ...base,
     ...options,
@@ -527,6 +682,7 @@ function mergeOptions(partial: unknown): ExportPresetOptions {
       ...(options.includeAssets ?? {}),
     },
     format: options.format ?? base.format,
+    sectionPreferences: mergeSectionPreferences(base.sectionPreferences, rawSectionPreferences),
   };
 }
 
@@ -938,13 +1094,15 @@ const ExportCenter: React.FC = () => {
       setFormState(null);
       return;
     }
+
+    const options = parsePresetOptions(selectedPreset);
     setFormState({
       id: selectedPreset.id,
       name: selectedPreset.name,
       description: selectedPreset.description ?? "",
-      options: parsePresetOptions(selectedPreset),
+      options,
     });
-  }, [selectedPreset]);
+  }, [selectedPreset, setFormState]);
 
   useEffect(() => {
     if (!statusMessage) {
@@ -1195,56 +1353,28 @@ const ExportCenter: React.FC = () => {
                 <fieldset className="exports__fieldset">
                   <legend>Sections</legend>
                   <div className="exports__options-grid">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeTotals}
-                        onChange={(event) => handleOptionChange("includeTotals", event.target.checked)}
-                      />
-                      Chain totals
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeJumpMetadata}
-                        onChange={(event) =>
-                          handleOptionChange("includeJumpMetadata", event.target.checked)
-                        }
-                      />
-                      Jump metadata
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeInventory}
-                        onChange={(event) => handleOptionChange("includeInventory", event.target.checked)}
-                      />
-                      Inventory snapshot
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeProfiles}
-                        onChange={(event) => handleOptionChange("includeProfiles", event.target.checked)}
-                      />
-                      Character profiles
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeNotes}
-                        onChange={(event) => handleOptionChange("includeNotes", event.target.checked)}
-                      />
-                      Notes overview
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={formState.options.includeRecaps}
-                        onChange={(event) => handleOptionChange("includeRecaps", event.target.checked)}
-                      />
-                      Recap summaries
-                    </label>
+                    {SECTION_TOGGLE_CONFIG.map(({ option, label, sectionKey }) => (
+                      <div key={option} className="exports__section-card">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={formState.options[option] as boolean}
+                            onChange={(event) => handleOptionChange(option, event.target.checked)}
+                          />
+                          {label}
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={sectionPreferences[sectionKey]?.spoiler ?? false}
+                            onChange={(event) =>
+                              setSectionSpoiler(sectionKey, event.target.checked)
+                            }
+                          />
+                          Spoiler
+                        </label>
+                      </div>
+                    ))}
                   </div>
                 </fieldset>
 

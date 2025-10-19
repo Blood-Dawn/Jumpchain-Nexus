@@ -217,7 +217,22 @@ const SAMPLE_SNAPSHOT: ExportSnapshot = {
     },
   ],
   settings: [],
-  presets: [],
+  presets: [
+    {
+      id: "preset-1",
+      name: "Spoiler Export",
+      description: "Default with spoilers",
+      options_json: JSON.stringify({
+        includeNotes: true,
+        sectionPreferences: {
+          notes: { spoiler: true },
+          jumps: { format: "bbcode" },
+        },
+      }),
+      created_at: "2025-01-01T00:00:00.000Z",
+      updated_at: "2025-01-01T00:00:00.000Z",
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -228,14 +243,14 @@ beforeEach(() => {
 describe("useExportConfigStore", () => {
   test("persists preset selection and section preferences", async () => {
     useExportConfigStore.getState().setSelectedPresetId("alpha");
-    useExportConfigStore.getState().setSectionSpoiler("jumps", true);
-    useExportConfigStore.getState().setSectionFormat("notes", "bbcode");
     useExportConfigStore.getState().setFormState({
       id: "alpha",
       name: "Alpha",
       description: "",
       options: createDefaultOptions(),
     });
+    useExportConfigStore.getState().setSectionSpoiler("jumps", true);
+    useExportConfigStore.getState().setSectionFormat("notes", "bbcode");
 
     const serialized = localStorage.getItem("export-config") ?? "";
 
@@ -248,6 +263,8 @@ describe("useExportConfigStore", () => {
     expect(after.selectedPresetId).toBe("alpha");
     expect(after.sectionPreferences.jumps.spoiler).toBe(true);
     expect(after.sectionPreferences.notes.format).toBe("bbcode");
+    expect(after.formState?.options.sectionPreferences.jumps.spoiler).toBe(true);
+    expect(after.formState?.options.sectionPreferences.notes.format).toBe("bbcode");
     expect(after.formState?.id).toBe("alpha");
   });
 });
