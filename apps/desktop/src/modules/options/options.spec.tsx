@@ -38,6 +38,7 @@ import {
   loadFormatterSettings,
   setAppSetting,
   SUPPLEMENT_SETTING_KEY,
+  EXPORT_PREFERENCES_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
 } from "../../db/dao";
 import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
@@ -157,6 +158,9 @@ describe("JumpchainOptions", () => {
     (globalThis as { __resetAppSettings?: () => void }).__resetAppSettings?.();
     await setAppSetting(SUPPLEMENT_SETTING_KEY, DEFAULT_SUPPLEMENT_SETTINGS);
     await setAppSetting(WAREHOUSE_MODE_SETTING_KEY, DEFAULT_WAREHOUSE_MODE);
+    const exportPresetsMock = vi.mocked(listExportPresets);
+    exportPresetsMock.mockReset();
+    exportPresetsMock.mockResolvedValue([]);
   });
 
   it("@smoke highlights the planned configuration surface", () => {
@@ -366,5 +370,93 @@ describe("JumpchainOptions", () => {
 
     second.unmount();
     secondClient.clear();
+  });
+
+  it("shows the export preset summary and updates when the selection changes", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const now = new Date().toISOString();
+    const presets = [
+      {
+        id: "alpha",
+        name: "Alpha Layout",
+        description: null,
+        options_json: JSON.stringify({
+          format: "markdown",
+          sectionPreferences: {
+            header: { format: "markdown", spoiler: false },
+            totals: { format: "markdown", spoiler: false },
+            jumps: { format: "markdown", spoiler: true },
+            inventory: { format: "bbcode", spoiler: false },
+            profiles: { format: "bbcode", spoiler: true },
+            notes: { format: "markdown", spoiler: false },
+            recaps: { format: "markdown", spoiler: false },
+          },
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: "beta",
+        name: "Beta Layout",
+        description: null,
+        options_json: JSON.stringify({
+          format: "bbcode",
+          sectionPreferences: {
+            header: { format: "bbcode", spoiler: false },
+            totals: { format: "bbcode", spoiler: false },
+            jumps: { format: "bbcode", spoiler: false },
+            inventory: { format: "markdown", spoiler: false },
+            profiles: { format: "markdown", spoiler: false },
+            notes: { format: "markdown", spoiler: true },
+            recaps: { format: "markdown", spoiler: false },
+          },
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+
+    vi.mocked(listExportPresets).mockResolvedValue(presets);
+    queryClient.setQueryData(["export-presets"], presets);
+    queryClient.setQueryData(["app-settings", "formatter"], {
+      removeAllLineBreaks: false,
+      leaveDoubleLineBreaks: false,
+      thousandsSeparator: "none",
+      spellcheckEnabled: true,
+    });
+
+    await setAppSetting(EXPORT_PREFERENCES_SETTING_KEY, { defaultPresetId: "alpha" });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const summary = await screen.findByTestId("preset-summary");
+    expect(within(summary).getByTestId("preset-summary-format-value")).toHaveTextContent("Markdown");
+
+    const jumpsSection = within(summary).getByTestId("preset-summary-section-jumps");
+    expect(within(jumpsSection).getByText("Jump Breakdown")).toBeInTheDocument();
+    expect(within(jumpsSection).getByText("Markdown · Spoiler")).toBeInTheDocument();
+
+    const inventorySection = within(summary).getByTestId("preset-summary-section-inventory");
+    expect(within(inventorySection).getByText("Inventory Snapshot")).toBeInTheDocument();
+    expect(within(inventorySection).getByText("BBCode · Visible")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/Default preset/i), "beta");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preset-summary-format-value")).toHaveTextContent("BBCode");
+    });
+
+    const updatedSummary = await screen.findByTestId("preset-summary");
+    const updatedJumps = within(updatedSummary).getByTestId("preset-summary-section-jumps");
+    expect(within(updatedJumps).getByText("BBCode · Visible")).toBeInTheDocument();
+
+    const updatedNotes = within(updatedSummary).getByTestId("preset-summary-section-notes");
+    expect(within(updatedNotes).getByText("Markdown · Spoiler")).toBeInTheDocument();
   });
 });
