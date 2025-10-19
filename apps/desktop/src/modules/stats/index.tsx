@@ -111,6 +111,14 @@ const StatisticsHub: React.FC = () => {
   const inventoryCategories = snapshot.inventory.categories;
   const gauntletSummary = snapshot.gauntlet;
   const boosterSummary = snapshot.boosters;
+  const netCredit = Number.isFinite(cpTotals.net) ? cpTotals.net : 0;
+  const creditSummaryClassName = [
+    "stats__summary-card",
+    netCredit > 0 ? "stats__summary-card--positive" : null,
+    netCredit < 0 ? "stats__summary-card--negative" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const cpChartCaptionId = useId();
   const cpChartSummaryId = useId();
@@ -365,7 +373,7 @@ const StatisticsHub: React.FC = () => {
               <strong>{formatCount(totalJumps)}</strong>
               <span>{formatCount(totalPurchases)} purchases tracked</span>
             </article>
-            <article className="stats__summary-card">
+            <article className={creditSummaryClassName}>
               <h3>Drawback Credit</h3>
               <strong>{formatCP(cpTotals.earned)} CP</strong>
               <span>Net balance {formatCP(cpTotals.net)} CP</span>

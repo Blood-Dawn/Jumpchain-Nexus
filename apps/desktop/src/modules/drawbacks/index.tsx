@@ -674,19 +674,33 @@ const DrawbackSupplement: React.FC = () => {
                   return null;
                 }
                 const metadata = parseMetadata(asset.metadata);
+                const severity =
+                  metadata.severity === "minor" || metadata.severity === "moderate" || metadata.severity === "severe"
+                    ? metadata.severity
+                    : "moderate";
+                const severityLabel = `${severity.charAt(0).toUpperCase()}${severity.slice(1)}`;
+                const itemClassName = [
+                  "drawbacks__item",
+                  `drawbacks__item--${severity}`,
+                  asset.id === selectedDrawbackId ? "drawbacks__item--active" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                const badgeClassName = `drawbacks__badge drawbacks__badge--${severity}`;
                 return (
                   <li key={asset.id}>
-                  <button
-                    type="button"
-                    className={asset.id === selectedDrawbackId ? "drawbacks__item drawbacks__item--active" : "drawbacks__item"}
-                    onClick={() => setSelectedDrawbackId(asset.id)}
-                  >
-                    <div className="drawbacks__item-title">
-                      <strong>{asset.name}</strong>
-                      <span className={`drawbacks__badge drawbacks__badge--${metadata.severity ?? "moderate"}`}>
-                        {metadata.severity ?? "moderate"}
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      className={itemClassName}
+                      onClick={() => setSelectedDrawbackId(asset.id)}
+                    >
+                      <div className="drawbacks__item-title">
+                        <strong>{asset.name}</strong>
+                        <span className={badgeClassName}>
+                          <span className="drawbacks__badge-icon" aria-hidden="true" />
+                          <span className="drawbacks__badge-label">{severityLabel}</span>
+                        </span>
+                      </div>
                     <div className="drawbacks__item-meta">
                       <span>{asset.category ?? "Uncategorized"}</span>
                       <span>
