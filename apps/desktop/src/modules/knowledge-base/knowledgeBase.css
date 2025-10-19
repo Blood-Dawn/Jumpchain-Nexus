@@ -258,6 +258,84 @@
   color: var(--kb-text-muted);
 }
 
+.knowledge-base__progress-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 10, 18, 0.7);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+.knowledge-base__progress-modal {
+  width: min(420px, 90vw);
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--kb-border-strong);
+  background: color-mix(in srgb, var(--kb-surface) 94%, var(--kb-surface-raised));
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.45);
+}
+
+.knowledge-base__progress-modal header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.knowledge-base__progress-modal header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.knowledge-base__progress-modal header p {
+  margin: 0;
+  color: var(--kb-text-muted);
+  font-size: 0.95rem;
+}
+
+.knowledge-base__progress-status {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.knowledge-base__progress-bar {
+  width: 100%;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--kb-accent-muted) 40%, transparent);
+  overflow: hidden;
+}
+
+.knowledge-base__progress-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--kb-accent) 0%, color-mix(in srgb, var(--kb-accent) 55%, white) 100%);
+  transition: width 160ms ease-out;
+}
+
+.knowledge-base__progress-counts {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.knowledge-base__progress-path {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--kb-text-muted);
+  word-break: break-all;
+}
+
+.knowledge-base__progress-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .knowledge-base__import-issues footer {
   display: flex;
   justify-content: flex-end;
