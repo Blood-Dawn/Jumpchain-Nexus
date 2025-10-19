@@ -487,6 +487,11 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     }
   };
 
+  const handleInsertTemplate = (template: StudioTemplate) => {
+    if (!editor) return;
+    insertTemplateContent(editor, template);
+  };
+
   const handleExport = async () => {
     if (!story) return;
     setExporting(true);
@@ -729,6 +734,9 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
           <button type="button" onClick={handleRenameChapter}>Rename Chapter</button>
           <button type="button" onClick={() => handleReorder("prev")}>◀</button>
           <button type="button" onClick={() => handleReorder("next")}>▶</button>
+          <button type="button" onClick={() => setTemplatesOpen(!templatesOpen)} aria-pressed={templatesOpen}>
+            {templatesOpen ? "Hide Templates" : "Show Templates"}
+          </button>
           <label className="studio-export-menu">
             Scope
             <select value={exportScope} onChange={(event) => setExportScope(event.target.value as "chapter" | "story")}>
