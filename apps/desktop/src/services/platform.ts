@@ -61,6 +61,7 @@ export interface PlatformFsAdapter {
   exists(path: string): Promise<boolean>;
   readBinaryFile(path: string): Promise<Uint8Array>;
   readTextFile(path: string): Promise<string>;
+  writeTextFile(path: string, contents: string): Promise<void>;
 }
 
 export interface PlatformDialogAdapter {
@@ -69,10 +70,29 @@ export interface PlatformDialogAdapter {
   saveFile(options?: SaveFileDialogOptions): Promise<string | null>;
 }
 
+export type PlatformDropEventType = "hover" | "drop" | "leave";
+
+export interface PlatformDropEvent {
+  type: PlatformDropEventType;
+  paths: string[];
+}
+
+export interface PlatformDropTargetHandlers {
+  onHover?: (paths: string[]) => void;
+  onDrop?: (paths: string[]) => void;
+  onLeave?: () => void;
+}
+
+export interface PlatformDropAdapter {
+  registerDropTarget(target: HTMLElement, handlers: PlatformDropTargetHandlers): () => void;
+  emitTestEvent?(target: HTMLElement, event: PlatformDropEvent): void;
+}
+
 export interface Platform {
   path: PlatformPathAdapter;
   fs: PlatformFsAdapter;
   dialog: PlatformDialogAdapter;
+  drop: PlatformDropAdapter;
 }
 
 export interface WebPlatformOptions {
@@ -136,6 +156,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  const dropTargets = new Map<HTMLElement, PlatformDropTargetHandlers>();
 
   return {
     path: {
@@ -177,6 +198,9 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
         }
         throw new Error(`File not found: ${path}`);
       },
+      async writeTextFile(path: string, contents: string) {
+        files.set(path, contents);
+      },
     },
     dialog: {
       async confirm(confirmOptions: ConfirmDialogOptions) {
@@ -201,6 +225,36 @@ export function createWebPlatform(options: WebPlatformOptions = {}): Platform {
         }
         console.warn("saveFile called on web platform without handler", saveOptions);
         return null;
+      },
+    },
+    drop: {
+      registerDropTarget(target: HTMLElement, handlers: PlatformDropTargetHandlers) {
+        dropTargets.set(target, handlers);
+        return () => {
+          const existing = dropTargets.get(target);
+          if (existing === handlers) {
+            dropTargets.delete(target);
+          }
+        };
+      },
+      emitTestEvent(target: HTMLElement, event: PlatformDropEvent) {
+        const handlers = dropTargets.get(target);
+        if (!handlers) {
+          return;
+        }
+        switch (event.type) {
+          case "hover":
+            handlers.onHover?.(event.paths);
+            break;
+          case "drop":
+            handlers.onDrop?.(event.paths);
+            break;
+          case "leave":
+            handlers.onLeave?.();
+            break;
+          default:
+            break;
+        }
       },
     },
   };

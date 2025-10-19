@@ -23,10 +23,12 @@ SOFTWARE.
 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import DrawbackSupplement from "./index";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 
 vi.mock("../../db/dao", () => {
   const DEFAULT_SUPPLEMENT_SETTINGS = {
@@ -161,7 +163,8 @@ async function renderDrawbackSupplement(options: {
     removeAllLineBreaks: false,
     leaveDoubleLineBreaks: false,
     thousandsSeparator: options.thousandsSeparator ?? "comma",
-  };
+    spellcheckEnabled: true,
+  } as const;
 
   loadSupplementSettings.mockResolvedValue(supplements);
   loadUniversalDrawbackSettings.mockResolvedValue(universal);
@@ -173,7 +176,7 @@ async function renderDrawbackSupplement(options: {
   const queryClient = createTestQueryClient();
   const firstJumpId = jumps[0]?.id ?? "jump-1";
   queryClient.setQueryData(["supplement-settings"], supplements);
-  queryClient.setQueryData(["app-settings", "formatter"], formatter);
+  queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, formatter);
   queryClient.setQueryData(["jumps"], jumps);
   queryClient.setQueryData(["jump-drawbacks", firstJumpId], assets);
   queryClient.setQueryData(["jump-budget", firstJumpId], budget);
@@ -243,5 +246,50 @@ describe("DrawbackSupplement", () => {
     expect(screen.getByTestId("reward-warehouse")).toHaveTextContent("37");
     expect(screen.getByText(/halved per universal drawback options/i)).toBeInTheDocument();
     expect(screen.getByTestId("total-credit")).toHaveTextContent("625");
+  });
+
+  it("filters drawbacks by category and severity before rendering", async () => {
+    await renderDrawbackSupplement({
+      assets: [
+        buildDrawback({
+          id: "drawback-1",
+          name: "Combat Clause",
+          category: "Combat",
+          cost: 150,
+          metadata: JSON.stringify({ severity: "moderate" }),
+        }),
+        buildDrawback({
+          id: "drawback-2",
+          name: "House Emergency",
+          category: null,
+          cost: 200,
+          quantity: 2,
+          metadata: JSON.stringify({ severity: "severe", houseRule: true }),
+        }),
+        buildDrawback({
+          id: "drawback-3",
+          name: "House Minor",
+          category: null,
+          cost: 75,
+          metadata: JSON.stringify({ severity: "minor", houseRule: true }),
+        }),
+      ],
+      budget: { balance: 625 },
+    });
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Filter by category"), "house");
+    await user.click(screen.getByRole("button", { name: "Severe" }));
+
+    const list = screen.getByRole("list", { name: /drawback order/i });
+    const visibleItems = within(list).getAllByRole("listitem");
+    expect(visibleItems).toHaveLength(1);
+    expect(within(visibleItems[0]).getByText("House Emergency")).toBeInTheDocument();
+
+    expect(screen.getByTestId("total-credit")).toHaveTextContent("400");
+    expect(screen.getByTestId("manual-credit")).toHaveTextContent("400");
+    expect(screen.getByTestId("balance-with-grants")).toHaveTextContent("400");
+    const visibleSummary = screen.getByText(/Visible Drawbacks/i).parentElement?.querySelector("span");
+    expect(visibleSummary).toHaveTextContent("1 / 3");
   });
 });

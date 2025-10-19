@@ -18,6 +18,7 @@ const fsMocks = vi.hoisted(() => ({
   exists: vi.fn(async () => true),
   readFile: vi.fn(async () => new Uint8Array([9, 8])),
   readTextFile: vi.fn(async () => "payload"),
+  writeTextFile: vi.fn(async () => undefined),
 }));
 
 const dialogMocks = vi.hoisted(() => ({
@@ -55,6 +56,15 @@ describe("platform service", () => {
       expect(Array.from(binary)).toEqual([1, 2, 3]);
     });
 
+    it("persists files written at runtime", async () => {
+      const platform = createWebPlatform();
+
+      await platform.fs.writeTextFile("/foo/log.txt", "payload");
+
+      expect(await platform.fs.exists("/foo/log.txt")).toBe(true);
+      await expect(platform.fs.readTextFile("/foo/log.txt")).resolves.toBe("payload");
+    });
+
     it("uses confirm handler fallback", async () => {
       const handler = vi.fn<[ConfirmDialogOptions], Promise<boolean>>().mockResolvedValue(false);
       const platform = createWebPlatform({ confirmHandler: handler });
@@ -85,6 +95,8 @@ describe("platform service", () => {
       await expect(platform.fs.exists("/config")).resolves.toBe(true);
       await expect(platform.fs.readBinaryFile("/config/file.bin")).resolves.toEqual(new Uint8Array([9, 8]));
       await expect(platform.fs.readTextFile("/config/file.txt")).resolves.toBe("payload");
+      await expect(platform.fs.writeTextFile("/config/file.txt", "updated")).resolves.toBeUndefined();
+      expect(fsMocks.writeTextFile).toHaveBeenCalledWith("/config/file.txt", "updated");
 
       await expect(platform.dialog.confirm({ message: "ok" })).resolves.toBe(true);
       expect(dialogMocks.confirm).toHaveBeenCalledWith("ok", expect.objectContaining({}));
