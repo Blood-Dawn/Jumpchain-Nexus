@@ -27,6 +27,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import JumpchainOptions from "./index";
+import InputFormatter from "../formatter";
 import {
   CATEGORY_PRESETS_SETTING_KEY,
   DEFAULT_SUPPLEMENT_SETTINGS,
@@ -34,11 +35,12 @@ import {
   getAppSetting,
   loadSupplementSettings,
   loadWarehouseModeSetting,
-  parseCategoryPresets,
+  loadFormatterSettings,
   setAppSetting,
   SUPPLEMENT_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 import type {
   AppSettingRecord,
   EssentialBodyModEssenceRecord,
@@ -49,6 +51,13 @@ vi.mock("../../db/dao", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../db/dao")>();
 
   const memory = new Map<string, AppSettingRecord>();
+  const defaultFormatterSettings: actual.FormatterSettings = {
+    removeAllLineBreaks: false,
+    leaveDoubleLineBreaks: false,
+    thousandsSeparator: "none",
+    spellcheckEnabled: true,
+  };
+  let formatterSettings: actual.FormatterSettings = { ...defaultFormatterSettings };
   const toSerialized = (value: unknown) =>
     value === null || value === undefined
       ? null
@@ -73,6 +82,7 @@ vi.mock("../../db/dao", async (importOriginal) => {
     setRecord(actual.WAREHOUSE_MODE_SETTING_KEY, actual.DEFAULT_WAREHOUSE_MODE);
     setRecord(actual.CATEGORY_PRESETS_SETTING_KEY, actual.DEFAULT_CATEGORY_PRESETS);
     setRecord(actual.EXPORT_PREFERENCES_SETTING_KEY, actual.DEFAULT_EXPORT_PREFERENCES);
+    formatterSettings = { ...defaultFormatterSettings };
   };
 
   reset();
@@ -82,7 +92,15 @@ vi.mock("../../db/dao", async (importOriginal) => {
     ...actual,
     listAppSettings: vi.fn(async () => Array.from(memory.values()).sort((a, b) => a.key.localeCompare(b.key))),
     getAppSetting: vi.fn(async (key: string) => memory.get(key) ?? null),
-    setAppSetting: vi.fn(async (key: string, value: unknown) => setRecord(key, value)),
+    setAppSetting: vi.fn(async (key: string, value: unknown) => {
+      if (key === "formatter.spellcheck") {
+        formatterSettings = {
+          ...formatterSettings,
+          spellcheckEnabled: Boolean(value),
+        };
+      }
+      return setRecord(key, value);
+    }),
     listExportPresets: vi.fn(async () => []),
     listEssentialBodyModEssences: vi.fn(async () => []),
     loadEssentialBodyModSettings: vi.fn(async () => actual.DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS),
@@ -93,6 +111,15 @@ vi.mock("../../db/dao", async (importOriginal) => {
     loadWarehouseModeSetting: vi.fn(async () =>
       actual.parseWarehouseMode(memory.get(actual.WAREHOUSE_MODE_SETTING_KEY) ?? null)
     ),
+    loadFormatterSettings: vi.fn(async () => ({ ...formatterSettings })),
+    updateFormatterSettings: vi.fn(async (overrides: Partial<actual.FormatterSettings>) => {
+      formatterSettings = { ...formatterSettings, ...overrides };
+      return { ...formatterSettings };
+    }),
+    saveFormatterSpellcheck: vi.fn(async (spellcheckEnabled: boolean) => {
+      formatterSettings = { ...formatterSettings, spellcheckEnabled };
+      return { ...formatterSettings };
+    }),
     saveEssentialBodyModSettings: vi.fn(async (overrides) => ({
       ...actual.DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS,
       ...overrides,
@@ -136,7 +163,7 @@ describe("JumpchainOptions", () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["app-settings"], []);
     queryClient.setQueryData(["export-presets"], []);
-    queryClient.setQueryData(["app-settings", "formatter"], {
+    queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, {
       removeAllLineBreaks: false,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "none",
@@ -218,6 +245,7 @@ describe("JumpchainOptions", () => {
     });
 
     initial.unmount();
+    queryClient.clear();
 
     const secondClient = createTestQueryClient();
     const second = render(
@@ -228,6 +256,54 @@ describe("JumpchainOptions", () => {
 
     expect(await screen.findByLabelText(/personal reality focus/i)).toBeChecked();
     second.unmount();
+    secondClient.clear();
+  });
+
+  it("persists formatter spellcheck preferences for other modules", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const initial = render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const spellcheckToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    expect(spellcheckToggle).toBeChecked();
+
+    await user.click(spellcheckToggle);
+    expect(spellcheckToggle).not.toBeChecked();
+
+    await waitFor(async () => {
+      const formatterSettings = await loadFormatterSettings();
+      expect(formatterSettings.spellcheckEnabled).toBe(false);
+    });
+
+    initial.unmount();
+
+    const secondClient = createTestQueryClient();
+    const second = render(
+      <QueryClientProvider client={secondClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const persistedToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    await waitFor(() => expect(persistedToggle).not.toBeChecked());
+    second.unmount();
+
+    const formatterClient = createTestQueryClient();
+    const formatterRender = render(
+      <QueryClientProvider client={formatterClient}>
+        <InputFormatter />
+      </QueryClientProvider>
+    );
+
+    const formatterToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    await waitFor(() => expect(formatterToggle).not.toBeChecked());
+    formatterRender.unmount();
+    formatterClient.clear();
   });
 
   it("allows reordering categories and keeps the order after reload", async () => {

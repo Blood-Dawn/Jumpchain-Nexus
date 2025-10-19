@@ -52,6 +52,7 @@ import {
   saveEssentialBodyModSettings,
   saveUniversalDrawbackSettings,
   loadFormatterSettings,
+  saveFormatterSpellcheck,
   upsertEssentialBodyModEssence,
   deleteEssentialBodyModEssence,
   type AppSettingRecord,
@@ -70,7 +71,9 @@ import {
   type SupplementToggleSettings,
   type UniversalDrawbackSettings,
   type WarehouseModeOption,
+  type FormatterSettings,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 interface SettingPayload {
   key: string;
@@ -86,7 +89,8 @@ type SectionKey =
   | "universal-drawbacks"
   | "warehouse-mode"
   | "export-preferences"
-  | "category-presets";
+  | "category-presets"
+  | "formatter";
 
 type JumpDefaultField = keyof JumpDefaultsSettings;
 
@@ -100,6 +104,14 @@ const sectionLabels: Record<SectionKey, string> = {
   "warehouse-mode": "Warehouse mode updated.",
   "export-preferences": "Export defaults saved.",
   "category-presets": "Categories updated.",
+  formatter: "Formatter preferences saved.",
+};
+
+const FALLBACK_FORMATTER_SETTINGS: FormatterSettings = {
+  removeAllLineBreaks: false,
+  leaveDoubleLineBreaks: false,
+  thousandsSeparator: "none",
+  spellcheckEnabled: true,
 };
 
 const STARTING_MODE_OPTIONS: Array<{ value: EssentialStartingMode; label: string }> = [
@@ -180,10 +192,7 @@ const JumpchainOptions: React.FC = () => {
     queryKey: ["universal-drawback-settings"],
     queryFn: loadUniversalDrawbackSettings,
   });
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
@@ -247,7 +256,8 @@ const JumpchainOptions: React.FC = () => {
 
   const statusTimers = useRef<Record<SectionKey, number>>({});
 
-  const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
+  const spellcheckEnabled =
+    formatterSettingsQuery.data?.spellcheckEnabled ?? FALLBACK_FORMATTER_SETTINGS.spellcheckEnabled;
   const spellcheckProps = { spellCheck: spellcheckEnabled } as const;
 
   const settingsMap = useMemo(() => {
@@ -390,6 +400,12 @@ const JumpchainOptions: React.FC = () => {
         return next.sort((a, b) => a.key.localeCompare(b.key));
       });
 
+      if (variables.key.startsWith("formatter.")) {
+        await queryClient
+          .invalidateQueries({ queryKey: FORMATTER_PREFERENCES_QUERY_KEY })
+          .catch(() => undefined);
+      }
+
       switch (variables.key) {
         case JUMP_DEFAULTS_SETTING_KEY: {
           await queryClient.invalidateQueries({ queryKey: ["jump-defaults"] }).catch(() => undefined);
@@ -460,6 +476,38 @@ const JumpchainOptions: React.FC = () => {
     },
     onError: () => {
       showStatus("universal-drawbacks", "Failed to save Universal Drawback defaults.");
+    },
+  });
+
+  const saveFormatterSpellcheckMutation = useMutation<
+    FormatterSettings,
+    unknown,
+    boolean,
+    { previous?: FormatterSettings }
+  >({
+    mutationFn: (enabled: boolean) => saveFormatterSpellcheck(enabled),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: ["app-settings", "formatter"] });
+      const previous = queryClient.getQueryData<FormatterSettings>(["app-settings", "formatter"]);
+      queryClient.setQueryData<FormatterSettings>(["app-settings", "formatter"], (current) => {
+        const base = current ?? formatterSettingsQuery.data ?? FALLBACK_FORMATTER_SETTINGS;
+        return { ...base, spellcheckEnabled: enabled };
+      });
+      return { previous };
+    },
+    onError: (_error, _value, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["app-settings", "formatter"], context.previous);
+      }
+      showStatus("formatter", "Failed to save formatter preferences.");
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["app-settings", "formatter"], data);
+      showStatus("formatter", sectionLabels.formatter);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-settings", "formatter"] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["app-settings"] }).catch(() => undefined);
     },
   });
 
@@ -608,6 +656,10 @@ const JumpchainOptions: React.FC = () => {
 
   const handleSaveUniversal = () => {
     saveUniversalMutation.mutate(universalSettings);
+  };
+
+  const handleSpellcheckPreferenceToggle = (value: boolean) => {
+    saveFormatterSpellcheckMutation.mutate(value);
   };
 
   const handleUniversalToggle = (field: "allowGauntlet" | "gauntletHalved", value: boolean) => {
@@ -834,6 +886,28 @@ const JumpchainOptions: React.FC = () => {
             ))}
           </div>
           {sectionMessage("supplements")}
+        </section>
+
+        <section className="options__card">
+          <header className="options__card-header">
+            <h2>Formatter Preferences</h2>
+            <p>Choose editor defaults shared across Formatter, Options, and Warehouse tools.</p>
+          </header>
+          <div className="options__list">
+            <label>
+              <input
+                type="checkbox"
+                checked={spellcheckEnabled}
+                onChange={(event) => handleSpellcheckPreferenceToggle(event.target.checked)}
+                disabled={formatterSettingsQuery.isLoading || saveFormatterSpellcheckMutation.isPending}
+              />
+              Enable spellcheck in editors
+            </label>
+          </div>
+          {formatterSettingsQuery.isError && (
+            <p className="options__error">Failed to load formatter preferences.</p>
+          )}
+          {sectionMessage("formatter")}
         </section>
 
         <section className="options__card">

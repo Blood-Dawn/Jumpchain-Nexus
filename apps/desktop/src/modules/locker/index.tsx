@@ -57,7 +57,7 @@ interface LockerFormState {
   notes: string;
   tags: string[];
   packed: boolean;
-  priority: "essential" | "standard" | "luxury";
+  priority: LockerPriority;
   metadata: LockerMetadata;
   bodyModType: BodyModType | null;
 }
@@ -76,8 +76,8 @@ const CosmicLocker: React.FC = () => {
     priority: "all",
     bodyMod: "all",
     booster: "all",
-    tag: "all",
   });
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const createMutation = useMutation({
@@ -132,9 +132,32 @@ const CosmicLocker: React.FC = () => {
   const analyzedItems = useMemo(() => mapLockerItems(itemsQuery.data ?? []), [itemsQuery.data]);
   const tagOptions = useMemo(() => collectLockerTags(analyzedItems), [analyzedItems]);
   const filteredItems = useMemo(
-    () => filterLockerItems(analyzedItems, filters, search),
-    [analyzedItems, filters, search]
+    () => filterLockerItems(analyzedItems, filters, search, activeTags),
+    [analyzedItems, filters, search, activeTags]
   );
+
+  useEffect(() => {
+    setActiveTags((prev) => {
+      if (!prev.length) {
+        return prev;
+      }
+      const available = new Set(tagOptions.map((option) => option.value));
+      const next = prev.filter((tag) => available.has(tag));
+      if (next.length === prev.length && next.every((tag, index) => tag === prev[index])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [tagOptions]);
+
+  const toggleTagFilter = (tag: string) => {
+    setActiveTags((prev) => {
+      if (prev.includes(tag)) {
+        return prev.filter((value) => value !== tag);
+      }
+      return [...prev, tag];
+    });
+  };
   useEffect(() => {
     if (!filteredItems.length) {
       setSelectedId(null);
@@ -273,9 +296,9 @@ const CosmicLocker: React.FC = () => {
             <div>
               {[
                 { label: "All", value: "all" },
-                { label: "Essential", value: "essential" },
-                { label: "Standard", value: "standard" },
-                { label: "Luxury", value: "luxury" },
+                { label: "High", value: "high" },
+                { label: "Medium", value: "medium" },
+                { label: "Low", value: "low" },
               ].map((option) => (
                 <button
                   key={option.value}
@@ -342,27 +365,38 @@ const CosmicLocker: React.FC = () => {
               ))}
             </div>
           </div>
-          <div className="locker__filter-group locker__filter-group--select">
-            <label>
-              <span>Tag</span>
-              <select
-                value={filters.tag}
-                onChange={(event) =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    tag: event.target.value as LockerFilters["tag"],
-                  }))
-                }
-              >
-                <option value="all">All tags</option>
+          {tagOptions.length > 0 && (
+            <div className="locker__filter-group">
+              <span>Tags</span>
+              <div>
+                <button
+                  type="button"
+                  className={
+                    activeTags.length === 0
+                      ? "locker__chip locker__chip--active"
+                      : "locker__chip"
+                  }
+                  onClick={() => setActiveTags([])}
+                >
+                  All
+                </button>
                 {tagOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={
+                      activeTags.includes(option.value)
+                        ? "locker__chip locker__chip--active"
+                        : "locker__chip"
+                    }
+                    onClick={() => toggleTagFilter(option.value)}
+                  >
                     {option.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
-            </label>
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -392,7 +426,7 @@ const CosmicLocker: React.FC = () => {
           {!itemsQuery.isLoading && filteredItems.length === 0 && (
             <p className="locker__empty">No items match the active filters.</p>
           )}
-          <ul>
+          <ul aria-label="Locker items">
             {filteredItems.map((entry) => (
               <li key={entry.item.id}>
                 <button
@@ -532,9 +566,9 @@ const CosmicLocker: React.FC = () => {
                     )
                   }
                 >
-                  <option value="essential">Essential</option>
-                  <option value="standard">Standard</option>
-                  <option value="luxury">Luxury</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
                 </select>
               </label>
 
