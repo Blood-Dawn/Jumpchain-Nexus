@@ -307,8 +307,13 @@ describe("PassportAggregations", () => {
         companionStatuses={[
           { id: "companion-asset-1", name: "Shield Maiden", jumpTitle: "Trials", synced: false },
         ]}
+        pendingCompanionIds={[]}
+        syncingCompanions={false}
         onSyncAltForms={onSyncAltForms}
         onSyncCompanions={onSyncCompanions}
+        onAddCompanion={() => {
+          /* noop */
+        }}
       />
     );
 
