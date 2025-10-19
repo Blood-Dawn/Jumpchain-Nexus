@@ -119,6 +119,11 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbacksQuery.data]);
 
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId],
+  );
+
   useEffect(() => {
     if (!drawbacksQuery.data) {
       setOrderedDrawbacks([]);
@@ -309,30 +314,23 @@ const DrawbackSupplement: React.FC = () => {
     selectedJump,
   ]);
 
-  const manualCredit = useMemo(() => {
-    if (budgetQuery.data) {
-      return budgetQuery.data.drawbackCredit;
-    }
-    return (orderedDrawbacks ?? []).reduce(
-      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
-      0
-    );
-  }, [budgetQuery.data, orderedDrawbacks]);
-
+  const manualCredit = budgetQuery.data?.drawbackCredit ?? 0;
+  const universalJumperCredit = universalRewardState.stipend.jumper;
   const totalCredit = useMemo(
-    () => manualCredit + universalRewardState.stipend.jumper,
-    [manualCredit, universalRewardState.stipend.jumper],
+    () => manualCredit + universalJumperCredit,
+    [manualCredit, universalJumperCredit],
   );
 
   const balanceWithGrants = useMemo(() => {
-    if (!budgetQuery.data) {
+    const baseBalance = budgetQuery.data?.balance;
+    if (baseBalance === null || baseBalance === undefined) {
       return null;
     }
-    return budgetQuery.data.balance + universalRewardState.stipend.jumper;
-  }, [budgetQuery.data, universalRewardState.stipend.jumper]);
+    return baseBalance + universalJumperCredit;
+  }, [budgetQuery.data?.balance, universalJumperCredit]);
 
-  const visibleCount = filteredDrawbacks.length;
   const totalCount = drawbacksQuery.data?.length ?? 0;
+  const visibleCount = filteredDrawbacks.length;
 
   useEffect(() => {
     if (!selectedDrawback) {

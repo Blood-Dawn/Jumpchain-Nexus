@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createInventoryItem,
   deleteInventoryItem,
@@ -30,6 +30,7 @@ import {
   listJumps,
   moveInventoryItem,
   updateInventoryItem,
+  type InventoryItemRecord,
   type InventoryScope,
   type JumpRecord,
   loadWarehouseModeSetting,
@@ -37,6 +38,7 @@ import {
   loadWarehousePersonalRealitySummary,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FixedSizeList, type ListChildComponentProps } from "react-window";
 
 interface WarehouseFormState {
   id: string;
@@ -56,6 +58,16 @@ interface UpdatePayload {
 
 const scopeKey = ["warehouse-items"] as const;
 const personalRealityKey = ["warehouse-personal-reality"] as const;
+const baseQueryConfig = {
+  staleTime: 5 * 60 * 1000,
+  gcTime: 30 * 60 * 1000,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  networkMode: "offlineFirst" as const,
+  structuralSharing: true,
+  retry: 1,
+};
+const ITEM_ROW_HEIGHT = 68;
 
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
@@ -87,10 +99,23 @@ const CosmicWarehouse: React.FC = () => {
   const itemsQuery = useQuery({
     queryKey: scopeKey,
     queryFn: () => listInventoryItems("warehouse"),
+    ...baseQueryConfig,
   });
-  const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
-  const warehouseModeQuery = useQuery({ queryKey: ["warehouse-mode"], queryFn: loadWarehouseModeSetting });
-  const categoryPresetsQuery = useQuery({ queryKey: ["category-presets"], queryFn: loadCategoryPresets });
+  const jumpsQuery = useQuery({
+    queryKey: ["jumps", "warehouse"],
+    queryFn: listJumps,
+    ...baseQueryConfig,
+  });
+  const warehouseModeQuery = useQuery({
+    queryKey: ["warehouse-mode"],
+    queryFn: loadWarehouseModeSetting,
+    ...baseQueryConfig,
+  });
+  const categoryPresetsQuery = useQuery({
+    queryKey: ["category-presets"],
+    queryFn: loadCategoryPresets,
+    ...baseQueryConfig,
+  });
 
   const warehouseMode = warehouseModeQuery.data?.mode ?? "generic";
   const warehouseModeLabel = useMemo(() => {
@@ -102,6 +127,7 @@ const CosmicWarehouse: React.FC = () => {
     queryKey: personalRealityKey,
     queryFn: loadWarehousePersonalRealitySummary,
     enabled: isPersonalReality,
+    ...baseQueryConfig,
   });
 
   const [search, setSearch] = useState("");
@@ -185,13 +211,16 @@ const CosmicWarehouse: React.FC = () => {
 
   const filteredItems = useMemo(() => {
     const base = itemsQuery.data ?? [];
+    const normalizedSearch = search.trim().toLowerCase();
     return base.filter((item) => {
       const matchesCategory = !activeCategory || item.category === activeCategory;
-      const matchesSearch = !search
-        ? true
-        : [item.name, item.category, item.slot, item.notes]
-            .filter(Boolean)
-            .some((value) => value!.toLowerCase().includes(search.toLowerCase()));
+      if (!normalizedSearch) {
+        return matchesCategory;
+      }
+      const haystack = [item.name, item.category, item.slot, item.notes]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase());
+      const matchesSearch = haystack.some((value) => value.includes(normalizedSearch));
       return matchesCategory && matchesSearch;
     });
   }, [itemsQuery.data, activeCategory, search]);
@@ -270,6 +299,68 @@ const CosmicWarehouse: React.FC = () => {
       moveMutation.mutate({ id: selectedId, scope: "locker" });
     }
   };
+
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
+  const [listHeight, setListHeight] = useState<number>(360);
+  const [listWidth, setListWidth] = useState<number>(320);
+
+  useEffect(() => {
+    const element = listViewportRef.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setListHeight(entry.contentRect.height || ITEM_ROW_HEIGHT * 5);
+      setListWidth(entry.contentRect.width || element.clientWidth || 320);
+    });
+    observer.observe(element);
+    setListHeight(element.clientHeight || ITEM_ROW_HEIGHT * 5);
+    setListWidth(element.clientWidth || 320);
+    return () => observer.disconnect();
+  }, []);
+
+  type ItemData = {
+    items: InventoryItemRecord[];
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+  };
+
+  const itemData = useMemo<ItemData>(
+    () => ({
+      items: filteredItems,
+      selectedId,
+      onSelect: (id: string) => setSelectedId(id),
+    }),
+    [filteredItems, selectedId, setSelectedId],
+  );
+
+  const renderRow = useCallback(
+    ({ index, style, data }: ListChildComponentProps<ItemData>) => {
+      const item = data.items[index];
+      if (!item) {
+        return null;
+      }
+      const isActive = item.id === data.selectedId;
+      return (
+        <li style={style}>
+          <button
+            type="button"
+            className={isActive ? "warehouse__item warehouse__item--active" : "warehouse__item"}
+            onClick={() => data.onSelect(item.id)}
+          >
+            <strong>{item.name}</strong>
+            <span>
+              {item.category ?? "Unsorted"} • Qty {item.quantity}
+              {item.slot ? ` • ${item.slot}` : ""}
+            </span>
+          </button>
+        </li>
+      );
+    },
+    [],
+  );
 
   return (
     <section className="warehouse">
@@ -401,23 +492,21 @@ const CosmicWarehouse: React.FC = () => {
           {!itemsQuery.isLoading && filteredItems.length === 0 && (
             <p className="warehouse__empty">No items match the current filters.</p>
           )}
-          <ul>
-            {filteredItems.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={item.id === selectedId ? "warehouse__item warehouse__item--active" : "warehouse__item"}
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.category ?? "Unsorted"} • Qty {item.quantity}
-                    {item.slot ? ` • ${item.slot}` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="warehouse__list-viewport" ref={listViewportRef}>
+            {filteredItems.length > 0 ? (
+              <FixedSizeList
+                height={listHeight}
+                width={listWidth}
+                itemCount={filteredItems.length}
+                itemSize={ITEM_ROW_HEIGHT}
+                itemData={itemData}
+                innerElementType="ul"
+                itemKey={(index, data) => data.items[index]?.id ?? `${index}`}
+              >
+                {renderRow}
+              </FixedSizeList>
+            ) : null}
+          </div>
         </aside>
 
         <div className="warehouse__detail">
