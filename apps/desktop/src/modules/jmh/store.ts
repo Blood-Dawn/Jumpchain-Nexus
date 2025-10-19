@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 import { create } from "zustand";
+import { shallow } from "zustand/shallow";
 import type {
   EntityRecord,
   GlobalSearchResults,
@@ -103,6 +104,8 @@ export const useJmhStore = create<JmhState>((set) => ({
   onboardingOpen: false,
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 }));
+
+export const useJmhShallow = <T,>(selector: (state: JmhState) => T) => useJmhStore(selector, shallow);
 
 export function selectCurrentJump(jumps: JumpRecord[], id: string | null): JumpRecord | null {
   if (!id) return null;

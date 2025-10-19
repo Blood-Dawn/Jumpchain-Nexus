@@ -1,5 +1,7 @@
 import { lazy } from "react";
-import type { ComponentType, LazyExoticComponent } from "react";
+import type { ComponentProps, ComponentType, LazyExoticComponent } from "react";
+
+import { RouteProfiler } from "../components/perf/RouteProfiler";
 
 export type ModuleSection = "build" | "supplements" | "tools" | "story";
 
@@ -15,7 +17,18 @@ export interface ModuleDef {
   requiredPermissions?: string[];
 }
 
-const lazyModule = (loader: () => Promise<{ default: ComponentType }>) => lazy(loader);
+const lazyModule = <T extends ComponentType<any>>(id: string, loader: () => Promise<{ default: T }>) =>
+  lazy(async () => {
+    const mod = await loader();
+    const Component = mod.default;
+    const Wrapped = (props: ComponentProps<T>) => (
+      <RouteProfiler id={id}>
+        <Component {...props} />
+      </RouteProfiler>
+    );
+    Wrapped.displayName = `${Component.displayName ?? Component.name ?? id}WithProfiler`;
+    return { default: Wrapped } as { default: ComponentType };
+  });
 
 const moduleList: ModuleDef[] = [
   {
@@ -24,7 +37,7 @@ const moduleList: ModuleDef[] = [
     description: "Manage jumps & builds",
     path: "hub",
     section: "build",
-    element: lazyModule(() => import("./jmh")),
+    element: lazyModule("Jump Hub", () => import("./jmh")),
     requiredPermissions: ["jump-hub-sql"],
   },
   {
@@ -33,7 +46,7 @@ const moduleList: ModuleDef[] = [
     description: "Profile & attributes",
     path: "passport",
     section: "supplements",
-    element: lazyModule(() => import("./passport")),
+    element: lazyModule("Cosmic Passport", () => import("./passport")),
     requiredPermissions: ["cosmic-passport-sql"],
   },
   {
@@ -42,7 +55,7 @@ const moduleList: ModuleDef[] = [
     description: "Configure storage",
     path: "warehouse",
     section: "supplements",
-    element: lazyModule(() => import("./warehouse")),
+    element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
     requiredPermissions: ["cosmic-warehouse-sql"],
   },
   {
@@ -51,7 +64,7 @@ const moduleList: ModuleDef[] = [
     description: "Catalog items",
     path: "locker",
     section: "supplements",
-    element: lazyModule(() => import("./locker")),
+    element: lazyModule("Cosmic Locker", () => import("./locker")),
     requiredPermissions: ["cosmic-locker-sql"],
   },
   {
@@ -60,7 +73,7 @@ const moduleList: ModuleDef[] = [
     description: "Rules & mechanics",
     path: "drawbacks",
     section: "supplements",
-    element: lazyModule(() => import("./drawbacks")),
+    element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
     requiredPermissions: ["drawback-supplement-sql"],
   },
   {
@@ -69,7 +82,7 @@ const moduleList: ModuleDef[] = [
     description: "Share builds & notes",
     path: "export",
     section: "tools",
-    element: lazyModule(() => import("./export")),
+    element: lazyModule("Exports", () => import("./export")),
     requiredPermissions: ["export-tools"],
   },
   {
@@ -78,7 +91,7 @@ const moduleList: ModuleDef[] = [
     description: "Totals & analytics",
     path: "stats",
     section: "tools",
-    element: lazyModule(() => import("./stats")),
+    element: lazyModule("Statistics", () => import("./stats")),
     requiredPermissions: ["statistics-sql"],
   },
   {
@@ -87,7 +100,7 @@ const moduleList: ModuleDef[] = [
     description: "Defaults & categories",
     path: "options",
     section: "tools",
-    element: lazyModule(() => import("./options")),
+    element: lazyModule("Jump Options", () => import("./options")),
     requiredPermissions: ["jump-options-sql"],
   },
   {
@@ -96,7 +109,7 @@ const moduleList: ModuleDef[] = [
     description: "Guides & best practices",
     path: "knowledge",
     section: "tools",
-    element: lazyModule(() => import("./knowledge-base")),
+    element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
     requiredPermissions: ["knowledge-base-sql"],
   },
   {
@@ -105,7 +118,7 @@ const moduleList: ModuleDef[] = [
     description: "Clean pasted text",
     path: "formatter",
     section: "tools",
-    element: lazyModule(() => import("./formatter")),
+    element: lazyModule("Input Formatter", () => import("./formatter")),
     requiredPermissions: ["input-formatter-tools"],
   },
   {
@@ -114,7 +127,7 @@ const moduleList: ModuleDef[] = [
     description: "Write chapters & recaps",
     path: "studio",
     section: "story",
-    element: lazyModule(() => import("./studio")),
+    element: lazyModule("Story Studio", () => import("./studio")),
     requiredPermissions: ["story-studio-sql"],
   },
 ];
@@ -128,7 +141,7 @@ if (devToolsEnabled) {
     description: "Run npm test suite",
     path: "devtools",
     section: "tools",
-    element: lazyModule(() => import("./devtools")),
+    element: lazyModule("Developer Tools", () => import("./devtools")),
     requiredPermissions: ["devtools-shell"],
   });
 }
