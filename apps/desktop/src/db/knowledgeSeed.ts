@@ -79,15 +79,6 @@ export const knowledgeSeed: KnowledgeSeedEntry[] = [
     source: "Legacy Manual",
   },
   {
-    title: "Randomizer Weights & Filters",
-    category: "Tools",
-    summary: "Legacy weighting rules for jump, perk, and drawback randomization.",
-    content:
-      "Randomizers pull from curated pools that respect your filter toggles. The classic builder weighted unfinished jumps heavier, excluded gauntlets when requested, and preferred draws that matched active companions. Nexus keeps those heuristics and adds deterministic seeding so you can reproduce a roll. Use the Tools > Randomizer section to set filters and history depth.",
-    tags: ["randomizer", "weights", "filters"],
-    source: "Legacy Manual",
-  },
-  {
     title: "Input Formatter Best Practices",
     category: "Tools",
     summary: "Cleaning PDF or wiki text before storing it on entities.",

@@ -33,12 +33,12 @@ import {
   setJumpStipendToggle,
   type JumpRecord,
   type JumpBudgetSummary,
-  loadFormatterSettings,
   loadJumpDefaults,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
 import { QuickAssetEditor } from "../jmh/components/QuickAssetEditor";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 interface JumpFormState {
   title: string;
@@ -301,10 +301,7 @@ const JumpRow: React.FC<{
 const JumpchainOverview: React.FC = () => {
   const queryClient = useQueryClient();
   const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
   const jumpDefaultsQuery = useQuery({ queryKey: ["jump-defaults"], queryFn: loadJumpDefaults });
   const [formState, setFormState] = useState<JumpFormState>(DEFAULT_FORM);
   const [formOpen, setFormOpen] = useState(false);

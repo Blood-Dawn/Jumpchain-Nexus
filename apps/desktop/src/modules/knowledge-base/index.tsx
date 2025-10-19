@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEventHandler } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import "./knowledgeBase.css";
@@ -43,11 +43,14 @@ import {
   type UpsertKnowledgeArticleInput,
 } from "../../db/dao";
 import {
+  collectKnowledgeBaseDraftsFromPaths,
   importKnowledgeBaseArticles,
   promptKnowledgeBaseImport,
-  loadKnowledgeBaseDraft,
+  type KnowledgeBaseImportError,
+  type KnowledgeBaseImportProgress,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
+import { getPlatform } from "../../services/platform";
 
 interface EditorState {
   open: boolean;
@@ -59,6 +62,15 @@ interface ImportMutationResult {
   cancelled: boolean;
   saved: KnowledgeArticleRecord[];
   errors: KnowledgeBaseImportError[];
+}
+
+interface ImportProgressState {
+  status: "running" | "paused";
+  processed: number;
+  total: number;
+  saved: number;
+  failed: number;
+  currentPath: string | null;
 }
 
 const emptyDraft: UpsertKnowledgeArticleInput = {
@@ -104,8 +116,9 @@ const KnowledgeBase = () => {
     draft: { ...emptyDraft },
   });
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [importDrawerOpen, setImportDrawerOpen] = useState(true);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [importIssues, setImportIssues] = useState<KnowledgeBaseImportError[] | null>(null);
+  const [isDropActive, setDropActive] = useState(false);
+  const stageElementRef = useRef<HTMLElement | null>(null);
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -142,23 +155,52 @@ const KnowledgeBase = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  const importErrorsQuery = useQuery({
-    queryKey: ["knowledge-base", "import-errors"],
-    queryFn: listKnowledgeBaseImportErrors,
-    staleTime: 0,
-  });
-
-  const importErrors = importErrorsQuery.data ?? [];
-  const hasImportErrors = importErrors.length > 0;
-  const previousImportErrorCount = useRef(0);
-
-  useEffect(() => {
-    const currentCount = importErrors.length;
-    if (currentCount > 0 && currentCount !== previousImportErrorCount.current) {
-      setImportDrawerOpen(true);
+  const waitIfPaused = async () => {
+    if (!pausedRef.current) {
+      return;
     }
-    previousImportErrorCount.current = currentCount;
-  }, [importErrors]);
+
+    await new Promise<void>((resolve) => {
+      pauseResolverRef.current = () => {
+        pauseResolverRef.current = null;
+        resolve();
+      };
+    });
+  };
+
+  const handlePauseImport = () => {
+    if (!importProgress || importProgress.status !== "running") {
+      return;
+    }
+    pausedRef.current = true;
+    setImportProgress((prev) => (prev ? { ...prev, status: "paused" } : prev));
+  };
+
+  const handleResumeImport = () => {
+    if (!importProgress || importProgress.status !== "paused") {
+      return;
+    }
+    pausedRef.current = false;
+    const resolver = pauseResolverRef.current;
+    pauseResolverRef.current = null;
+    resolver?.();
+    setImportProgress((prev) => (prev ? { ...prev, status: "running" } : prev));
+  };
+
+  const handleCancelImport = () => {
+    if (!abortControllerRef.current) {
+      return;
+    }
+
+    abortControllerRef.current.abort();
+
+    const resolver = pauseResolverRef.current;
+    pauseResolverRef.current = null;
+    resolver?.();
+
+    pausedRef.current = false;
+    setImportProgress(null);
+  };
 
   const saveArticle = useMutation({
     mutationFn: (payload: UpsertKnowledgeArticleInput) => upsertKnowledgeArticle(payload),
@@ -187,22 +229,8 @@ const KnowledgeBase = () => {
     },
   });
 
-  const importArticles = useMutation<ImportMutationResult>({
-    mutationFn: async () => {
-      const selection = await promptKnowledgeBaseImport();
-      if (!selection) {
-        return { cancelled: true, saved: [], errors: [] };
-      }
-
-      const { saved, errors } = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
-
-      return {
-        cancelled: false,
-        saved,
-        errors: [...selection.errors, ...errors],
-      };
-    },
-    onSuccess: async (result) => {
+  const processImportResult = useCallback(
+    async (result: ImportMutationResult | null) => {
       if (!result || result.cancelled) {
         return;
       }
@@ -227,16 +255,39 @@ const KnowledgeBase = () => {
       if (skippedCount > 0) {
         parts.push(`${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped`);
         console.warn("Knowledge base import issues", result.errors);
+        setImportIssues(result.errors);
+      } else {
+        setImportIssues(null);
       }
       if (parts.length === 0) {
         parts.push("No articles imported");
       }
 
       setFeedback(parts.join(" · "));
-
       if (importedCount > 0) {
         setSelectedId(result.saved[0]?.id ?? null);
       }
+    },
+    [queryClient]
+  );
+
+  const importArticles = useMutation<ImportMutationResult>({
+    mutationFn: async () => {
+      const selection = await promptKnowledgeBaseImport();
+      if (!selection) {
+        return { cancelled: true, saved: [], errors: [] };
+      }
+
+      const { saved, errors } = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
+
+      return {
+        cancelled: false,
+        saved,
+        errors: [...selection.errors, ...errors],
+      };
+    },
+    onSuccess: async (result) => {
+      await processImportResult(result);
     },
     onError: (error) => {
       console.error("Failed to import articles", error);
@@ -276,7 +327,78 @@ const KnowledgeBase = () => {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
     },
+    onSettled: () => {
+      abortControllerRef.current = null;
+      pausedRef.current = false;
+      const resolver = pauseResolverRef.current;
+      pauseResolverRef.current = null;
+      resolver?.();
+      setImportProgress(null);
+    },
   });
+
+  const handleDroppedPaths = useCallback(
+    async (paths: string[]) => {
+      if (!paths.length) {
+        return;
+      }
+      try {
+        const selection = await collectKnowledgeBaseDraftsFromPaths(paths);
+        const combinedErrors = [...selection.errors];
+        let savedArticles: KnowledgeArticleRecord[] = [];
+        if (selection.drafts.length > 0) {
+          const result = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
+          savedArticles = result.saved;
+          combinedErrors.push(...result.errors);
+        }
+
+        await processImportResult({
+          cancelled: false,
+          saved: savedArticles,
+          errors: combinedErrors,
+        });
+      } catch (error) {
+        console.error("Knowledge base drop import failed", error);
+        setFeedback(error instanceof Error ? error.message : "Failed to import dropped files");
+      }
+    },
+    [processImportResult, upsertKnowledgeArticle]
+  );
+
+  useEffect(() => {
+    const element = stageElementRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const platform = await getPlatform();
+        if (disposed) {
+          return;
+        }
+        cleanup = platform.drop.registerDropTarget(element, {
+          onHover: () => setDropActive(true),
+          onLeave: () => setDropActive(false),
+          onDrop: (paths) => {
+            setDropActive(false);
+            void handleDroppedPaths(paths);
+          },
+        });
+      } catch (error) {
+        console.error("Failed to register knowledge base drop target", error);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      setDropActive(false);
+      cleanup?.();
+    };
+  }, [handleDroppedPaths]);
 
   const handleImport = () => {
     setFeedback(null);
@@ -623,7 +745,17 @@ const KnowledgeBase = () => {
         </div>
       </aside>
 
-      <section className="knowledge-base__stage">
+      <section
+        ref={stageElementRef}
+        className={
+          isDropActive ? "knowledge-base__stage knowledge-base__stage--drop" : "knowledge-base__stage"
+        }
+      >
+        {isDropActive && (
+          <div className="knowledge-base__drop-indicator" role="status" aria-live="polite">
+            <strong>Drop PDFs or text files to import articles</strong>
+          </div>
+        )}
         {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
         {hasImportErrors && (
           <>
@@ -693,6 +825,68 @@ const KnowledgeBase = () => {
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
         {!articleQuery.isLoading && renderArticle(activeArticle)}
       </section>
+
+      {importProgress && importArticles.isPending && (
+        <div className="knowledge-base__progress-backdrop" role="presentation">
+          <div
+            className="knowledge-base__progress-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="knowledge-base-import-progress-title"
+          >
+            <header>
+              <h3 id="knowledge-base-import-progress-title">Importing articles</h3>
+              <p>{importProgress.status === "paused" ? "Import paused" : "Import in progress"}</p>
+            </header>
+
+            <div className="knowledge-base__progress-status">
+              <div
+                className="knowledge-base__progress-bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={importProgress.total}
+                aria-valuenow={importProgress.processed}
+              >
+                <div
+                  className="knowledge-base__progress-bar-fill"
+                  style={{
+                    width:
+                      importProgress.total === 0
+                        ? "0%"
+                        : `${Math.min(100, Math.round((importProgress.processed / importProgress.total) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              <p className="knowledge-base__progress-counts">
+                Processed {importProgress.processed} of {importProgress.total}
+                {importProgress.failed > 0 && ` · ${importProgress.failed} failed`}
+              </p>
+
+              {importProgress.currentPath && (
+                <p className="knowledge-base__progress-path">
+                  Working on <code title={importProgress.currentPath}>{importProgress.currentPath}</code>
+                </p>
+              )}
+            </div>
+
+            <footer>
+              {importProgress.status === "paused" ? (
+                <button type="button" onClick={handleResumeImport}>
+                  Resume
+                </button>
+              ) : (
+                <button type="button" onClick={handlePauseImport}>
+                  Pause
+                </button>
+              )}
+              <button type="button" className="ghost" onClick={handleCancelImport}>
+                Cancel
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {editorState.open && (
         <div className="knowledge-base__editor-backdrop" role="presentation" onClick={closeEditor}>

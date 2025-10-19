@@ -7,8 +7,8 @@ Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
 to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to do so, subject to the
-following conditions:
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -22,187 +22,125 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-/// <reference types="vitest" />
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type DaoModule = typeof import("../../db/dao");
-type ImporterModule = typeof import("../../services/knowledgeBaseImporter");
-type KnowledgeArticleRecord = import("../../db/dao").KnowledgeArticleRecord;
-type KnowledgeBaseImportErrorRecord = import("../../db/dao").KnowledgeBaseImportErrorRecord;
-type UpsertKnowledgeArticleInput = import("../../db/dao").UpsertKnowledgeArticleInput;
-type KnowledgeBaseArticleDraft = import("../../services/knowledgeBaseImportUtils").KnowledgeBaseArticleDraft;
+import KnowledgeBase from "./index";
+import {
+  collectKnowledgeBaseDraftsFromPaths,
+  importKnowledgeBaseArticles,
+} from "../../services/knowledgeBaseImporter";
+import { createWebPlatform, getPlatform, setPlatform } from "../../services/platform";
 
-const now = "2025-01-01T00:00:00.000Z";
-const later = "2025-01-02T00:00:00.000Z";
-
-const baseArticle: KnowledgeArticleRecord = {
-  id: "article-1",
-  title: "Sample Article",
-  category: "Imported",
-  summary: "Example summary",
-  content: "Sample content body for knowledge base article.",
-  tags: ["tag"],
-  source: "sample.txt",
-  is_system: false,
-  created_at: now,
-  updated_at: now,
-};
-
-let articlesData: KnowledgeArticleRecord[] = [];
-let importErrorsData: KnowledgeBaseImportErrorRecord[] = [];
-
-vi.mock("../../db/dao", async (): Promise<DaoModule> => {
-  const actual = await vi.importActual<DaoModule>("../../db/dao");
+vi.mock("../../db/dao", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../db/dao")>();
+  const now = new Date().toISOString();
   return {
     ...actual,
     ensureKnowledgeBaseSeeded: vi.fn(async () => undefined),
-    fetchKnowledgeArticles: vi.fn(async () => articlesData),
-    countKnowledgeArticles: vi.fn(async () => articlesData.length),
-    upsertKnowledgeArticle: vi.fn(async (payload: UpsertKnowledgeArticleInput) => ({
-      ...baseArticle,
-      ...payload,
-      id: baseArticle.id,
-      category: payload.category ?? null,
-      summary: payload.summary ?? null,
-      tags: payload.tags ?? [],
-      source: payload.source ?? null,
-      content: payload.content ?? baseArticle.content,
-    })),
-    listKnowledgeBaseImportErrors: vi.fn(async () => importErrorsData),
-    recordKnowledgeBaseImportErrors: vi.fn(async (errors) => {
-      for (const entry of errors) {
-        const existing = importErrorsData.find((item) => item.path === entry.path);
-        if (existing) {
-          existing.reason = entry.reason;
-          existing.updated_at = later;
-        } else {
-          importErrorsData = [
-            ...importErrorsData,
-            {
-              id: `err-${importErrorsData.length + 1}`,
-              path: entry.path,
-              reason: entry.reason,
-              created_at: now,
-              updated_at: now,
-            },
-          ];
-        }
-      }
-    }),
-    deleteKnowledgeBaseImportError: vi.fn(async (id: string) => {
-      importErrorsData = importErrorsData.filter((item) => item.id !== id);
-    }),
-    clearKnowledgeBaseImportErrors: vi.fn(async () => {
-      importErrorsData = [];
-    }),
-  } satisfies DaoModule;
+    countKnowledgeArticles: vi.fn(async () => 1),
+    fetchKnowledgeArticles: vi.fn(async () => [
+      {
+        id: "kb-1",
+        title: "Reference Article",
+        category: "Imported",
+        summary: "Summary",
+        content: "Body",
+        tags: ["jump"],
+        source: "reference.md",
+        is_system: false,
+        created_at: now,
+        updated_at: now,
+      },
+    ]),
+    upsertKnowledgeArticle: vi.fn(),
+    deleteKnowledgeArticle: vi.fn(),
+  } satisfies Partial<typeof actual>;
 });
 
-vi.mock("../../services/knowledgeBaseImporter", async (): Promise<ImporterModule> => ({
-  promptKnowledgeBaseImport: vi.fn(),
-  importKnowledgeBaseArticles: vi.fn(),
-  loadKnowledgeBaseDraft: vi.fn(),
-}));
-
-const dao = await import("../../db/dao");
-const importer = await import("../../services/knowledgeBaseImporter");
-const { default: KnowledgeBase } = await import("./index");
-
-describe("KnowledgeBase import errors", () => {
-  const renderKnowledgeBase = () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
+vi.mock("../../services/knowledgeBaseImporter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../services/knowledgeBaseImporter")>();
+  return {
+    ...actual,
+    collectKnowledgeBaseDraftsFromPaths: vi.fn(async () => ({
+      drafts: [
+        {
+          path: "/draft.md",
+          payload: {
+            title: "Draft Title",
+            category: "Imported",
+            summary: "Draft summary",
+            content: "Draft body",
+            tags: [],
+            source: "draft.md",
+          },
+          meta: { fileName: "draft.md", wordCount: 3 },
         },
-      },
-    });
+      ],
+      errors: [],
+    })),
+    importKnowledgeBaseArticles: vi.fn(async () => ({
+      saved: [
+        {
+          id: "kb-2",
+          title: "Draft Title",
+          category: "Imported",
+          summary: "Draft summary",
+          content: "Draft body",
+          tags: [],
+          source: "draft.md",
+          is_system: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      errors: [],
+    })),
+  } satisfies Partial<typeof actual>;
+});
 
-    const view = render(
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+}
+
+describe("KnowledgeBase drop integration", () => {
+  beforeEach(() => {
+    setPlatform(createWebPlatform());
+  });
+
+  afterEach(() => {
+    setPlatform(createWebPlatform());
+  });
+
+  it("imports dropped files via the platform drop adapter", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
       <QueryClientProvider client={queryClient}>
         <KnowledgeBase />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
-    const user = userEvent.setup();
-    return { queryClient, user, ...view };
-  };
+    await screen.findByText(/Knowledge Base/i);
 
-  beforeEach(() => {
-    articlesData = [baseArticle];
-    importErrorsData = [];
-    vi.clearAllMocks();
-  });
+    const stage = document.querySelector(".knowledge-base__stage") as HTMLElement;
+    expect(stage).toBeTruthy();
 
-  it("renders persisted import errors inside the drawer", async () => {
-    importErrorsData = [
-      {
-        id: "err-1",
-        path: "/tmp/alpha.txt",
-        reason: "Unsupported format",
-        created_at: now,
-        updated_at: now,
-      },
-    ];
-
-    renderKnowledgeBase();
-
-    const drawer = await screen.findByRole("complementary", {
-      name: /failed knowledge base imports/i,
-    });
-
-    expect(within(drawer).getByText("/tmp/alpha.txt")).toBeInTheDocument();
-    expect(within(drawer).getByText("Unsupported format")).toBeInTheDocument();
-    expect(within(drawer).getByRole("button", { name: "Retry" })).toBeInTheDocument();
-  });
-
-  it("retries a failed import and removes it once saved", async () => {
-    importErrorsData = [
-      {
-        id: "err-1",
-        path: "/tmp/alpha.txt",
-        reason: "Unsupported format",
-        created_at: now,
-        updated_at: now,
-      },
-    ];
-
-    const draft: KnowledgeBaseArticleDraft = {
-      path: "/tmp/alpha.txt",
-      payload: {
-        title: "Retried Article",
-        category: null,
-        summary: null,
-        content: "Recovered content",
-        tags: [],
-        source: "alpha.txt",
-      },
-      meta: { fileName: "alpha.txt", wordCount: 2 },
-    };
-
-    vi.mocked(importer.loadKnowledgeBaseDraft).mockResolvedValue(draft);
-
-    const { user } = renderKnowledgeBase();
-
-    const retryButton = await screen.findByRole("button", { name: "Retry" });
-    await user.click(retryButton);
-
-    await waitFor(() => {
-      expect(importer.loadKnowledgeBaseDraft).toHaveBeenCalledWith("/tmp/alpha.txt");
-    });
-    await waitFor(() => {
-      expect(dao.upsertKnowledgeArticle).toHaveBeenCalled();
-    });
-    await waitFor(() => {
-      expect(dao.deleteKnowledgeBaseImportError).toHaveBeenCalledWith("err-1");
+    const platform = await getPlatform();
+    await act(async () => {
+      platform.drop.emitTestEvent?.(stage, { type: "drop", paths: ["/draft.md"] });
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("/tmp/alpha.txt")).not.toBeInTheDocument();
+      expect(collectKnowledgeBaseDraftsFromPaths).toHaveBeenCalledWith(["/draft.md"]);
+      expect(importKnowledgeBaseArticles).toHaveBeenCalled();
     });
+
+    await screen.findByText(/Imported 1 article/);
+
+    queryClient.clear();
   });
 });
