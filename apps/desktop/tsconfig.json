@@ -10,10 +10,12 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-  "isolatedModules": true,
-  "noEmit": true,
-  "jsx": "react-jsx",
-  "types": ["vite/client", "@tauri-apps/api"],
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client", "@tauri-apps/api"],
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
 
     /* Linting */
     "strict": true,

@@ -122,7 +122,7 @@ export const NarrativeSummaryPanel: React.FC = () => {
           <h2>Narrative Highlights</h2>
           <p>Skim recent notes and recaps, then dive into the studio for full editing.</p>
         </div>
-        <button type="button" className="narrative-panel__cta" onClick={() => navigate("/studio")">
+        <button type="button" className="narrative-panel__cta" onClick={() => navigate("/studio")}> 
           Open Story Studio
         </button>
       </header>
