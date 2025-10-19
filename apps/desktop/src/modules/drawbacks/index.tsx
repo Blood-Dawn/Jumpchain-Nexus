@@ -34,7 +34,6 @@ import {
   DEFAULT_SUPPLEMENT_SETTINGS,
   loadUniversalDrawbackSettings,
   DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS,
-  loadFormatterSettings,
   updateJumpAsset,
   reorderJumpAssets,
   type JumpAssetRecord,
@@ -42,6 +41,7 @@ import {
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 type Severity = "minor" | "moderate" | "severe";
 
@@ -97,11 +97,7 @@ const DrawbackSupplement: React.FC = () => {
     enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
-  const formatterQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-    enabled: drawbackSupplementEnabled,
-  });
+  const formatterQuery = useFormatterPreferences({ enabled: drawbackSupplementEnabled });
 
   const universalQuery = useQuery({
     queryKey: ["universal-drawbacks"],
@@ -112,6 +108,7 @@ const DrawbackSupplement: React.FC = () => {
   const [selectedDrawbackId, setSelectedDrawbackId] = useState<string | null>(null);
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
   const [orderedDrawbacks, setOrderedDrawbacks] = useState<JumpAssetRecord[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   useEffect(() => {
     if (!drawbacksQuery.data?.length) {
@@ -120,8 +117,12 @@ const DrawbackSupplement: React.FC = () => {
       setOrderedDrawbacks([]);
       return;
     }
-    return jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null;
-  }, [jumpsQuery.data, selectedJumpId]);
+  }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId],
+  );
 
   useEffect(() => {
     if (!drawbacksQuery.data) {
@@ -130,6 +131,11 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId],
+  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {
@@ -308,6 +314,24 @@ const DrawbackSupplement: React.FC = () => {
     selectedJump,
   ]);
 
+  const manualCredit = budgetQuery.data?.drawbackCredit ?? 0;
+  const universalJumperCredit = universalRewardState.stipend.jumper;
+  const totalCredit = useMemo(
+    () => manualCredit + universalJumperCredit,
+    [manualCredit, universalJumperCredit],
+  );
+
+  const balanceWithGrants = useMemo(() => {
+    const baseBalance = budgetQuery.data?.balance;
+    if (baseBalance === null || baseBalance === undefined) {
+      return null;
+    }
+    return baseBalance + universalJumperCredit;
+  }, [budgetQuery.data?.balance, universalJumperCredit]);
+
+  const totalCount = drawbacksQuery.data?.length ?? 0;
+  const visibleCount = filteredDrawbacks.length;
+
   useEffect(() => {
     if (!selectedDrawback) {
       setFormState(null);
@@ -332,13 +356,6 @@ const DrawbackSupplement: React.FC = () => {
       setFormState(null);
     }
   }, [drawbackSupplementEnabled]);
-
-  const totalCredit = useMemo(() => {
-    return (orderedDrawbacks ?? []).reduce(
-      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
-      0
-    );
-  }, [orderedDrawbacks]);
 
   const hasOrderChanges = useMemo(() => {
     if (!drawbacksQuery.data?.length) {
