@@ -115,7 +115,12 @@ const DrawbackSupplement: React.FC = () => {
       setSelectedDrawbackId(null);
       setFormState(null);
       setOrderedDrawbacks([]);
-      return;
+    }
+  }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(() => {
+    if (!selectedJumpId) {
+      return null;
     }
   }, [drawbacksQuery.data]);
 
@@ -201,20 +206,35 @@ const DrawbackSupplement: React.FC = () => {
 
   const filteredDrawbacks = useMemo(() => {
     const all = drawbacksQuery.data ?? [];
-    if (categoryFilter === "all") {
-      return all;
-    }
 
     return all.filter((asset) => {
       const metadata = parseMetadata(asset.metadata);
-      if (categoryFilter === "house") {
-        return metadata.houseRule === true;
+      const matchesCategory = (() => {
+        if (categoryFilter === "all") {
+          return true;
+        }
+        if (categoryFilter === "house") {
+          return metadata.houseRule === true;
+        }
+        const trimmed = asset.category?.trim();
+        const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+        return normalized === categoryFilter;
+      })();
+
+      if (!matchesCategory) {
+        return false;
       }
-      const trimmed = asset.category?.trim();
-      const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
-      return normalized === categoryFilter;
+
+      if (severityFilter === "all") {
+        return true;
+      }
+
+      const severity = metadata.severity ?? "moderate";
+      return severity === severityFilter;
     });
-  }, [drawbacksQuery.data, categoryFilter]);
+  }, [drawbacksQuery.data, categoryFilter, severityFilter]);
+
+  const filteredDrawbackIds = useMemo(() => new Set(filteredDrawbacks.map((asset) => asset.id)), [filteredDrawbacks]);
 
   useEffect(() => {
     if (!filteredDrawbacks.length) {
@@ -616,6 +636,28 @@ const DrawbackSupplement: React.FC = () => {
             ))}
           </select>
         </label>
+        <div className="drawbacks__segmented" role="group" aria-label="Filter by severity">
+          {[
+            { value: "all" as const, label: "All" },
+            { value: "minor" as const, label: "Minor" },
+            { value: "moderate" as const, label: "Moderate" },
+            { value: "severe" as const, label: "Severe" },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={
+                severityFilter === option.value
+                  ? "drawbacks__segmented-button drawbacks__segmented-button--active"
+                  : "drawbacks__segmented-button"
+              }
+              aria-pressed={severityFilter === option.value}
+              onClick={() => setSeverityFilter(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="drawbacks__layout">
@@ -625,11 +667,14 @@ const DrawbackSupplement: React.FC = () => {
           {!drawbacksQuery.isLoading && totalCount === 0 && (
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
-          <ul aria-label="Drawback order">
-            {orderedDrawbacks.map((asset, index) => {
-              const metadata = parseMetadata(asset.metadata);
-              return (
-                <li key={asset.id}>
+            <ul aria-label="Drawback order">
+              {orderedDrawbacks.map((asset, index) => {
+                if (!filteredDrawbackIds.has(asset.id)) {
+                  return null;
+                }
+                const metadata = parseMetadata(asset.metadata);
+                return (
+                  <li key={asset.id}>
                   <button
                     type="button"
                     className={asset.id === selectedDrawbackId ? "drawbacks__item drawbacks__item--active" : "drawbacks__item"}
