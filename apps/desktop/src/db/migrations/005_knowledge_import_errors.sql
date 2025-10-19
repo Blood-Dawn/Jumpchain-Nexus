@@ -6,8 +6,8 @@
 -- of this software and associated documentation files (the "Software"), to deal
 -- in the Software without restriction, including without limitation the rights
 -- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
--- copies of the Software, and to permit persons to whom the Software is
--- furnished to do so, subject to the following conditions:
+-- copies of the Software, and to permit persons to do so, subject to the
+-- following conditions:
 --
 -- The above copyright notice and this permission notice shall be included in all
 -- copies or substantial portions of the Software.
@@ -20,15 +20,13 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
-CREATE TABLE IF NOT EXISTS randomizer_pools (
+CREATE TABLE IF NOT EXISTS knowledge_import_errors (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    weight INTEGER DEFAULT 1,
-    link TEXT,
-    sort_order INTEGER DEFAULT 0,
+    path TEXT NOT NULL UNIQUE,
+    reason TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_randomizer_pools_order
-    ON randomizer_pools (sort_order ASC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_import_errors_recent
+    ON knowledge_import_errors (updated_at DESC, created_at DESC);

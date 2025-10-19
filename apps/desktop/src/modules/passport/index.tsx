@@ -36,11 +36,13 @@ import {
   type PassportDerivedSnapshot,
   type UpsertCharacterProfileInput,
   upsertCharacterProfile,
+  upsertEntity,
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   EntityRecord,
   JumpAssetType,
+  PassportDerivedAsset,
   PassportDerivedAttributeEntry,
   PassportDerivedSource,
 } from "../../db/dao";
@@ -78,10 +80,12 @@ export interface EssenceSummaryEntry {
 
 interface AttributeMatrixOptions {
   enabledAssetTypes: Set<JumpAssetType>;
+  includeBoosterEntries: boolean;
 }
 
 interface SkillMatrixOptions {
   enabledAssetTypes: Set<JumpAssetType>;
+  includeBoosterEntries: boolean;
 }
 
 interface EssenceSummaryOptions {
@@ -182,10 +186,19 @@ export function buildAttributeMatrix(
 
   const derivedAttributes = derived?.attributes ?? [];
   for (const attribute of derivedAttributes) {
+    const relevantEntries = attribute.entries.filter((entry) => {
+      if (!options.enabledAssetTypes.has(entry.assetType)) {
+        return false;
+      }
+      if (!options.includeBoosterEntries && BOOSTER_ASSET_TYPES.has(entry.assetType)) {
+        return false;
+      }
+      return true;
+    });
+    if (!relevantEntries.length) {
+      continue;
+    }
     const row = ensureAttributeRow(map, attribute.key);
-    const relevantEntries = attribute.entries.filter((entry) =>
-      options.enabledAssetTypes.has(entry.assetType)
-    );
     row.derivedEntries.push(...relevantEntries);
     for (const entry of relevantEntries) {
       if (entry.numericValue !== null && Number.isFinite(entry.numericValue)) {
@@ -238,9 +251,15 @@ export function buildSkillMatrix(
 
   const derivedTraits = derived?.traits ?? [];
   for (const trait of derivedTraits) {
-    const filteredSources = trait.sources.filter((source) =>
-      options.enabledAssetTypes.has(source.assetType)
-    );
+    const filteredSources = trait.sources.filter((source) => {
+      if (!options.enabledAssetTypes.has(source.assetType)) {
+        return false;
+      }
+      if (!options.includeBoosterEntries && BOOSTER_ASSET_TYPES.has(source.assetType)) {
+        return false;
+      }
+      return true;
+    });
     if (!filteredSources.length) {
       continue;
     }
@@ -361,8 +380,11 @@ interface PassportAggregationsProps {
   essenceSettings: EssentialBodyModSettings;
   essences: EssentialBodyModEssenceRecord[];
   companionStatuses: CompanionStatusEntry[];
+  pendingCompanionIds: string[];
+  syncingCompanions: boolean;
   onSyncAltForms: () => void;
   onSyncCompanions: () => void;
+  onAddCompanion: (entry: CompanionStatusEntry) => void;
 }
 
 type BoosterFilterKey = "perk" | "item" | "companion";
@@ -374,6 +396,11 @@ const BOOSTER_LABELS: Record<BoosterFilterKey, string> = {
 };
 
 const ALWAYS_INCLUDED_TYPES: JumpAssetType[] = ["origin", "drawback"];
+const BOOSTER_ASSET_TYPES: ReadonlySet<JumpAssetType> = new Set([
+  "perk",
+  "item",
+  "companion",
+]);
 
 export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   form,
@@ -382,14 +409,18 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   essenceSettings,
   essences,
   companionStatuses,
+  pendingCompanionIds,
+  syncingCompanions,
   onSyncAltForms,
   onSyncCompanions,
+  onAddCompanion,
 }) => {
   const [filters, setFilters] = useState<Record<BoosterFilterKey, boolean>>({
     perk: true,
     item: true,
     companion: true,
   });
+  const [includeBoosterEntries, setIncludeBoosterEntries] = useState(true);
 
   const enabledAssetTypes = useMemo(() => {
     const set = new Set<JumpAssetType>();
@@ -405,13 +436,21 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   }, [filters]);
 
   const attributeMatrix = useMemo(
-    () => buildAttributeMatrix(form, derived, { enabledAssetTypes }),
-    [form, derived, enabledAssetTypes]
+    () =>
+      buildAttributeMatrix(form, derived, {
+        enabledAssetTypes,
+        includeBoosterEntries,
+      }),
+    [form, derived, enabledAssetTypes, includeBoosterEntries]
   );
 
   const skillMatrix = useMemo(
-    () => buildSkillMatrix(form, derived, { enabledAssetTypes }),
-    [form, derived, enabledAssetTypes]
+    () =>
+      buildSkillMatrix(form, derived, {
+        enabledAssetTypes,
+        includeBoosterEntries,
+      }),
+    [form, derived, enabledAssetTypes, includeBoosterEntries]
   );
 
   const essenceSummary = useMemo(
@@ -435,6 +474,10 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   );
 
   const missingCompanions = companionStatuses.filter((entry) => !entry.synced);
+  const pendingCompanionSet = useMemo(
+    () => new Set(pendingCompanionIds),
+    [pendingCompanionIds]
+  );
 
   return (
     <div className="passport__aggregations">
@@ -453,6 +496,16 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
               <span>{BOOSTER_LABELS[key]}</span>
             </label>
           ))}
+          <label className="passport__toggle">
+            <input
+              type="checkbox"
+              checked={includeBoosterEntries}
+              onChange={() => setIncludeBoosterEntries((prev) => !prev)}
+              aria-label="Include Booster Entries"
+              data-testid="toggle-include-boosters"
+            />
+            <span>Include Booster Entries</span>
+          </label>
         </div>
       </section>
 
@@ -664,7 +717,7 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
           <button
             type="button"
             onClick={onSyncCompanions}
-            disabled={!missingCompanions.length}
+            disabled={!missingCompanions.length || syncingCompanions}
           >
             {missingCompanions.length
               ? `Sync ${missingCompanions.length} companion(s)`
@@ -676,11 +729,32 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
             {companionStatuses.map((entry) => (
               <li key={entry.id} className={entry.synced ? "passport__companion passport__companion--synced" : "passport__companion passport__companion--missing"}>
                 <div className="passport__companion-row">
-                  <strong>{entry.name}</strong>
+                  {entry.synced ? (
+                    <strong>{entry.name}</strong>
+                  ) : (
+                    <label className="passport__companion-toggle">
+                      <input
+                        type="checkbox"
+                        aria-label={`Add ${entry.name} to manual companions`}
+                        checked={pendingCompanionSet.has(entry.id)}
+                        disabled={pendingCompanionSet.has(entry.id) || syncingCompanions}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            onAddCompanion(entry);
+                          }
+                        }}
+                      />
+                      <strong>{entry.name}</strong>
+                    </label>
+                  )}
                   {entry.jumpTitle ? <span>{entry.jumpTitle}</span> : null}
                 </div>
                 <span className="passport__companion-status">
-                  {entry.synced ? "Synced" : "Missing"}
+                  {entry.synced
+                    ? "Synced"
+                    : pendingCompanionSet.has(entry.id)
+                    ? "Adding…"
+                    : "Missing"}
                 </span>
               </li>
             ))}
@@ -725,6 +799,21 @@ export interface ProfileFormState {
 }
 
 const createLocalId = () => Math.random().toString(36).slice(2, 10);
+
+function createCompanionEntity(companion: PassportDerivedAsset): EntityRecord {
+  const searchTerms = companion.traitTags.join(" ").trim();
+  return {
+    id: `passport-${companion.id}`,
+    type: "companion",
+    name: companion.name,
+    meta_json: JSON.stringify({
+      source: "passport",
+      assetId: companion.id,
+      jumpId: companion.jumpId,
+    }),
+    search_terms: searchTerms.length ? searchTerms : null,
+  } satisfies EntityRecord;
+}
 
 function safeParse<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -1014,7 +1103,11 @@ const CosmicPassport: React.FC = () => {
   const [formState, setFormState] = useState<ProfileFormState | null>(null);
   const companionEntities = useJmhStore((state) => state.entities);
   const setEntities = useJmhStore((state) => state.setEntities);
+  const [pendingCompanionIds, setPendingCompanionIds] = useState<string[]>([]);
   const derivedCompanions = derivedQuery.data?.companions ?? [];
+  const derivedCompanionMap = useMemo(() => {
+    return new Map(derivedCompanions.map((companion) => [companion.id, companion] as const));
+  }, [derivedCompanions]);
   const companionStatuses = useMemo(() => {
     if (!derivedCompanions.length) {
       return [] as CompanionStatusEntry[];
@@ -1162,38 +1255,81 @@ const CosmicPassport: React.FC = () => {
     });
   }, [derivedQuery.data]);
 
-  const handleSyncCompanions = useCallback(() => {
-    if (!derivedCompanions.length) {
+  const addCompanionMutation = useMutation({
+    mutationFn: async (entries: CompanionStatusEntry[]) => {
+      if (!entries.length) {
+        return [] as EntityRecord[];
+      }
+      const currentEntities = useJmhStore.getState().entities;
+      const existingNames = new Set(
+        currentEntities
+          .filter((entity) => entity.type === "companion")
+          .map((entity) => entity.name.trim().toLowerCase())
+      );
+      const additions: EntityRecord[] = [];
+      for (const entry of entries) {
+        const derivedCompanion = derivedCompanionMap.get(entry.id);
+        if (!derivedCompanion) {
+          continue;
+        }
+        const normalizedName = derivedCompanion.name.trim().toLowerCase();
+        if (!normalizedName.length || existingNames.has(normalizedName)) {
+          continue;
+        }
+        existingNames.add(normalizedName);
+        additions.push(createCompanionEntity(derivedCompanion));
+      }
+      await Promise.all(additions.map((entity) => upsertEntity(entity)));
+      return additions;
+    },
+    onSuccess: (additions) => {
+      if (!additions.length) {
+        return;
+      }
+      const additionIds = new Set(additions.map((entity) => entity.id));
+      const current = useJmhStore.getState().entities;
+      const remaining = current.filter((entity) => !additionIds.has(entity.id));
+      setEntities([...remaining, ...additions]);
+    },
+  });
+
+  const handleAddCompanion = useCallback(
+    async (entry: CompanionStatusEntry) => {
+      if (entry.synced || addCompanionMutation.isPending) {
+        return;
+      }
+      setPendingCompanionIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
+      try {
+        await addCompanionMutation.mutateAsync([entry]);
+      } catch (error) {
+        console.error("Failed to add companion", error);
+      } finally {
+        setPendingCompanionIds((prev) => prev.filter((id) => id !== entry.id));
+      }
+    },
+    [addCompanionMutation]
+  );
+
+  const handleSyncCompanions = useCallback(async () => {
+    const missing = companionStatuses.filter((entry) => !entry.synced);
+    if (!missing.length || addCompanionMutation.isPending) {
       return;
     }
-    const currentEntities = useJmhStore.getState().entities;
-    const existingNames = new Set(
-      currentEntities
-        .filter((entity) => entity.type === "companion")
-        .map((entity) => entity.name.trim().toLowerCase())
-    );
-    const additions: EntityRecord[] = derivedCompanions
-      .filter((companion) => companion.name.trim().length)
-      .filter((companion) => !existingNames.has(companion.name.trim().toLowerCase()))
-      .map((companion) => {
-        const searchTerms = companion.traitTags.join(" ").trim();
-        return {
-          id: `passport-${companion.id}`,
-          type: "companion",
-          name: companion.name,
-          meta_json: JSON.stringify({
-            source: "passport",
-            assetId: companion.id,
-            jumpId: companion.jumpId,
-          }),
-          search_terms: searchTerms.length ? searchTerms : null,
-        } satisfies EntityRecord;
-      });
-    if (!additions.length) {
-      return;
+    setPendingCompanionIds((prev) => {
+      const next = new Set(prev);
+      for (const entry of missing) {
+        next.add(entry.id);
+      }
+      return Array.from(next);
+    });
+    try {
+      await addCompanionMutation.mutateAsync(missing);
+    } catch (error) {
+      console.error("Failed to sync companions", error);
+    } finally {
+      setPendingCompanionIds((prev) => prev.filter((id) => !missing.some((entry) => entry.id === id)));
     }
-    setEntities([...currentEntities, ...additions]);
-  }, [derivedCompanions, setEntities]);
+  }, [companionStatuses, addCompanionMutation]);
 
   return (
     <section className="passport">
@@ -1469,8 +1605,11 @@ const CosmicPassport: React.FC = () => {
                 essenceSettings={essentialSettings}
                 essences={essenceList}
                 companionStatuses={companionStatuses}
+                pendingCompanionIds={pendingCompanionIds}
+                syncingCompanions={addCompanionMutation.isPending}
                 onSyncAltForms={handleSyncAltForms}
                 onSyncCompanions={handleSyncCompanions}
+                onAddCompanion={handleAddCompanion}
               />
               <DerivedCollections derived={derivedQuery.data} isLoading={derivedLoading} />
             </>
