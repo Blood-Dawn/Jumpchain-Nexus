@@ -23,15 +23,15 @@ SOFTWARE.
 */
 
 import { useMutation } from "@tanstack/react-query";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { deleteNextAction, upsertNextAction } from "../../db/dao";
-import { sortNextActions, useJmhStore } from "./store";
+import { sortNextActions, useJmhShallow, useJmhStore } from "./store";
 
-export const NextActionsPanel: React.FC = () => {
-  const actions = useJmhStore((state) => sortNextActions(state.nextActions));
-  const setNextActions = useJmhStore((state) => state.setNextActions);
-  const selectedJumpId = useJmhStore((state) => state.selectedJumpId);
-  const jumps = useJmhStore((state) => state.jumps);
+const NextActionsPanelComponent: React.FC = () => {
+  const [nextActions, setNextActions, selectedJumpId, jumps] = useJmhShallow((state) =>
+    [state.nextActions, state.setNextActions, state.selectedJumpId, state.jumps] as const,
+  );
+  const actions = useMemo(() => sortNextActions(nextActions), [nextActions]);
   const [summary, setSummary] = useState("");
   const [dueDate, setDueDate] = useState<string>("");
 
@@ -118,3 +118,6 @@ export const NextActionsPanel: React.FC = () => {
     </section>
   );
 };
+
+export const NextActionsPanel = React.memo(NextActionsPanelComponent);
+NextActionsPanel.displayName = "NextActionsPanel";
