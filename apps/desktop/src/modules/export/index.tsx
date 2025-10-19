@@ -1448,17 +1448,30 @@ const ExportCenter: React.FC = () => {
                                 BBCode
                               </button>
                             </div>
-                            <label className="exports__preview-spoiler">
+                            <label
+                              className={
+                                section.preference.spoiler
+                                  ? "exports__preview-spoiler exports__preview-spoiler--active"
+                                  : "exports__preview-spoiler"
+                              }
+                            >
+                              <span aria-hidden="true" className="exports__preview-spoiler-icon" />
                               <input
                                 type="checkbox"
                                 checked={section.preference.spoiler}
                                 onChange={(event) => setSectionSpoiler(section.key, event.target.checked)}
                               />
-                              Spoiler
+                              <span>Spoiler</span>
                             </label>
                           </div>
                         </header>
-                        <div className="exports__preview-pane">
+                        <div
+                          className={
+                            section.preference.format === "markdown"
+                              ? "exports__preview-pane exports__preview-pane--markdown"
+                              : "exports__preview-pane exports__preview-pane--bbcode"
+                          }
+                        >
                           {section.preference.format === "markdown" ? (
                             <div
                               className="exports__preview-markdown"
