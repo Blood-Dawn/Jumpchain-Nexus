@@ -23,9 +23,11 @@ SOFTWARE.
 */
 
 import { create } from "zustand";
+import { shallow } from "zustand/shallow";
 import type {
   EntityRecord,
   GlobalSearchResults,
+  JumpAssetType,
   JumpRecord,
   NextActionRecord,
   NoteRecord,
@@ -47,6 +49,10 @@ export interface JmhState {
   setNextActions: (actions: NextActionRecord[]) => void;
   selectedJumpId: string | null;
   setSelectedJump: (id: string | null) => void;
+  activeAssetType: JumpAssetType;
+  setActiveAssetType: (type: JumpAssetType) => void;
+  selectedAssetId: string | null;
+  setSelectedAssetId: (id: string | null) => void;
   selectedNoteId: string | null;
   setSelectedNote: (id: string | null) => void;
   selectedFileId: string | null;
@@ -82,6 +88,10 @@ export const useJmhStore = create<JmhState>((set) => ({
   setNextActions: (actions) => set({ nextActions: actions }),
   selectedJumpId: null,
   setSelectedJump: (selectedJumpId) => set({ selectedJumpId }),
+  activeAssetType: "origin",
+  setActiveAssetType: (activeAssetType) => set({ activeAssetType }),
+  selectedAssetId: null,
+  setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   selectedNoteId: null,
   setSelectedNote: (selectedNoteId) => set({ selectedNoteId }),
   selectedFileId: null,
@@ -103,6 +113,8 @@ export const useJmhStore = create<JmhState>((set) => ({
   onboardingOpen: false,
   setOnboardingOpen: (onboardingOpen) => set({ onboardingOpen }),
 }));
+
+export const useJmhShallow = <T,>(selector: (state: JmhState) => T) => useJmhStore(selector, shallow);
 
 export function selectCurrentJump(jumps: JumpRecord[], id: string | null): JumpRecord | null {
   if (!id) return null;

@@ -3,6 +3,7 @@ import {
   composeDocument,
   createDefaultOptions,
   createDefaultSectionPreferences,
+  createPreviewSections,
   generateSections,
   useExportConfigStore,
   type ExportSectionContent,
@@ -216,7 +217,22 @@ const SAMPLE_SNAPSHOT: ExportSnapshot = {
     },
   ],
   settings: [],
-  presets: [],
+  presets: [
+    {
+      id: "preset-1",
+      name: "Spoiler Export",
+      description: "Default with spoilers",
+      options_json: JSON.stringify({
+        includeNotes: true,
+        sectionPreferences: {
+          notes: { spoiler: true },
+          jumps: { format: "bbcode" },
+        },
+      }),
+      created_at: "2025-01-01T00:00:00.000Z",
+      updated_at: "2025-01-01T00:00:00.000Z",
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -227,14 +243,14 @@ beforeEach(() => {
 describe("useExportConfigStore", () => {
   test("persists preset selection and section preferences", async () => {
     useExportConfigStore.getState().setSelectedPresetId("alpha");
-    useExportConfigStore.getState().setSectionSpoiler("jumps", true);
-    useExportConfigStore.getState().setSectionFormat("notes", "bbcode");
     useExportConfigStore.getState().setFormState({
       id: "alpha",
       name: "Alpha",
       description: "",
       options: createDefaultOptions(),
     });
+    useExportConfigStore.getState().setSectionSpoiler("jumps", true);
+    useExportConfigStore.getState().setSectionFormat("notes", "bbcode");
 
     const serialized = localStorage.getItem("export-config") ?? "";
 
@@ -247,7 +263,29 @@ describe("useExportConfigStore", () => {
     expect(after.selectedPresetId).toBe("alpha");
     expect(after.sectionPreferences.jumps.spoiler).toBe(true);
     expect(after.sectionPreferences.notes.format).toBe("bbcode");
+    expect(after.formState?.options.sectionPreferences.jumps.spoiler).toBe(true);
+    expect(after.formState?.options.sectionPreferences.notes.format).toBe("bbcode");
     expect(after.formState?.id).toBe("alpha");
+  });
+});
+
+describe("generateSections", () => {
+  test("respects asset toggles", () => {
+    const withPerks = generateSections(SAMPLE_SNAPSHOT, createDefaultOptions());
+    const jumpMarkdown = withPerks.find((section) => section.key === "jumps")?.markdown ?? "";
+    expect(jumpMarkdown).toContain("### Perks");
+
+    const optionsWithoutPerks = {
+      ...createDefaultOptions(),
+      includeAssets: {
+        ...createDefaultOptions().includeAssets,
+        perk: false,
+      },
+    };
+
+    const withoutPerks = generateSections(SAMPLE_SNAPSHOT, optionsWithoutPerks);
+    const toggledMarkdown = withoutPerks.find((section) => section.key === "jumps")?.markdown ?? "";
+    expect(toggledMarkdown).not.toContain("### Perks");
   });
 });
 
@@ -466,5 +504,32 @@ describe("composeDocument", () => {
     const bbcode = composeDocument("bbcode", sections, preferences);
     expect(bbcode).toContain("[spoiler=Notes Overview]");
     expect(bbcode).toContain("[/spoiler]");
+  });
+});
+
+describe("createPreviewSections", () => {
+  const baseSection: ExportSectionContent = {
+    key: "notes",
+    title: "Notes Overview",
+    markdown: "## Notes\n\n- Entry",
+    text: "Notes",
+  };
+
+  test("wraps html preview with spoilers when enabled", () => {
+    const preferences = createDefaultSectionPreferences();
+    preferences.notes = { ...preferences.notes, spoiler: true };
+
+    const previews = createPreviewSections([baseSection], preferences);
+    expect(previews[0].htmlPreview).toContain("<details");
+    expect(previews[0].bbcode).toContain("[spoiler=Notes Overview]");
+  });
+
+  test("renders plain preview when spoilers are disabled", () => {
+    const preferences = createDefaultSectionPreferences();
+    preferences.notes = { ...preferences.notes, spoiler: false };
+
+    const previews = createPreviewSections([baseSection], preferences);
+    expect(previews[0].htmlPreview).not.toContain("<details");
+    expect(previews[0].bbcode).not.toContain("[spoiler=Notes Overview]");
   });
 });

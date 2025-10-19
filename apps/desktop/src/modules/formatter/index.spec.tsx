@@ -22,8 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import type { Mock } from "vitest";
@@ -32,6 +32,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import InputFormatter from "./index";
 import type { FormatterSettings } from "../../db/dao";
 import { loadFormatterSettings, updateFormatterSettings } from "../../db/dao";
+import {
+  FORMATTER_PREFERENCES_QUERY_KEY,
+  useFormatterPreferences,
+} from "../../hooks/useFormatterPreferences";
 
 const initialSettings: FormatterSettings = {
   removeAllLineBreaks: false,
@@ -73,10 +77,7 @@ function withProvider(client: QueryClient, children: ReactNode) {
 }
 
 const ConnectedTextarea: React.FC = () => {
-  const query = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const query = useFormatterPreferences();
 
   return (
     <textarea
@@ -136,6 +137,28 @@ describe("InputFormatter spellcheck preference", () => {
     await user.click(toggle);
     await waitFor(() => expect(updateFormatterSettingsMock).toHaveBeenCalled());
     await waitFor(() => expect(connected).toHaveAttribute("spellcheck", "false"));
+
+    client.clear();
+  });
+
+  it("reflects updates saved from Options without a reload", async () => {
+    const client = createTestQueryClient();
+    render(withProvider(client, <InputFormatter />));
+
+    const toggle = await screen.findByLabelText(/spellcheck/i);
+    expect(toggle).toBeChecked();
+
+    await act(async () => {
+      memorySettings.spellcheckEnabled = false;
+      await client.invalidateQueries({
+        queryKey: FORMATTER_PREFERENCES_QUERY_KEY,
+        refetchType: "active",
+      });
+    });
+
+    await waitFor(() => expect(toggle).not.toBeChecked());
+    expect(updateFormatterSettingsMock).not.toHaveBeenCalled();
+    expect(loadFormatterSettingsMock).toHaveBeenCalledTimes(2);
 
     client.clear();
   });
