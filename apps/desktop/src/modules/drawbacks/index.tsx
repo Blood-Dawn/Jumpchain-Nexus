@@ -199,12 +199,15 @@ const DrawbackSupplement: React.FC = () => {
   }, [categoryOptions, categoryFilter]);
 
   const filteredDrawbacks = useMemo(() => {
-    const all = drawbacksQuery.data ?? [];
+    const source = orderedDrawbacks.length
+      ? orderedDrawbacks
+      : (drawbacksQuery.data ?? []);
+
     if (categoryFilter === "all") {
-      return all;
+      return source;
     }
 
-    return all.filter((asset) => {
+    return source.filter((asset) => {
       const metadata = parseMetadata(asset.metadata);
       if (categoryFilter === "house") {
         return metadata.houseRule === true;
@@ -213,7 +216,7 @@ const DrawbackSupplement: React.FC = () => {
       const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
       return normalized === categoryFilter;
     });
-  }, [drawbacksQuery.data, categoryFilter]);
+  }, [categoryFilter, drawbacksQuery.data, orderedDrawbacks]);
 
   useEffect(() => {
     if (!filteredDrawbacks.length) {
@@ -625,8 +628,12 @@ const DrawbackSupplement: React.FC = () => {
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
           <ul aria-label="Drawback order">
-            {orderedDrawbacks.map((asset, index) => {
+            {filteredDrawbacks.map((asset) => {
               const metadata = parseMetadata(asset.metadata);
+              const orderedIndex = orderedDrawbacks.findIndex((candidate) => candidate.id === asset.id);
+              if (orderedIndex === -1) {
+                return null;
+              }
               return (
                 <li key={asset.id}>
                   <button
@@ -653,16 +660,16 @@ const DrawbackSupplement: React.FC = () => {
                     <button
                       type="button"
                       aria-label={`Move ${asset.name} earlier`}
-                      onClick={() => moveDrawback(index, index - 1)}
-                      disabled={index === 0 || reorderMutation.isPending}
+                      onClick={() => moveDrawback(orderedIndex, orderedIndex - 1)}
+                      disabled={orderedIndex === 0 || reorderMutation.isPending}
                     >
                       ↑
                     </button>
                     <button
                       type="button"
                       aria-label={`Move ${asset.name} later`}
-                      onClick={() => moveDrawback(index, index + 1)}
-                      disabled={index === orderedDrawbacks.length - 1 || reorderMutation.isPending}
+                      onClick={() => moveDrawback(orderedIndex, orderedIndex + 1)}
+                      disabled={orderedIndex === orderedDrawbacks.length - 1 || reorderMutation.isPending}
                     >
                       ↓
                     </button>
