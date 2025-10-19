@@ -72,6 +72,14 @@ import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 
+const assetTypeIcons: Record<JumpAssetType, string> = {
+  origin: "🪐",
+  perk: "✨",
+  item: "🎒",
+  companion: "🤝",
+  drawback: "⚠️",
+};
+
 interface AssetFormState {
   id: string;
   name: string;
@@ -157,8 +165,11 @@ const AssetListRow: React.FC<AssetListRowProps> = ({
       >
         <span aria-hidden="true">⋮⋮</span>
       </button>
+      <span className="asset-board__icon" aria-hidden="true">
+        {assetTypeIcons[asset.asset_type] ?? "📦"}
+      </span>
       <button type="button" className="asset-board__select" onClick={() => onSelect(asset.id)}>
-        <span>{asset.name}</span>
+        <span>{displayName}</span>
         <small>{formatValue((asset.cost ?? 0) * Math.max(asset.quantity ?? 1, 1))}</small>
       </button>
     </li>
