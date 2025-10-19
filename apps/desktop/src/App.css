@@ -42,11 +42,68 @@ SOFTWARE.
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  --app-body-background: radial-gradient(
+      circle at top,
+      rgba(40, 64, 120, 0.45),
+      transparent 60%
+    ),
+    #05080f;
+  --app-shell-background: linear-gradient(
+    180deg,
+    rgba(9, 19, 36, 0.85) 0%,
+    rgba(8, 12, 20, 0.95) 100%
+  );
 }
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top, rgba(40, 64, 120, 0.45), transparent 60%), #05080f;
+  background: var(--app-body-background);
+}
+
+body[data-background-theme="starfield"] {
+  --app-body-background: radial-gradient(
+      circle at top,
+      rgba(40, 64, 120, 0.45),
+      transparent 60%
+    ),
+    #05080f;
+  --app-shell-background: linear-gradient(
+    180deg,
+    rgba(9, 19, 36, 0.85) 0%,
+    rgba(8, 12, 20, 0.95) 100%
+  );
+}
+
+body[data-background-theme="nebula"] {
+  --app-body-background: radial-gradient(
+      circle at 20% 20%,
+      rgba(122, 203, 255, 0.35),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 80% 10%,
+      rgba(255, 149, 122, 0.25),
+      transparent 55%
+    ),
+    #080c16;
+  --app-shell-background: linear-gradient(
+    180deg,
+    rgba(26, 22, 46, 0.88) 0%,
+    rgba(18, 16, 34, 0.94) 100%
+  );
+}
+
+body[data-background-theme="minimal"] {
+  --app-body-background: linear-gradient(
+    180deg,
+    rgba(12, 16, 24, 0.95) 0%,
+    rgba(8, 10, 16, 1) 100%
+  );
+  --app-shell-background: linear-gradient(
+    180deg,
+    rgba(18, 24, 36, 0.92) 0%,
+    rgba(12, 16, 24, 0.96) 100%
+  );
 }
 
 #root {
@@ -103,7 +160,7 @@ a:hover {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr) auto;
   min-height: 100vh;
-  background: linear-gradient(180deg, rgba(9, 19, 36, 0.85) 0%, rgba(8, 12, 20, 0.95) 100%);
+  background: var(--app-shell-background);
 }
 
 .hub-main {
@@ -3166,6 +3223,73 @@ a:hover {
 
 .options__list--radio {
   gap: 0.6rem;
+}
+
+.options__list--theme {
+  gap: 0.75rem;
+}
+
+.options__theme-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(122, 203, 255, 0.16);
+  background: rgba(8, 12, 22, 0.78);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.options__theme-option:hover {
+  border-color: rgba(122, 203, 255, 0.45);
+  box-shadow: 0 12px 28px rgba(8, 14, 24, 0.35);
+  transform: translateY(-1px);
+}
+
+.options__theme-option[data-active="true"] {
+  border-color: rgba(122, 203, 255, 0.6);
+  box-shadow: 0 16px 36px rgba(8, 14, 24, 0.42);
+}
+
+.options__theme-details {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: rgba(240, 247, 255, 0.86);
+}
+
+.options__theme-details input[type="radio"] {
+  margin: 0;
+}
+
+.options__theme-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.options__theme-text strong {
+  font-size: 0.96rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.options__theme-text span {
+  font-size: 0.84rem;
+  color: rgba(240, 247, 255, 0.62);
+  letter-spacing: 0.02em;
+}
+
+.options__theme-preview {
+  flex-shrink: 0;
+  width: 84px;
+  height: 48px;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(122, 203, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  background-size: cover;
+  background-position: center;
 }
 
 .options__status {

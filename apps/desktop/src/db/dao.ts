@@ -3299,6 +3299,7 @@ export const SUPPLEMENT_SETTING_KEY = "options.supplements";
 export const WAREHOUSE_MODE_SETTING_KEY = "options.warehouseMode";
 export const CATEGORY_PRESETS_SETTING_KEY = "options.categoryPresets";
 export const EXPORT_PREFERENCES_SETTING_KEY = "options.exportPreferences";
+export const APPEARANCE_SETTING_KEY = "options.appearance";
 export const WAREHOUSE_PERSONAL_REALITY_SETTING_KEY = "warehouse.personalReality";
 
 export const DEFAULT_JUMP_DEFAULTS: JumpDefaultsSettings = {
@@ -3313,6 +3314,22 @@ export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
   enableEssentialBodyMod: true,
   allowCompanionBodyMod: true,
 };
+
+export type AppearanceThemeOption = "starfield" | "nebula" | "minimal";
+
+export interface AppearanceSettings {
+  backgroundTheme: AppearanceThemeOption;
+}
+
+export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  backgroundTheme: "starfield",
+};
+
+const APPEARANCE_THEME_VALUES: readonly AppearanceThemeOption[] = [
+  "starfield",
+  "nebula",
+  "minimal",
+];
 
 export const ESSENTIAL_BODY_MOD_SETTING_ID = "essential-default";
 export const UNIVERSAL_DRAWBACK_SETTING_ID = "universal-default";
@@ -3525,6 +3542,40 @@ export function parseSupplementSettings(record: AppSettingRecord | null): Supple
       DEFAULT_SUPPLEMENT_SETTINGS.allowCompanionBodyMod
     ),
   };
+}
+
+function normalizeAppearanceTheme(
+  value: unknown,
+  fallback: AppearanceThemeOption
+): AppearanceThemeOption {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase() as AppearanceThemeOption;
+    if (APPEARANCE_THEME_VALUES.includes(normalized)) {
+      return normalized;
+    }
+  }
+  return fallback;
+}
+
+export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
+  const raw = parseJsonValue(record);
+  if (typeof raw === "string") {
+    return {
+      backgroundTheme: normalizeAppearanceTheme(raw, DEFAULT_APPEARANCE_SETTINGS.backgroundTheme),
+    };
+  }
+
+  if (raw && typeof raw === "object") {
+    const { backgroundTheme } = raw as { backgroundTheme?: unknown };
+    return {
+      backgroundTheme: normalizeAppearanceTheme(
+        backgroundTheme,
+        DEFAULT_APPEARANCE_SETTINGS.backgroundTheme
+      ),
+    };
+  }
+
+  return { ...DEFAULT_APPEARANCE_SETTINGS };
 }
 
 const ESSENTIAL_STARTING_MODE_VALUES: readonly EssentialStartingMode[] = ["hardcore", "standard", "heroic"];
@@ -3777,6 +3828,11 @@ export async function loadJumpDefaults(): Promise<JumpDefaultsSettings> {
 export async function loadSupplementSettings(): Promise<SupplementToggleSettings> {
   const record = await getAppSetting(SUPPLEMENT_SETTING_KEY);
   return parseSupplementSettings(record);
+}
+
+export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
+  const record = await getAppSetting(APPEARANCE_SETTING_KEY);
+  return parseAppearanceSettings(record);
 }
 
 export async function loadEssentialBodyModSettings(): Promise<EssentialBodyModSettings> {
