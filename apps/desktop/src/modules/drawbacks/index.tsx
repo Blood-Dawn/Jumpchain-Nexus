@@ -34,7 +34,6 @@ import {
   DEFAULT_SUPPLEMENT_SETTINGS,
   loadUniversalDrawbackSettings,
   DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS,
-  loadFormatterSettings,
   updateJumpAsset,
   reorderJumpAssets,
   type JumpAssetRecord,
@@ -42,6 +41,7 @@ import {
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 type Severity = "minor" | "moderate" | "severe";
 
@@ -97,11 +97,7 @@ const DrawbackSupplement: React.FC = () => {
     enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
-  const formatterQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-    enabled: drawbackSupplementEnabled,
-  });
+  const formatterQuery = useFormatterPreferences({ enabled: drawbackSupplementEnabled });
 
   const universalQuery = useQuery({
     queryKey: ["universal-drawbacks"],
@@ -115,10 +111,6 @@ const DrawbackSupplement: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   useEffect(() => {
-    setOrderedDrawbacks([]);
-  }, [selectedJumpId]);
-
-  useEffect(() => {
     if (!drawbacksQuery.data?.length) {
       setSelectedDrawbackId(null);
       setFormState(null);
@@ -126,9 +118,15 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbacksQuery.data]);
 
+  const selectedJump = useMemo(() => {
+    if (!selectedJumpId) {
+      return null;
+    }
+  }, [drawbacksQuery.data]);
+
   const selectedJump = useMemo(
     () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
-    [jumpsQuery.data, selectedJumpId]
+    [jumpsQuery.data, selectedJumpId],
   );
 
   useEffect(() => {
@@ -138,6 +136,11 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId],
+  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {
@@ -203,20 +206,35 @@ const DrawbackSupplement: React.FC = () => {
 
   const filteredDrawbacks = useMemo(() => {
     const all = drawbacksQuery.data ?? [];
-    if (categoryFilter === "all") {
-      return all;
-    }
 
     return all.filter((asset) => {
       const metadata = parseMetadata(asset.metadata);
-      if (categoryFilter === "house") {
-        return metadata.houseRule === true;
+      const matchesCategory = (() => {
+        if (categoryFilter === "all") {
+          return true;
+        }
+        if (categoryFilter === "house") {
+          return metadata.houseRule === true;
+        }
+        const trimmed = asset.category?.trim();
+        const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+        return normalized === categoryFilter;
+      })();
+
+      if (!matchesCategory) {
+        return false;
       }
-      const trimmed = asset.category?.trim();
-      const normalized = trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
-      return normalized === categoryFilter;
+
+      if (severityFilter === "all") {
+        return true;
+      }
+
+      const severity = metadata.severity ?? "moderate";
+      return severity === severityFilter;
     });
-  }, [drawbacksQuery.data, categoryFilter]);
+  }, [drawbacksQuery.data, categoryFilter, severityFilter]);
+
+  const filteredDrawbackIds = useMemo(() => new Set(filteredDrawbacks.map((asset) => asset.id)), [filteredDrawbacks]);
 
   useEffect(() => {
     if (!filteredDrawbacks.length) {
@@ -316,6 +334,24 @@ const DrawbackSupplement: React.FC = () => {
     selectedJump,
   ]);
 
+  const manualCredit = budgetQuery.data?.drawbackCredit ?? 0;
+  const universalJumperCredit = universalRewardState.stipend.jumper;
+  const totalCredit = useMemo(
+    () => manualCredit + universalJumperCredit,
+    [manualCredit, universalJumperCredit],
+  );
+
+  const balanceWithGrants = useMemo(() => {
+    const baseBalance = budgetQuery.data?.balance;
+    if (baseBalance === null || baseBalance === undefined) {
+      return null;
+    }
+    return baseBalance + universalJumperCredit;
+  }, [budgetQuery.data?.balance, universalJumperCredit]);
+
+  const totalCount = drawbacksQuery.data?.length ?? 0;
+  const visibleCount = filteredDrawbacks.length;
+
   useEffect(() => {
     if (!selectedDrawback) {
       setFormState(null);
@@ -340,33 +376,6 @@ const DrawbackSupplement: React.FC = () => {
       setFormState(null);
     }
   }, [drawbackSupplementEnabled]);
-
-  const manualCredit = useMemo(() => {
-    return (orderedDrawbacks ?? []).reduce(
-      (sum, entry) => sum + (entry.cost ?? 0) * (entry.quantity ?? 1),
-      0
-    );
-  }, [orderedDrawbacks]);
-
-  const jumperStipend = useMemo(() => {
-    if (!universalRewardState.eligible) {
-      return 0;
-    }
-    return universalRewardState.stipend.jumper;
-  }, [universalRewardState]);
-
-  const totalCredit = useMemo(() => manualCredit + jumperStipend, [manualCredit, jumperStipend]);
-
-  const balanceWithGrants = useMemo(() => {
-    if (!budgetQuery.data) {
-      return null;
-    }
-    const baseBalance = budgetQuery.data.balance ?? 0;
-    return baseBalance + jumperStipend;
-  }, [budgetQuery.data, jumperStipend]);
-
-  const totalCount = drawbacksQuery.data?.length ?? 0;
-  const visibleCount = filteredDrawbacks.length;
 
   const hasOrderChanges = useMemo(() => {
     if (!drawbacksQuery.data?.length) {
@@ -628,6 +637,28 @@ const DrawbackSupplement: React.FC = () => {
             ))}
           </select>
         </label>
+        <div className="drawbacks__segmented" role="group" aria-label="Filter by severity">
+          {[
+            { value: "all" as const, label: "All" },
+            { value: "minor" as const, label: "Minor" },
+            { value: "moderate" as const, label: "Moderate" },
+            { value: "severe" as const, label: "Severe" },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={
+                severityFilter === option.value
+                  ? "drawbacks__segmented-button drawbacks__segmented-button--active"
+                  : "drawbacks__segmented-button"
+              }
+              aria-pressed={severityFilter === option.value}
+              onClick={() => setSeverityFilter(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="drawbacks__layout">
@@ -637,11 +668,14 @@ const DrawbackSupplement: React.FC = () => {
           {!drawbacksQuery.isLoading && totalCount === 0 && (
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
-          <ul aria-label="Drawback order">
-            {orderedDrawbacks.map((asset, index) => {
-              const metadata = parseMetadata(asset.metadata);
-              return (
-                <li key={asset.id}>
+            <ul aria-label="Drawback order">
+              {orderedDrawbacks.map((asset, index) => {
+                if (!filteredDrawbackIds.has(asset.id)) {
+                  return null;
+                }
+                const metadata = parseMetadata(asset.metadata);
+                return (
+                  <li key={asset.id}>
                   <button
                     type="button"
                     className={asset.id === selectedDrawbackId ? "drawbacks__item drawbacks__item--active" : "drawbacks__item"}
