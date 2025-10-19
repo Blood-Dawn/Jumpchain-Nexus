@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Editor as CoreEditor } from "@tiptap/core";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -10,12 +10,23 @@ import {
   type DraftState,
 } from "./snapshotUtils";
 
+const activeEditors: CoreEditor[] = [];
+
 function createEditor(content: string): CoreEditor {
-  return new CoreEditor({
+  const editor = new CoreEditor({
     extensions: [StarterKit],
     content,
   });
+  activeEditors.push(editor);
+  return editor;
 }
+
+afterEach(() => {
+  while (activeEditors.length > 0) {
+    const editor = activeEditors.pop();
+    editor?.destroy();
+  }
+});
 
 const asTiptap = (editor: CoreEditor): TiptapEditor => editor as unknown as TiptapEditor;
 
