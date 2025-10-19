@@ -37,6 +37,18 @@ SOFTWARE.
   font-weight: 400;
   background-color: #05080f;
   color: #f0f7ff;
+  --module-accent-jump-hub: #4ecdc4;
+  --module-accent-cosmic-passport: #79c4ff;
+  --module-accent-cosmic-warehouse: #f4aa64;
+  --module-accent-cosmic-locker: #ff8bcb;
+  --module-accent-drawback-supplement: #ff9f6e;
+  --module-accent-exporter: #b497ff;
+  --module-accent-statistics: #69f0ae;
+  --module-accent-jump-options: #58d3ff;
+  --module-accent-knowledge-base: #ffd86b;
+  --module-accent-input-formatter: #9fa5ff;
+  --module-accent-story-studio: #ff8ef2;
+  --module-accent-devtools-test-runner: #ffcf66;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -715,28 +727,52 @@ a:hover {
 }
 
 .jmh-nav__button {
+  --module-accent: var(--module-accent-jump-hub);
+  position: relative;
   width: 100%;
   text-align: left;
-  border: 1px solid transparent;
-  border-radius: 0.9rem;
+  border: 1px solid rgba(122, 203, 255, 0.08);
+  border-radius: 0.95rem;
   padding: 0.85rem 1rem;
-  background: rgba(13, 21, 32, 0.8);
+  background: rgba(13, 21, 32, 0.82);
   color: rgba(240, 247, 255, 0.78);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   text-decoration: none;
-  transition: background 0.15s ease, border 0.15s ease;
+  transition: background 0.2s ease, border 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .jmh-nav__button:hover {
-  background: rgba(20, 31, 48, 0.9);
+  background: linear-gradient(135deg, rgba(18, 28, 44, 0.92), rgba(15, 24, 38, 0.92));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--module-accent) 16%, rgba(10, 16, 26, 0.95) 84%),
+    color-mix(in srgb, var(--module-accent) 28%, rgba(9, 15, 24, 0.88) 72%)
+  );
+  border-color: color-mix(in srgb, var(--module-accent) 30%, transparent);
+}
+
+.jmh-nav__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--module-accent) 60%, transparent);
+  outline-offset: 2px;
 }
 
 .jmh-nav__button--active {
-  border-color: rgba(122, 203, 255, 0.65);
-  color: #f0f7ff;
-  background: rgba(31, 54, 92, 0.65);
+  color: #f5f9ff;
+  border-color: color-mix(in srgb, var(--module-accent) 55%, transparent);
+  background: linear-gradient(135deg, rgba(25, 39, 62, 0.95), rgba(16, 28, 46, 0.9));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--module-accent) 32%, rgba(8, 14, 24, 0.95) 68%),
+    color-mix(in srgb, var(--module-accent) 66%, rgba(12, 20, 34, 0.9) 34%)
+  );
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--module-accent) 22%, transparent);
+  transform: translateY(-1px);
+}
+
+.jmh-nav__button--active .jmh-nav__hint {
+  color: color-mix(in srgb, var(--module-accent) 18%, #f0f7ff 82%);
 }
 
 .jmh-nav__label {
@@ -746,6 +782,54 @@ a:hover {
 .jmh-nav__hint {
   font-size: 0.8rem;
   color: rgba(240, 247, 255, 0.55);
+}
+
+.jmh-nav__button--jump-hub {
+  --module-accent: var(--module-accent-jump-hub);
+}
+
+.jmh-nav__button--cosmic-passport {
+  --module-accent: var(--module-accent-cosmic-passport);
+}
+
+.jmh-nav__button--cosmic-warehouse {
+  --module-accent: var(--module-accent-cosmic-warehouse);
+}
+
+.jmh-nav__button--cosmic-locker {
+  --module-accent: var(--module-accent-cosmic-locker);
+}
+
+.jmh-nav__button--drawback-supplement {
+  --module-accent: var(--module-accent-drawback-supplement);
+}
+
+.jmh-nav__button--exporter {
+  --module-accent: var(--module-accent-exporter);
+}
+
+.jmh-nav__button--statistics {
+  --module-accent: var(--module-accent-statistics);
+}
+
+.jmh-nav__button--jump-options {
+  --module-accent: var(--module-accent-jump-options);
+}
+
+.jmh-nav__button--knowledge-base {
+  --module-accent: var(--module-accent-knowledge-base);
+}
+
+.jmh-nav__button--input-formatter {
+  --module-accent: var(--module-accent-input-formatter);
+}
+
+.jmh-nav__button--story-studio {
+  --module-accent: var(--module-accent-story-studio);
+}
+
+.jmh-nav__button--devtools-test-runner {
+  --module-accent: var(--module-accent-devtools-test-runner);
 }
 
 .timeline {
@@ -1331,6 +1415,7 @@ a:hover {
 }
 
 .jump-hub {
+  --module-accent: var(--module-accent-jump-hub);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1893,6 +1978,7 @@ a:hover {
 }
 
 .passport {
+  --module-accent: var(--module-accent-cosmic-passport);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1904,10 +1990,55 @@ a:hover {
 }
 
 .passport__header {
+  position: relative;
+  isolation: isolate;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+  padding: 1.75rem 2rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(122, 203, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--module-accent) 38%, rgba(122, 203, 255, 0.18) 62%);
+  background: linear-gradient(135deg, rgba(12, 20, 34, 0.88), rgba(9, 15, 24, 0.78));
+  overflow: hidden;
+  box-shadow: 0 24px 52px rgba(0, 0, 0, 0.38);
+}
+
+.passport__header::before {
+  content: "";
+  position: absolute;
+  inset: -20% -45% -55% -45%;
+  background:
+    radial-gradient(78% 78% at 84% 18%, rgba(121, 196, 255, 0.75) 0%, transparent 68%),
+    radial-gradient(120% 120% at 12% 108%, rgba(85, 141, 214, 0.35) 0%, transparent 72%),
+    conic-gradient(from 205deg at 78% 24%, rgba(121, 196, 255, 0.65) 0deg, transparent 240deg),
+    radial-gradient(18% 18% at 80% 28%, rgba(255, 255, 255, 0.18) 0%, transparent 68%),
+    conic-gradient(from 0deg at 80% 28%, rgba(255, 255, 255, 0.08) 0deg, rgba(255, 255, 255, 0) 120deg, rgba(255, 255, 255, 0.08) 240deg, transparent 360deg);
+  background:
+    radial-gradient(78% 78% at 84% 18%, color-mix(in srgb, var(--module-accent) 78%, transparent) 0%, transparent 68%),
+    radial-gradient(120% 120% at 12% 108%, color-mix(in srgb, var(--module-accent) 38%, transparent) 0%, transparent 72%),
+    conic-gradient(from 205deg at 78% 24%, color-mix(in srgb, var(--module-accent) 82%, transparent) 0deg, transparent 240deg),
+    radial-gradient(18% 18% at 80% 28%, rgba(255, 255, 255, 0.18) 0%, transparent 68%),
+    conic-gradient(from 0deg at 80% 28%, rgba(255, 255, 255, 0.08) 0deg, rgba(255, 255, 255, 0) 120deg, rgba(255, 255, 255, 0.08) 240deg, transparent 360deg);
+  opacity: 0.85;
+  filter: saturate(125%) blur(0.5px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.passport__header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(5, 10, 20, 0.78), rgba(8, 14, 26, 0.35));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.passport__header > * {
+  position: relative;
+  z-index: 2;
 }
 
 .passport__header h1 {
@@ -1915,47 +2046,129 @@ a:hover {
   font-size: 1.55rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 .passport__header p {
   margin: 0.35rem 0 0;
-  color: rgba(240, 247, 255, 0.66);
+  color: rgba(240, 247, 255, 0.78);
+  color: color-mix(in srgb, rgba(240, 247, 255, 0.92) 82%, rgba(112, 156, 205, 0.85) 18%);
   max-width: 46ch;
 }
 
 .passport__header-actions {
   display: flex;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .passport__header-actions button {
+  position: relative;
   border-radius: 999px;
-  border: 1px solid rgba(122, 203, 255, 0.2);
-  padding: 0.65rem 1.35rem;
-  background: rgba(16, 25, 40, 0.9);
-  color: #f0f7ff;
+  border: 1px solid rgba(122, 203, 255, 0.24);
+  border: 1px solid color-mix(in srgb, var(--module-accent) 45%, transparent);
+  padding: 0.65rem 1.45rem;
+  background: linear-gradient(135deg, rgba(23, 36, 54, 0.92), rgba(32, 52, 78, 0.94));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--module-accent) 28%, rgba(10, 16, 26, 0.96) 72%),
+    color-mix(in srgb, var(--module-accent) 65%, rgba(12, 20, 34, 0.9) 35%)
+  );
+  color: #f4f8ff;
   font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
+  box-shadow: 0 16px 32px color-mix(in srgb, var(--module-accent) 24%, transparent);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
 .passport__header-actions button:hover:not(:disabled) {
-  background: rgba(122, 203, 255, 0.18);
+  transform: translateY(-1px);
+  box-shadow: 0 20px 36px color-mix(in srgb, var(--module-accent) 32%, transparent);
+  filter: brightness(1.05);
+}
+
+.passport__header-actions button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--module-accent) 70%, transparent);
+  outline-offset: 2px;
 }
 
 .passport__header-actions button:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: wait;
+  box-shadow: none;
+  filter: none;
 }
 
 .passport__danger {
   border-color: rgba(255, 119, 140, 0.5) !important;
-  color: #ff9cab !important;
+  background: linear-gradient(135deg, rgba(109, 27, 38, 0.94), rgba(168, 46, 64, 0.94)) !important;
+  color: #ffd7dd !important;
+  box-shadow: 0 14px 32px rgba(168, 46, 64, 0.35) !important;
+}
+
+.passport__danger:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .passport__body {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 1.5rem;
+}
+
+@media (max-width: 960px) {
+  .passport {
+    padding: 2.1rem 2.25rem 2.6rem;
+  }
+
+  .passport__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .passport__header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+
+  .passport__header::before {
+    inset: -38% -60% -60% -60%;
+  }
+
+  .passport__header-actions {
+    justify-content: flex-start;
+  }
+
+  .passport__header-actions button {
+    flex: 1 1 160px;
+  }
+}
+
+@media (max-width: 600px) {
+  .passport {
+    padding: 1.75rem 1.5rem 2rem;
+  }
+
+  .passport__header {
+    padding: 1.35rem 1.25rem 1.5rem;
+  }
+
+  .passport__header::before {
+    inset: -58% -70% -70% -70%;
+    transform: scale(1.05);
+  }
+
+  .passport__header-actions {
+    gap: 0.65rem;
+  }
+
+  .passport__header-actions button {
+    padding: 0.65rem 1.1rem;
+    width: 100%;
+  }
 }
 
 .passport__list {
@@ -2514,6 +2727,7 @@ a:hover {
 }
 
 .warehouse {
+  --module-accent: var(--module-accent-cosmic-warehouse);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -2978,6 +3192,7 @@ a:hover {
 }
 
 .options {
+  --module-accent: var(--module-accent-jump-options);
   display: flex;
   flex-direction: column;
   gap: 2.5rem;
@@ -3338,6 +3553,7 @@ a:hover {
 }
 
 .locker {
+  --module-accent: var(--module-accent-cosmic-locker);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -3791,6 +4007,7 @@ a:hover {
 }
 
 .drawbacks {
+  --module-accent: var(--module-accent-drawback-supplement);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -4128,6 +4345,7 @@ a:hover {
 }
 
 .stats {
+  --module-accent: var(--module-accent-statistics);
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
@@ -4699,6 +4917,7 @@ a:hover {
 }
 
 .exports {
+  --module-accent: var(--module-accent-exporter);
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
