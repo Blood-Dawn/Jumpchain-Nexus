@@ -472,6 +472,7 @@ const DrawbackSupplement: React.FC = () => {
             .filter((asset): asset is JumpAssetRecord => Boolean(asset));
         }
       );
+      queryClient.invalidateQueries({ queryKey: ["jump-budget", jumpId] }).catch(() => undefined);
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: ["jump-drawbacks", selectedJumpId] }).catch(() => undefined);
