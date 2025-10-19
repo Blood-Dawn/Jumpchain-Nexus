@@ -118,18 +118,23 @@ const StatisticsHub: React.FC = () => {
   const inventoryChartSummaryId = useId();
 
   const totalJumps = cpRows.length;
-  const totalPurchases = useMemo(
-    () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.itemCount, 0),
-    [assetBreakdown]
-  );
-  const totalSpend = useMemo(
-    () => assetBreakdown.filter((entry) => entry.assetType !== "drawback").reduce((sum, entry) => sum + entry.netCost, 0),
-    [assetBreakdown]
-  );
-  const totalCredit = useMemo(
-    () => assetBreakdown.find((entry) => entry.assetType === "drawback")?.credit ?? 0,
-    [assetBreakdown]
-  );
+  const { totalPurchases, totalSpend, totalCredit } = useMemo(() => {
+    let purchases = 0;
+    let spend = 0;
+    let credit = 0;
+
+    for (const entry of assetBreakdown) {
+      if (entry.assetType === "drawback") {
+        credit += entry.credit;
+        continue;
+      }
+
+      purchases += entry.itemCount;
+      spend += entry.netCost;
+    }
+
+    return { totalPurchases: purchases, totalSpend: spend, totalCredit: credit };
+  }, [assetBreakdown]);
 
   const cpChartData = useMemo(
     () =>
