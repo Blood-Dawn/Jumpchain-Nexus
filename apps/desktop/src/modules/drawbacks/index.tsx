@@ -34,7 +34,6 @@ import {
   DEFAULT_SUPPLEMENT_SETTINGS,
   loadUniversalDrawbackSettings,
   DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS,
-  loadFormatterSettings,
   updateJumpAsset,
   reorderJumpAssets,
   type JumpAssetRecord,
@@ -42,6 +41,7 @@ import {
 } from "../../db/dao";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBudget } from "../../services/formatter";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 type Severity = "minor" | "moderate" | "severe";
 
@@ -97,11 +97,7 @@ const DrawbackSupplement: React.FC = () => {
     enabled: Boolean(selectedJumpId && drawbackSupplementEnabled),
   });
 
-  const formatterQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-    enabled: drawbackSupplementEnabled,
-  });
+  const formatterQuery = useFormatterPreferences({ enabled: drawbackSupplementEnabled });
 
   const universalQuery = useQuery({
     queryKey: ["universal-drawbacks"],
@@ -135,6 +131,11 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
+    [jumpsQuery.data, selectedJumpId],
+  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {

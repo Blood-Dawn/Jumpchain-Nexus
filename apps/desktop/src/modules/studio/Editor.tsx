@@ -41,7 +41,6 @@ import type {
 import {
   getChapterText,
   listChapterSnapshots,
-  loadFormatterSettings,
   recordChapterSnapshot,
   reorderChapters,
   saveChapterText,
@@ -234,10 +233,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
 
   const chapterId = chapter?.id;
 
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
 

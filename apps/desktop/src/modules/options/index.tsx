@@ -73,6 +73,7 @@ import {
   type WarehouseModeOption,
   type FormatterSettings,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 interface SettingPayload {
   key: string;
@@ -191,10 +192,7 @@ const JumpchainOptions: React.FC = () => {
     queryKey: ["universal-drawback-settings"],
     queryFn: loadUniversalDrawbackSettings,
   });
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
@@ -399,6 +397,12 @@ const JumpchainOptions: React.FC = () => {
         next.push(fresh);
         return next.sort((a, b) => a.key.localeCompare(b.key));
       });
+
+      if (variables.key.startsWith("formatter.")) {
+        await queryClient
+          .invalidateQueries({ queryKey: FORMATTER_PREFERENCES_QUERY_KEY })
+          .catch(() => undefined);
+      }
 
       switch (variables.key) {
         case JUMP_DEFAULTS_SETTING_KEY: {
