@@ -79,8 +79,11 @@ class FakeDb {
     if (normalized.startsWith("PRAGMA TABLE_INFO")) {
       return [];
     }
-    if (normalized.includes("FROM KNOWLEDGE_ARTICLES")) {
+    if (normalized.includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES")) {
       return [{ count: 0 }];
+    }
+    if (normalized.includes("FROM KNOWLEDGE_ARTICLE_ASSETS")) {
+      return [];
     }
     if (!this.selectQueue.length) {
       return [];
@@ -687,6 +690,7 @@ describe("jump asset dao", () => {
       sort_order: 3,
       created_at: insertedAt.toISOString(),
       updated_at: insertedAt.toISOString(),
+      knowledge_article_ids: [],
     };
     fakeDb.whenSelect(
       (sql, params) => sql.includes("SELECT * FROM jump_assets WHERE id = $1") && params[0] === "asset-123",

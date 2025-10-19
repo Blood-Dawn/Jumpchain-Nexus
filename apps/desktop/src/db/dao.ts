@@ -89,6 +89,7 @@ export interface KnowledgeArticleRecord {
   is_system: boolean;
   created_at: string;
   updated_at: string;
+  related_asset_ids: string[];
 }
 
 export interface UpsertKnowledgeArticleInput {
@@ -99,6 +100,7 @@ export interface UpsertKnowledgeArticleInput {
   content: string;
   tags?: string[];
   source?: string | null;
+  relatedAssetIds?: string[];
 }
 
 export interface KnowledgeArticleQuery {
@@ -181,6 +183,53 @@ export interface JumpAssetRecord {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  knowledge_article_ids: string[];
+}
+
+interface JumpAssetRow {
+  id: string;
+  jump_id: string;
+  asset_type: JumpAssetType;
+  name: string;
+  category: string | null;
+  subcategory: string | null;
+  cost: number;
+  quantity: number;
+  discounted: 0 | 1;
+  freebie: 0 | 1;
+  notes: string | null;
+  metadata: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetReferenceSummary {
+  asset_id: string;
+  asset_name: string;
+  asset_type: JumpAssetType;
+  jump_id: string;
+  jump_title: string;
+}
+
+export interface KnowledgeArticleReferenceSummary {
+  id: string;
+  title: string;
+  summary: string | null;
+}
+
+interface AssetReferenceRow {
+  asset_id: string;
+  asset_name: string | null;
+  asset_type: JumpAssetType;
+  jump_id: string;
+  jump_title: string | null;
+}
+
+interface KnowledgeArticleSummaryRow {
+  id: string;
+  title: string;
+  summary: string | null;
 }
 
 interface JumpStipendToggleRow {
@@ -1033,7 +1082,10 @@ export async function deleteEntity(id: string): Promise<void> {
   await withInit((db) => db.execute(`DELETE FROM entities WHERE id = $1`, [id]));
 }
 
-function mapKnowledgeRow(row: KnowledgeArticleRow): KnowledgeArticleRecord {
+function mapKnowledgeRow(
+  row: KnowledgeArticleRow,
+  relatedAssetIds: string[] = []
+): KnowledgeArticleRecord {
   return {
     id: row.id,
     title: row.title,
@@ -1045,7 +1097,106 @@ function mapKnowledgeRow(row: KnowledgeArticleRow): KnowledgeArticleRecord {
     is_system: row.is_system === 1,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    related_asset_ids: relatedAssetIds,
   };
+}
+
+function mapJumpAssetRow(
+  row: JumpAssetRow,
+  knowledgeArticleIds: string[] = []
+): JumpAssetRecord {
+  return {
+    ...row,
+    knowledge_article_ids: knowledgeArticleIds,
+  };
+}
+
+function normalizeIdList(values: Iterable<unknown> | null | undefined): string[] {
+  if (!values) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const text = typeof value === "string" ? value : String(value ?? "");
+    const trimmed = text.trim();
+    if (!trimmed.length || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+async function loadKnowledgeArticleAssetMap(
+  db: Database,
+  articleIds: string[]
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!articleIds.length) {
+    return map;
+  }
+  const placeholders = articleIds.map((_, index) => `$${index + 1}`).join(", ");
+  const rows = (await db.select<KnowledgeArticleAssetRow[]>(
+    `SELECT article_id, asset_id
+       FROM knowledge_article_assets
+      WHERE article_id IN (${placeholders})
+      ORDER BY article_id ASC, asset_id ASC`,
+    articleIds
+  )) as KnowledgeArticleAssetRow[];
+  for (const row of rows) {
+    const list = map.get(row.article_id) ?? [];
+    if (!list.includes(row.asset_id)) {
+      list.push(row.asset_id);
+    }
+    map.set(row.article_id, list);
+  }
+  return map;
+}
+
+async function loadAssetKnowledgeArticleMap(
+  db: Database,
+  assetIds: string[]
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!assetIds.length) {
+    return map;
+  }
+  const placeholders = assetIds.map((_, index) => `$${index + 1}`).join(", ");
+  const rows = (await db.select<KnowledgeArticleAssetRow[]>(
+    `SELECT article_id, asset_id
+       FROM knowledge_article_assets
+      WHERE asset_id IN (${placeholders})
+      ORDER BY asset_id ASC, article_id ASC`,
+    assetIds
+  )) as KnowledgeArticleAssetRow[];
+  for (const row of rows) {
+    const list = map.get(row.asset_id) ?? [];
+    if (!list.includes(row.article_id)) {
+      list.push(row.article_id);
+    }
+    map.set(row.asset_id, list);
+  }
+  return map;
+}
+
+async function replaceArticleAssetLinks(
+  db: Database,
+  articleId: string,
+  assetIds: string[]
+): Promise<void> {
+  await db.execute(`DELETE FROM knowledge_article_assets WHERE article_id = $1`, [articleId]);
+  if (!assetIds.length) {
+    return;
+  }
+  for (const assetId of assetIds) {
+    await db.execute(
+      `INSERT INTO knowledge_article_assets (article_id, asset_id)
+       VALUES ($1, $2)`,
+      [articleId, assetId]
+    );
+  }
 }
 
 async function seedKnowledgeBase(): Promise<void> {
@@ -1181,11 +1332,104 @@ export async function fetchKnowledgeArticles(
 
 export async function getKnowledgeArticle(id: string): Promise<KnowledgeArticleRecord | null> {
   await ensureKnowledgeBaseSeeded();
-  const rows = await withInit((db) =>
-    db.select<KnowledgeArticleRow[]>(`SELECT * FROM knowledge_articles WHERE id = $1`, [id])
-  );
-  const row = rows[0];
-  return row ? mapKnowledgeRow(row) : null;
+  return withInit(async (db) => {
+    const rows = (await db.select<KnowledgeArticleRow[]>(
+      `SELECT * FROM knowledge_articles WHERE id = $1`,
+      [id]
+    )) as KnowledgeArticleRow[];
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    const relationMap = await loadKnowledgeArticleAssetMap(db, [row.id]);
+    return mapKnowledgeRow(row, relationMap.get(row.id) ?? []);
+  });
+}
+
+export async function lookupAssetReferenceSummaries(
+  assetIds: string[]
+): Promise<AssetReferenceSummary[]> {
+  const normalized = normalizeIdList(assetIds);
+  if (!normalized.length) {
+    return [];
+  }
+  return withInit(async (db) => {
+    const placeholders = normalized.map((_, index) => `$${index + 1}`).join(", ");
+    const rows = (await db.select<AssetReferenceRow[]>(
+      `SELECT a.id AS asset_id,
+              a.name AS asset_name,
+              a.asset_type,
+              a.jump_id,
+              j.title AS jump_title
+         FROM jump_assets a
+         JOIN jumps j ON j.id = a.jump_id
+        WHERE a.id IN (${placeholders})
+        ORDER BY j.title COLLATE NOCASE, a.asset_type, a.name COLLATE NOCASE`,
+      normalized
+    )) as AssetReferenceRow[];
+    return rows.map((row) => ({
+      asset_id: row.asset_id,
+      asset_name: row.asset_name ?? "Unnamed Asset",
+      asset_type: row.asset_type,
+      jump_id: row.jump_id,
+      jump_title: row.jump_title ?? "Untitled Jump",
+    }));
+  });
+}
+
+export async function listAssetReferenceSummaries(): Promise<AssetReferenceSummary[]> {
+  return withInit(async (db) => {
+    const rows = (await db.select<AssetReferenceRow[]>(
+      `SELECT a.id AS asset_id,
+              a.name AS asset_name,
+              a.asset_type,
+              a.jump_id,
+              j.title AS jump_title
+         FROM jump_assets a
+         JOIN jumps j ON j.id = a.jump_id
+        ORDER BY j.title COLLATE NOCASE, a.asset_type, a.name COLLATE NOCASE`
+    )) as AssetReferenceRow[];
+    return rows.map((row) => ({
+      asset_id: row.asset_id,
+      asset_name: row.asset_name ?? "Unnamed Asset",
+      asset_type: row.asset_type,
+      jump_id: row.jump_id,
+      jump_title: row.jump_title ?? "Untitled Jump",
+    }));
+  });
+}
+
+export async function lookupKnowledgeArticleSummaries(
+  articleIds: string[]
+): Promise<KnowledgeArticleReferenceSummary[]> {
+  await ensureKnowledgeBaseSeeded();
+  const normalized = normalizeIdList(articleIds);
+  if (!normalized.length) {
+    return [];
+  }
+  return withInit(async (db) => {
+    const placeholders = normalized.map((_, index) => `$${index + 1}`).join(", ");
+    const rows = (await db.select<KnowledgeArticleSummaryRow[]>(
+      `SELECT id, title, summary
+         FROM knowledge_articles
+        WHERE id IN (${placeholders})`,
+      normalized
+    )) as KnowledgeArticleSummaryRow[];
+    const lookup = new Map(rows.map((row) => [row.id, row] as const));
+    const summaries: KnowledgeArticleReferenceSummary[] = [];
+    for (const id of normalized) {
+      const row = lookup.get(id);
+      if (!row) {
+        continue;
+      }
+      summaries.push({
+        id: row.id,
+        title: row.title,
+        summary: row.summary ?? null,
+      });
+    }
+    return summaries;
+  });
 }
 
 export async function upsertKnowledgeArticle(
@@ -1198,6 +1442,7 @@ export async function upsertKnowledgeArticle(
     const summary = toNullableText(input.summary ?? null);
     const source = toNullableText(input.source ?? null);
     const tags = serializeTags(input.tags ?? null);
+    const relatedAssetIds = normalizeIdList(input.relatedAssetIds ?? []);
 
     if (input.id) {
       const existingRows = await db.select<KnowledgeArticleRow[]>(
@@ -1220,11 +1465,13 @@ export async function upsertKnowledgeArticle(
           WHERE id = $8`,
         [input.title, category, summary, input.content, tags, source, now, input.id]
       );
+      await replaceArticleAssetLinks(db, input.id, relatedAssetIds);
       const refreshed = await db.select<KnowledgeArticleRow[]>(
         `SELECT * FROM knowledge_articles WHERE id = $1`,
         [input.id]
       );
-      return mapKnowledgeRow(refreshed[0] as KnowledgeArticleRow);
+      const row = refreshed[0] as KnowledgeArticleRow;
+      return mapKnowledgeRow(row, relatedAssetIds);
     }
 
     const id = uuid();
@@ -1234,11 +1481,12 @@ export async function upsertKnowledgeArticle(
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)`,
       [id, input.title, category, summary, input.content, tags, source, now]
     );
+    await replaceArticleAssetLinks(db, id, relatedAssetIds);
     const rows = await db.select<KnowledgeArticleRow[]>(
       `SELECT * FROM knowledge_articles WHERE id = $1`,
       [id]
     );
-    return mapKnowledgeRow(rows[0] as KnowledgeArticleRow);
+    return mapKnowledgeRow(rows[0] as KnowledgeArticleRow, relatedAssetIds);
   });
 }
 
@@ -2285,21 +2533,31 @@ export async function listJumpAssets(
     const typeList = Array.isArray(types) ? types : types ? [types] : [];
     if (typeList.length) {
       const placeholders = typeList.map((_, index) => `$${index + 2}`).join(", ");
-      const rows = await db.select<JumpAssetRecord[]>(
+      const rows = (await db.select<JumpAssetRow[]>(
         `SELECT * FROM jump_assets
          WHERE jump_id = $1 AND asset_type IN (${placeholders})
          ORDER BY sort_order ASC, created_at ASC`,
         [jumpId, ...typeList]
+      )) as JumpAssetRow[];
+      const relationMap = await loadAssetKnowledgeArticleMap(
+        db,
+        rows.map((row) => row.id)
       );
-      return rows as JumpAssetRecord[];
+      return rows.map((row) =>
+        mapJumpAssetRow(row, relationMap.get(row.id) ?? [])
+      );
     }
-    const rows = await db.select<JumpAssetRecord[]>(
+    const rows = (await db.select<JumpAssetRow[]>(
       `SELECT * FROM jump_assets
        WHERE jump_id = $1
        ORDER BY asset_type ASC, sort_order ASC, created_at ASC`,
       [jumpId]
+    )) as JumpAssetRow[];
+    const relationMap = await loadAssetKnowledgeArticleMap(
+      db,
+      rows.map((row) => row.id)
     );
-    return rows as JumpAssetRecord[];
+    return rows.map((row) => mapJumpAssetRow(row, relationMap.get(row.id) ?? []));
   });
 }
 
@@ -2340,8 +2598,11 @@ export async function createJumpAsset(input: CreateJumpAssetInput): Promise<Jump
       ]
     );
     await updateJumpCostSummary(input.jump_id);
-    const rows = await db.select<JumpAssetRecord[]>(`SELECT * FROM jump_assets WHERE id = $1`, [id]);
-    return rows[0] as JumpAssetRecord;
+    const rows = (await db.select<JumpAssetRow[]>(
+      `SELECT * FROM jump_assets WHERE id = $1`,
+      [id]
+    )) as JumpAssetRow[];
+    return mapJumpAssetRow(rows[0] as JumpAssetRow, []);
   });
 }
 
@@ -2350,14 +2611,16 @@ export async function updateJumpAsset(
   updates: UpdateJumpAssetInput
 ): Promise<JumpAssetRecord> {
   return withInit(async (db) => {
-    const existingRows = await db.select<JumpAssetRecord[]>(
+    const existingRows = (await db.select<JumpAssetRow[]>(
       `SELECT * FROM jump_assets WHERE id = $1`,
       [id]
-    );
-    const existing = existingRows[0];
-    if (!existing) {
+    )) as JumpAssetRow[];
+    const existingRow = existingRows[0];
+    if (!existingRow) {
       throw new Error(`Jump asset ${id} not found`);
     }
+    const existingRelations = await loadAssetKnowledgeArticleMap(db, [id]);
+    const existing = mapJumpAssetRow(existingRow, existingRelations.get(id) ?? []);
 
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -2408,10 +2671,6 @@ export async function updateJumpAsset(
       values.push(updates.sort_order);
     }
 
-    if (!sets.length) {
-      return existing;
-    }
-
     sets.push(`updated_at = $${index++}`);
     const now = new Date().toISOString();
     values.push(now);
@@ -2424,8 +2683,12 @@ export async function updateJumpAsset(
 
     await updateJumpCostSummary(existing.jump_id);
 
-    const rows = await db.select<JumpAssetRecord[]>(`SELECT * FROM jump_assets WHERE id = $1`, [id]);
-    return rows[0] as JumpAssetRecord;
+    const rows = (await db.select<JumpAssetRow[]>(
+      `SELECT * FROM jump_assets WHERE id = $1`,
+      [id]
+    )) as JumpAssetRow[];
+    const relationMap = await loadAssetKnowledgeArticleMap(db, [id]);
+    return mapJumpAssetRow(rows[0] as JumpAssetRow, relationMap.get(id) ?? existing.knowledge_article_ids);
   });
 }
 
