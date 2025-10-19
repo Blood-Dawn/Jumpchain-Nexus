@@ -48,8 +48,6 @@ export interface StudioState {
   setAutosaveInterval: (ms: number) => void;
   lastAutosaveAt: string | null;
   setLastAutosave: (timestamp: string | null) => void;
-  snapshotsOpen: boolean;
-  setSnapshotsOpen: (open: boolean) => void;
 }
 
 interface StudioPersistedState {
@@ -106,8 +104,6 @@ export const useStudioStore = create<StudioState>()(
       setAutosaveInterval: (autosaveIntervalMs) => set({ autosaveIntervalMs }),
       lastAutosaveAt: null,
       setLastAutosave: (lastAutosaveAt) => set({ lastAutosaveAt }),
-      snapshotsOpen: false,
-      setSnapshotsOpen: (snapshotsOpen) => set({ snapshotsOpen }),
     }),
     {
       name: "studio-settings",

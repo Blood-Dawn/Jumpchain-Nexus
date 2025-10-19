@@ -213,10 +213,13 @@ test.describe("Jumpchain desktop workflows", () => {
     await lockerItem.click();
     await lockerItem.getByRole("checkbox", { name: "Packed" }).check();
     const lockerForm = page.locator(".locker__form");
-    await lockerForm.getByLabel("Priority").selectOption("luxury");
+    await lockerForm.getByLabel("Priority").selectOption("high");
     await lockerForm.getByLabel("Notes").fill("Ready for deployment.");
     await lockerForm.getByRole("button", { name: "Save Changes" }).click();
-    await expect(lockerForm.getByLabel("Priority")).toHaveValue("luxury");
+    await expect(lockerForm.getByLabel("Priority")).toHaveValue("high");
+    await expect(
+      lockerForm.locator(".locker__warnings li", { hasText: "Marked as high priority." })
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Return to Warehouse" }).click();
     await expect(page.locator(".locker__list ul")).not.toContainText(itemName);

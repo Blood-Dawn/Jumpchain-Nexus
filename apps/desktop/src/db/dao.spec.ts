@@ -106,6 +106,64 @@ beforeEach(() => {
   loadMock.mockReset();
 });
 
+describe("fetchKnowledgeArticles", () => {
+  it("deduplicates rows that share the same article id", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const now = new Date().toISOString();
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM knowledge_articles") && sql.includes("ORDER BY"),
+      () => [
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-2",
+          title: "Unique Entry",
+          category: "Systems",
+          summary: "",
+          content: "Body",
+          tags: JSON.stringify(["unique"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    const { fetchKnowledgeArticles } = await importDao();
+    const articles = await fetchKnowledgeArticles();
+
+    expect(articles).toHaveLength(2);
+    expect(articles.map((article) => article.id)).toEqual(["article-1", "article-2"]);
+  });
+});
+
 describe("computeBudget", () => {
   it("aggregates normal purchases", async () => {
     loadMock.mockResolvedValue(new FakeDb());
@@ -180,6 +238,68 @@ describe("computeBudget", () => {
       freebies: 0,
       netCost: 0,
     });
+  });
+});
+
+describe("knowledge base import errors", () => {
+  it("persists each error with upsert semantics", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { recordKnowledgeBaseImportErrors } = await importDao();
+    const errors = [
+      { path: "/tmp/alpha.txt", reason: "Unsupported format" },
+      { path: "/tmp/beta.txt", reason: "Read failure" },
+    ];
+
+    await recordKnowledgeBaseImportErrors(errors);
+
+    expect(fakeDb.executeCalls).toHaveLength(errors.length);
+    const statement = fakeDb.executeCalls[0]?.sql ?? "";
+    expect(statement).toContain("INSERT INTO knowledge_import_errors");
+    expect(statement).toContain("ON CONFLICT(path)");
+  });
+
+  it("maps stored errors from the database", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.enqueueSelect([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+
+    const { listKnowledgeBaseImportErrors } = await importDao();
+    const rows = await listKnowledgeBaseImportErrors();
+
+    expect(rows).toEqual([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("deletes individual entries and clears the table", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { deleteKnowledgeBaseImportError, clearKnowledgeBaseImportErrors } = await importDao();
+
+    await deleteKnowledgeBaseImportError("err-1");
+    await clearKnowledgeBaseImportErrors();
+
+    expect(fakeDb.executeCalls.map((entry) => entry.sql)).toEqual([
+      "DELETE FROM knowledge_import_errors WHERE id = $1",
+      "DELETE FROM knowledge_import_errors",
+    ]);
   });
 });
 
@@ -1271,6 +1391,53 @@ describe("export preset dao", () => {
   });
 });
 
+describe("loadExportSnapshot", () => {
+  it("includes export presets with spoiler preferences", async () => {
+    const fakeDb = new FakeDb();
+    const now = "2025-01-12T00:00:00.000Z";
+    const options = {
+      includeNotes: true,
+      sectionPreferences: {
+        notes: { spoiler: true },
+      },
+    };
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM export_presets ORDER BY name"),
+      () => [
+        {
+          id: "preset-1",
+          name: "Spoiler Export",
+          description: null,
+          options_json: JSON.stringify(options),
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadExportSnapshot } = await importDao();
+    const snapshot = await loadExportSnapshot();
+
+    expect(snapshot.presets).toEqual([
+      {
+        id: "preset-1",
+        name: "Spoiler Export",
+        description: null,
+        options_json: JSON.stringify(options),
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+
+    const parsed = JSON.parse(snapshot.presets[0]?.options_json ?? "{}");
+    expect(parsed.sectionPreferences?.notes?.spoiler).toBe(true);
+  });
+});
+
 describe("warehouse personal reality summary", () => {
   it("aggregates WP and limit contributions", async () => {
     const fakeDb = new FakeDb();
@@ -1337,15 +1504,21 @@ describe("warehouse personal reality summary", () => {
       ],
       { once: true }
     );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
 
     const { loadWarehousePersonalRealitySummary } = await importDao();
     const summary = await loadWarehousePersonalRealitySummary();
-    expect(summary).toEqual({
+    expect(summary).toMatchObject({
       wpTotal: 10,
       wpCap: 12,
+      wpBaseCap: 12,
       limits: [
-        { key: "residents", label: "Residents", provided: 6, used: 4 },
-        { key: "structures", label: "Structures", provided: 3, used: 2 },
+        { key: "residents", label: "Residents", provided: 6, used: 4, baseProvided: 6 },
+        { key: "structures", label: "Structures", provided: 3, used: 2, baseProvided: 3 },
       ],
     });
   });
@@ -1399,13 +1572,210 @@ describe("warehouse personal reality summary", () => {
       () => [],
       { once: true }
     );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
 
     const { loadWarehousePersonalRealitySummary, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS } = await importDao();
     const summary = await loadWarehousePersonalRealitySummary();
     expect(summary.wpTotal).toBe(7);
     expect(summary.wpCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
+    expect(summary.wpBaseCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
     expect(summary.limits).toEqual([
-      { key: "power", label: "Power", provided: 10, used: 0 },
+      { key: "power", label: "Power", provided: 10, used: 0, baseProvided: 10 },
     ]);
+  });
+
+  it("applies stored overrides to Personal Reality summary", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Docking Ring",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              provides: { structures: 3 },
+              consumes: { ships: 2 },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 0,
+          companion_cp: 0,
+          item_cp: 0,
+          warehouse_wp: 20,
+          allow_gauntlet: 0,
+          gauntlet_halved: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            wpCap: 30,
+            limits: {
+              structures: 8,
+              hangar: 5,
+            },
+          }),
+          updated_at: "2025-01-02T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary.wpBaseCap).toBe(20);
+    expect(summary.wpCap).toBe(30);
+    expect(summary.wpOverride).toBe(30);
+    expect(summary.limits).toEqual([
+      {
+        key: "hangar",
+        label: "Hangar",
+        provided: 5,
+        used: 0,
+        baseProvided: 0,
+        override: 5,
+      },
+      {
+        key: "ships",
+        label: "Ships",
+        provided: 0,
+        used: 2,
+        baseProvided: 0,
+        override: undefined,
+      },
+      {
+        key: "structures",
+        label: "Structures",
+        provided: 8,
+        used: 0,
+        baseProvided: 3,
+        override: 8,
+      },
+    ]);
+  });
+
+  it("updates Personal Reality overrides in metadata", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
+
+    const { updateWarehousePersonalRealitySummary } = await importDao();
+    await updateWarehousePersonalRealitySummary({
+      wpCap: 25,
+      limitQuotas: {
+        structures: 12,
+      },
+    });
+
+    const initialInsert = fakeDb.executeCalls.at(-1);
+    expect(initialInsert?.sql).toContain("INSERT INTO app_settings");
+    expect(initialInsert?.params[0]).toBe("warehouse.personalReality");
+    const payload = JSON.parse(String(initialInsert?.params[1]));
+    expect(payload).toEqual({
+      wpCap: 25,
+      limits: {
+        structures: 12,
+      },
+    });
+
+    fakeDb.clearCalls();
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            wpCap: 25,
+            limits: {
+              structures: 12,
+              hangar: 5,
+            },
+          }),
+          updated_at: "2025-01-03T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    await updateWarehousePersonalRealitySummary({
+      wpCap: undefined,
+      limitQuotas: {
+        structures: undefined,
+        hangar: 4,
+      },
+    });
+
+    const secondInsert = fakeDb.executeCalls.at(-1);
+    expect(secondInsert?.sql).toContain("INSERT INTO app_settings");
+    expect(secondInsert?.params[0]).toBe("warehouse.personalReality");
+    const secondPayload = JSON.parse(String(secondInsert?.params[1]));
+    expect(secondPayload).toEqual({
+      limits: {
+        hangar: 4,
+      },
+    });
+
+    fakeDb.clearCalls();
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            limits: {
+              hangar: 4,
+            },
+          }),
+          updated_at: "2025-01-04T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    await updateWarehousePersonalRealitySummary({
+      wpCap: undefined,
+      limitQuotas: {
+        hangar: undefined,
+      },
+    });
+
+    const finalCall = fakeDb.executeCalls.at(-1);
+    expect(finalCall?.sql).toContain("DELETE FROM app_settings");
+    expect(finalCall?.params).toEqual(["warehouse.personalReality"]);
   });
 });

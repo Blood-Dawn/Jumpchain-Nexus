@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import React from "react";
 import {
   buildAttributeMatrix,
@@ -233,13 +233,17 @@ const essenceRecords: EssentialBodyModEssenceRecord[] = [
 describe("passport aggregation utilities", () => {
   it("builds attribute matrices respecting booster toggles", () => {
     const allTypes = new Set(["perk", "companion", "origin", "drawback"] as const);
-    const rows = buildAttributeMatrix(mockForm, mockDerived, { enabledAssetTypes: allTypes });
+    const rows = buildAttributeMatrix(mockForm, mockDerived, {
+      enabledAssetTypes: allTypes,
+      includeBoosterEntries: true,
+    });
     const strength = rows.find((row) => row.key === "Strength");
     expect(strength?.numericTotal).toBeCloseTo(55);
     expect(strength?.derivedNumericTotal).toBeCloseTo(15);
 
     const perkOnly = buildAttributeMatrix(mockForm, mockDerived, {
       enabledAssetTypes: new Set(["perk", "origin", "drawback"] as const),
+      includeBoosterEntries: true,
     });
     const filteredStrength = perkOnly.find((row) => row.key === "Strength");
     expect(filteredStrength?.numericTotal).toBeCloseTo(50);
@@ -249,6 +253,7 @@ describe("passport aggregation utilities", () => {
   it("builds skill matrices filtered by asset type", () => {
     const matrix = buildSkillMatrix(mockForm, mockDerived, {
       enabledAssetTypes: new Set(["perk", "origin", "drawback"] as const),
+      includeBoosterEntries: true,
     });
     const swordplay = matrix.find((row) => row.name === "Swordplay");
     expect(swordplay?.derivedCount).toBe(1);
@@ -258,6 +263,7 @@ describe("passport aggregation utilities", () => {
   it("summarizes essences across derived and recorded lists", () => {
     const matrix = buildSkillMatrix(mockForm, mockDerived, {
       enabledAssetTypes: new Set(["perk", "item", "companion", "origin", "drawback"] as const),
+      includeBoosterEntries: true,
     });
     const summary = buildEssenceSummary(matrix, essenceRecords, { essenceMode: "dual" });
     const solar = summary.find((entry) => entry.name === "Solar");
@@ -266,6 +272,24 @@ describe("passport aggregation utilities", () => {
     expect(voidEssence).toMatchObject({ missing: true, recorded: false });
     const lunar = summary.find((entry) => entry.name === "Lunar");
     expect(lunar).toMatchObject({ derivedCount: 0, recorded: true, trackedOnly: true });
+  });
+
+  it("omits booster-derived entries when includeBoosterEntries is false", () => {
+    const rows = buildAttributeMatrix(mockForm, mockDerived, {
+      enabledAssetTypes: new Set(["perk", "companion", "origin", "drawback"] as const),
+      includeBoosterEntries: false,
+    });
+    const strength = rows.find((row) => row.key === "Strength");
+    expect(strength?.derivedEntries).toHaveLength(0);
+    expect(strength?.numericTotal).toBeCloseTo(40);
+
+    const matrix = buildSkillMatrix(mockForm, mockDerived, {
+      enabledAssetTypes: new Set(["perk", "item", "companion", "origin", "drawback"] as const),
+      includeBoosterEntries: false,
+    });
+    const swordplay = matrix.find((row) => row.name === "Swordplay");
+    expect(swordplay?.derivedCount).toBe(0);
+    expect(swordplay?.totalCount).toBe(1);
   });
 });
 
@@ -301,39 +325,27 @@ describe("PassportAggregations", () => {
     expect(screen.getByText(/Derived: 1 · Recorded/i)).toBeInTheDocument();
   });
 
-  it("adds missing companions with a single checkbox click", () => {
-    const Wrapper: React.FC = () => {
-      const [statuses, setStatuses] = React.useState([
-        { id: "companion-asset-1", name: "Shield Maiden", jumpTitle: "Trials", synced: false },
-      ]);
-      return (
-        <PassportAggregations
-          form={mockForm}
-          derived={mockDerived}
-          derivedLoading={false}
-          essenceSettings={{ ...DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS, essenceMode: "dual" }}
-          essences={essenceRecords}
-          companionStatuses={statuses}
-          pendingCompanionIds={[]}
-          syncingCompanions={false}
-          onSyncAltForms={() => {
-            /* noop */
-          }}
-          onSyncCompanions={() => {
-            /* noop */
-          }}
-          onAddCompanion={(entry) =>
-            setStatuses((prev) =>
-              prev.map((item) => (item.id === entry.id ? { ...item, synced: true } : item))
-            )
-          }
-        />
-      );
-    };
+  it("retains manual entries when booster entries are hidden", () => {
+    const onSyncAltForms = vi.fn();
+    const onSyncCompanions = vi.fn();
+    render(
+      <PassportAggregations
+        form={mockForm}
+        derived={mockDerived}
+        derivedLoading={false}
+        essenceSettings={{ ...DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS, essenceMode: "dual" }}
+        essences={essenceRecords}
+        companionStatuses={[]}
+        onSyncAltForms={onSyncAltForms}
+        onSyncCompanions={onSyncCompanions}
+      />
+    );
 
-    render(<Wrapper />);
-    fireEvent.click(screen.getByLabelText("Add Shield Maiden to manual companions"));
-    expect(screen.getByText("Synced")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Add Shield Maiden to manual companions")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("toggle-include-boosters"));
+
+    expect(screen.getByTestId("attribute-total-strength")).toHaveTextContent("Total: 40");
+    const skillMatrix = screen.getByTestId("skill-matrix");
+    expect(within(skillMatrix).getAllByText("Swordplay").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("skill-total-swordplay")).toHaveTextContent("Manual: 1");
   });
 });
