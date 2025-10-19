@@ -419,6 +419,12 @@ export interface AppSettingRecord {
   updated_at: string;
 }
 
+export type AppearanceTheme = "andromeda" | "solstice";
+
+export interface AppearanceSettings {
+  theme: AppearanceTheme;
+}
+
 export interface FormatterSettings {
   removeAllLineBreaks: boolean;
   leaveDoubleLineBreaks: boolean;
@@ -3300,6 +3306,7 @@ export const WAREHOUSE_MODE_SETTING_KEY = "options.warehouseMode";
 export const CATEGORY_PRESETS_SETTING_KEY = "options.categoryPresets";
 export const EXPORT_PREFERENCES_SETTING_KEY = "options.exportPreferences";
 export const WAREHOUSE_PERSONAL_REALITY_SETTING_KEY = "warehouse.personalReality";
+export const APPEARANCE_SETTINGS_KEY = "options.appearance";
 
 export const DEFAULT_JUMP_DEFAULTS: JumpDefaultsSettings = {
   standardBudget: 1000,
@@ -3312,6 +3319,10 @@ export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
   enableUniversalDrawbacks: false,
   enableEssentialBodyMod: true,
   allowCompanionBodyMod: true,
+};
+
+export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  theme: "andromeda",
 };
 
 export const ESSENTIAL_BODY_MOD_SETTING_ID = "essential-default";
@@ -3366,6 +3377,47 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   thousandsSeparator: "none",
   spellcheckEnabled: true,
 };
+
+const APPEARANCE_THEMES: AppearanceTheme[] = ["andromeda", "solstice"];
+
+function parseAppearanceTheme(value: unknown): AppearanceTheme {
+  if (typeof value === "string" && APPEARANCE_THEMES.includes(value as AppearanceTheme)) {
+    return value as AppearanceTheme;
+  }
+  return DEFAULT_APPEARANCE_SETTINGS.theme;
+}
+
+export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
+  if (!record || record.value === null) {
+    return DEFAULT_APPEARANCE_SETTINGS;
+  }
+
+  try {
+    const parsed = JSON.parse(record.value) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const theme = parseAppearanceTheme((parsed as Record<string, unknown>).theme);
+      return { theme } satisfies AppearanceSettings;
+    }
+  } catch (error) {
+    console.warn("Failed to parse appearance settings", error);
+  }
+
+  if (typeof record.value === "string") {
+    return { theme: parseAppearanceTheme(record.value) } satisfies AppearanceSettings;
+  }
+
+  return DEFAULT_APPEARANCE_SETTINGS;
+}
+
+export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
+  const record = await getAppSetting(APPEARANCE_SETTINGS_KEY);
+  return parseAppearanceSettings(record);
+}
+
+export async function saveAppearanceSettings(settings: AppearanceSettings): Promise<AppearanceSettings> {
+  const record = await setAppSetting(APPEARANCE_SETTINGS_KEY, settings);
+  return parseAppearanceSettings(record);
+}
 
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
   if (!record || record.value === null) {
