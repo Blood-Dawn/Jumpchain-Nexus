@@ -1076,13 +1076,54 @@ a:hover {
 }
 
 .help-pane {
+  position: relative;
   width: 340px;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   padding: 2rem 1.75rem 2.5rem;
-  border-left: 1px solid rgba(122, 203, 255, 0.08);
-  background: linear-gradient(180deg, rgba(16, 24, 38, 0.88) 0%, rgba(10, 16, 28, 0.95) 100%);
+  border-left: 1px solid rgba(102, 176, 255, 0.18);
+  background: linear-gradient(160deg, rgba(10, 13, 33, 0.92) 0%, rgba(22, 12, 50, 0.94) 42%, rgba(4, 25, 45, 0.96) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(130, 192, 255, 0.08),
+    inset 0 0 35px rgba(65, 16, 119, 0.3),
+    0 26px 48px rgba(4, 8, 24, 0.6);
+  overflow: hidden;
+}
+
+.help-pane::before,
+.help-pane::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(0.2px);
+  z-index: 0;
+}
+
+.help-pane::before {
+  width: 380px;
+  height: 380px;
+  top: -220px;
+  right: -160px;
+  background: radial-gradient(circle at 30% 30%, rgba(124, 241, 255, 0.32), rgba(49, 17, 86, 0) 65%),
+    conic-gradient(from 220deg, rgba(117, 55, 255, 0.35), rgba(12, 184, 255, 0.1), rgba(223, 109, 255, 0.28), rgba(117, 55, 255, 0.35));
+  opacity: 0.9;
+}
+
+.help-pane::after {
+  width: 240px;
+  height: 240px;
+  bottom: -140px;
+  left: -120px;
+  background: radial-gradient(circle, rgba(255, 176, 111, 0.4), rgba(61, 27, 121, 0) 70%),
+    conic-gradient(from 120deg, rgba(14, 211, 255, 0.25), rgba(162, 88, 247, 0.45), rgba(255, 102, 196, 0.2), rgba(14, 211, 255, 0.25));
+  opacity: 0.7;
+}
+
+.help-pane > * {
+  position: relative;
+  z-index: 1;
 }
 
 .help-pane__header {
@@ -1105,21 +1146,43 @@ a:hover {
 .help-pane__header button {
   border: none;
   border-radius: 999px;
-  padding: 0.4rem 0.95rem;
-  background: rgba(122, 203, 255, 0.18);
-  color: #f0f7ff;
+  padding: 0.45rem 1rem;
+  background: linear-gradient(135deg, #22d3ee 0%, #7c3aed 55%, #f472b6 100%);
+  color: #040213;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(53, 181, 255, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.help-pane__header button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(93, 74, 242, 0.45);
 }
 
 .help-pane__cta {
+  position: relative;
   display: flex;
   gap: 1rem;
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.2rem;
   border-radius: 1rem;
-  border: 1px solid rgba(124, 241, 200, 0.3);
-  background: rgba(14, 26, 36, 0.85);
-  box-shadow: inset 0 0 0 1px rgba(10, 80, 105, 0.25);
+  border: 1px solid rgba(100, 188, 255, 0.35);
+  background: linear-gradient(150deg, rgba(38, 24, 74, 0.82) 0%, rgba(11, 49, 94, 0.88) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(111, 204, 255, 0.25),
+    0 16px 32px rgba(7, 14, 40, 0.55);
+  overflow: hidden;
+}
+
+.help-pane__cta::before {
+  content: "";
+  position: absolute;
+  inset: -30% 55% auto -20%;
+  height: 220px;
+  background: radial-gradient(circle at center, rgba(124, 241, 255, 0.32), rgba(23, 32, 69, 0));
+  opacity: 0.75;
+  pointer-events: none;
 }
 
 .help-pane__cta h3 {
@@ -1137,36 +1200,84 @@ a:hover {
 .help-pane__cta button {
   border-radius: 999px;
   border: none;
-  padding: 0.6rem 1.2rem;
-  background: linear-gradient(135deg, rgba(124, 241, 200, 0.75), rgba(92, 169, 255, 0.8));
-  color: #05101a;
-  font-weight: 600;
+  padding: 0.65rem 1.35rem;
+  background: linear-gradient(135deg, #22d3ee 0%, #7c3aed 50%, #f472b6 100%);
+  color: #040213;
+  font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 12px 26px rgba(88, 130, 255, 0.45);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .help-pane__cta button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(124, 241, 200, 0.24);
+  box-shadow: 0 16px 34px rgba(116, 73, 248, 0.5);
 }
 
 .help-pane__topics {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  z-index: 1;
 }
 
 .help-pane__topics button {
-  border: 1px solid transparent;
+  position: relative;
+  border: 1px solid rgba(114, 141, 255, 0.18);
   border-radius: 999px;
-  padding: 0.35rem 0.9rem;
-  background: rgba(13, 21, 32, 0.8);
-  color: rgba(240, 247, 255, 0.75);
+  padding: 0.4rem 1.1rem 0.4rem 2.4rem;
+  background: linear-gradient(135deg, rgba(17, 25, 52, 0.85), rgba(33, 28, 68, 0.9));
+  color: rgba(240, 247, 255, 0.78);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px rgba(57, 84, 190, 0.18);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.help-pane__topics button::before {
+  content: "";
+  position: absolute;
+  inset: 50% auto auto 0.6rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0) 55%),
+    radial-gradient(circle at 70% 65%, rgba(246, 210, 255, 0.9) 0%, rgba(124, 103, 255, 0.15) 45%),
+    conic-gradient(from 140deg, rgba(34, 211, 238, 0.9), rgba(124, 58, 237, 0.85), rgba(244, 114, 182, 0.85), rgba(34, 211, 238, 0.9));
+  box-shadow: 0 0 12px rgba(122, 203, 255, 0.65), 0 0 18px rgba(124, 58, 237, 0.35);
+}
+
+.help-pane__topics button::after {
+  content: "";
+  position: absolute;
+  inset: 0.5rem auto auto 1.6rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 70%);
+  box-shadow:
+    0 0 6px rgba(255, 255, 255, 0.9),
+    0 0 14px rgba(34, 211, 238, 0.8),
+    8px 4px 10px rgba(124, 58, 237, 0.35);
+}
+
+.help-pane__topics button:hover {
+  border-color: rgba(124, 204, 255, 0.5);
+  box-shadow:
+    inset 0 0 0 1px rgba(86, 127, 255, 0.28),
+    0 8px 16px rgba(57, 84, 190, 0.35);
 }
 
 .help-pane__topics button.active {
-  border-color: rgba(122, 203, 255, 0.45);
-  color: #f0f7ff;
+  border-color: rgba(124, 204, 255, 0.65);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(103, 189, 255, 0.4),
+    0 10px 18px rgba(67, 94, 215, 0.45);
 }
 
 .help-pane__content {
