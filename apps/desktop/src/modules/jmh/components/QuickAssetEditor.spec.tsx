@@ -67,7 +67,7 @@ const baseAsset: JumpAssetRecord = {
   updated_at: new Date().toISOString(),
 };
 
-const renderComponent = async () => {
+const renderComponent = async (options?: { assets?: JumpAssetRecord[] }) => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -78,6 +78,8 @@ const renderComponent = async () => {
   });
 
   const user = userEvent.setup();
+  const assets = options?.assets ?? [baseAsset];
+  listJumpAssets.mockResolvedValueOnce(assets);
   render(
     <QueryClientProvider client={queryClient}>
       <QuickAssetEditor
@@ -91,6 +93,16 @@ const renderComponent = async () => {
   );
   await waitFor(() => expect(listJumpAssets).toHaveBeenCalled());
   return { user, queryClient };
+};
+
+const extractMetadata = (value: unknown) => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return JSON.parse(value) as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
 };
 
 describe("QuickAssetEditor", () => {
@@ -234,5 +246,148 @@ describe("QuickAssetEditor", () => {
     const addButton = await screen.findByTestId("quick-asset-add");
     fireEvent.click(addButton);
     await waitFor(() => expect(createJumpAsset).toHaveBeenCalled());
+  });
+
+  describe("alternate forms", () => {
+    it("updates existing alt forms and serializes metadata", async () => {
+      const assetWithAltForms: JumpAssetRecord = {
+        ...baseAsset,
+        metadata: JSON.stringify({ altForms: [{ name: "Battle Mode", summary: "Combat stance" }] }),
+      };
+
+      let queryClientRef: QueryClient | null = null;
+      updateJumpAsset.mockImplementation(async (_id: string, updates: Record<string, unknown>) => {
+        const { metadata, ...rest } = updates;
+        const serialized =
+          metadata === undefined ? undefined : metadata === null ? null : JSON.stringify(metadata);
+        if (queryClientRef) {
+          const cached = queryClientRef.getQueryData<JumpAssetRecord[]>(["jump-assets", "jump-1"]);
+          if (serialized !== undefined) {
+            expect(cached?.[0]?.metadata).toBe(serialized);
+          }
+        }
+        return {
+          ...assetWithAltForms,
+          ...(rest as Partial<JumpAssetRecord>),
+          metadata: serialized ?? assetWithAltForms.metadata,
+          updated_at: new Date().toISOString(),
+        } satisfies JumpAssetRecord;
+      });
+
+      const { user, queryClient } = await renderComponent({ assets: [assetWithAltForms] });
+      queryClientRef = queryClient;
+
+      const nameField = await screen.findByLabelText("Alt Form 1 Name");
+      await user.clear(nameField);
+      await user.type(nameField, "Battle Mode Prime");
+
+      const summaryField = screen.getByLabelText("Alt Form 1 Summary");
+      await user.clear(summaryField);
+      await user.type(summaryField, "Combat stance upgraded");
+
+      await user.click(screen.getByTestId("quick-asset-save"));
+
+      await waitFor(() => expect(updateJumpAsset).toHaveBeenCalled());
+      const payload = updateJumpAsset.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(extractMetadata(payload.metadata)).toMatchInlineSnapshot(`
+        {
+          "altForms": [
+            {
+              "name": "Battle Mode Prime",
+              "summary": "Combat stance upgraded",
+            },
+          ],
+        }
+      `);
+    });
+
+    it("adds new alt forms", async () => {
+      const assetWithoutAltForms: JumpAssetRecord = { ...baseAsset, metadata: null };
+      let queryClientRef: QueryClient | null = null;
+
+      updateJumpAsset.mockImplementation(async (_id: string, updates: Record<string, unknown>) => {
+        const { metadata, ...rest } = updates;
+        const serialized =
+          metadata === undefined ? undefined : metadata === null ? null : JSON.stringify(metadata);
+        if (queryClientRef) {
+          const cached = queryClientRef.getQueryData<JumpAssetRecord[]>(["jump-assets", "jump-1"]);
+          if (serialized !== undefined) {
+            expect(cached?.[0]?.metadata).toBe(serialized);
+          }
+        }
+        return {
+          ...assetWithoutAltForms,
+          ...(rest as Partial<JumpAssetRecord>),
+          metadata: serialized ?? assetWithoutAltForms.metadata,
+          updated_at: new Date().toISOString(),
+        } satisfies JumpAssetRecord;
+      });
+
+      const { user, queryClient } = await renderComponent({ assets: [assetWithoutAltForms] });
+      queryClientRef = queryClient;
+
+      const addButton = await screen.findByRole("button", { name: /Add Alternate Form/i });
+      await user.click(addButton);
+
+      const nameField = await screen.findByLabelText("Alt Form 1 Name");
+      await user.type(nameField, "Titan Form");
+
+      const summaryField = screen.getByLabelText("Alt Form 1 Summary");
+      await user.type(summaryField, "Colossal battle avatar");
+
+      await user.click(screen.getByTestId("quick-asset-save"));
+
+      await waitFor(() => expect(updateJumpAsset).toHaveBeenCalled());
+      const payload = updateJumpAsset.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(extractMetadata(payload.metadata)).toMatchInlineSnapshot(`
+        {
+          "altForms": [
+            {
+              "name": "Titan Form",
+              "summary": "Colossal battle avatar",
+            },
+          ],
+        }
+      `);
+    });
+
+    it("removes alt forms and clears metadata", async () => {
+      const assetWithAltForms: JumpAssetRecord = {
+        ...baseAsset,
+        metadata: JSON.stringify({ altForms: [{ name: "Battle Mode", summary: "Combat stance" }] }),
+      };
+
+      let queryClientRef: QueryClient | null = null;
+      updateJumpAsset.mockImplementation(async (_id: string, updates: Record<string, unknown>) => {
+        const { metadata, ...rest } = updates;
+        const serialized =
+          metadata === undefined ? undefined : metadata === null ? null : JSON.stringify(metadata);
+        if (queryClientRef) {
+          const cached = queryClientRef.getQueryData<JumpAssetRecord[]>(["jump-assets", "jump-1"]);
+          if (serialized !== undefined) {
+            expect(cached?.[0]?.metadata).toBe(serialized);
+          }
+        }
+        return {
+          ...assetWithAltForms,
+          ...(rest as Partial<JumpAssetRecord>),
+          metadata: serialized ?? assetWithAltForms.metadata,
+          updated_at: new Date().toISOString(),
+        } satisfies JumpAssetRecord;
+      });
+
+      const { user, queryClient } = await renderComponent({ assets: [assetWithAltForms] });
+      queryClientRef = queryClient;
+
+      const removeButton = await screen.findByRole("button", { name: "Remove Alt Form 1" });
+      await user.click(removeButton);
+      await waitFor(() => expect(screen.getByText("No alternate forms yet.")).toBeInTheDocument());
+
+      await user.click(screen.getByTestId("quick-asset-save"));
+
+      await waitFor(() => expect(updateJumpAsset).toHaveBeenCalled());
+      const payload = updateJumpAsset.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(payload.metadata).toMatchInlineSnapshot(`null`);
+    });
   });
 });
