@@ -78,10 +78,12 @@ export interface EssenceSummaryEntry {
 
 interface AttributeMatrixOptions {
   enabledAssetTypes: Set<JumpAssetType>;
+  includeBoosterEntries: boolean;
 }
 
 interface SkillMatrixOptions {
   enabledAssetTypes: Set<JumpAssetType>;
+  includeBoosterEntries: boolean;
 }
 
 interface EssenceSummaryOptions {
@@ -182,10 +184,19 @@ export function buildAttributeMatrix(
 
   const derivedAttributes = derived?.attributes ?? [];
   for (const attribute of derivedAttributes) {
+    const relevantEntries = attribute.entries.filter((entry) => {
+      if (!options.enabledAssetTypes.has(entry.assetType)) {
+        return false;
+      }
+      if (!options.includeBoosterEntries && BOOSTER_ASSET_TYPES.has(entry.assetType)) {
+        return false;
+      }
+      return true;
+    });
+    if (!relevantEntries.length) {
+      continue;
+    }
     const row = ensureAttributeRow(map, attribute.key);
-    const relevantEntries = attribute.entries.filter((entry) =>
-      options.enabledAssetTypes.has(entry.assetType)
-    );
     row.derivedEntries.push(...relevantEntries);
     for (const entry of relevantEntries) {
       if (entry.numericValue !== null && Number.isFinite(entry.numericValue)) {
@@ -238,9 +249,15 @@ export function buildSkillMatrix(
 
   const derivedTraits = derived?.traits ?? [];
   for (const trait of derivedTraits) {
-    const filteredSources = trait.sources.filter((source) =>
-      options.enabledAssetTypes.has(source.assetType)
-    );
+    const filteredSources = trait.sources.filter((source) => {
+      if (!options.enabledAssetTypes.has(source.assetType)) {
+        return false;
+      }
+      if (!options.includeBoosterEntries && BOOSTER_ASSET_TYPES.has(source.assetType)) {
+        return false;
+      }
+      return true;
+    });
     if (!filteredSources.length) {
       continue;
     }
@@ -374,6 +391,11 @@ const BOOSTER_LABELS: Record<BoosterFilterKey, string> = {
 };
 
 const ALWAYS_INCLUDED_TYPES: JumpAssetType[] = ["origin", "drawback"];
+const BOOSTER_ASSET_TYPES: ReadonlySet<JumpAssetType> = new Set([
+  "perk",
+  "item",
+  "companion",
+]);
 
 export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   form,
@@ -390,6 +412,7 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
     item: true,
     companion: true,
   });
+  const [includeBoosterEntries, setIncludeBoosterEntries] = useState(true);
 
   const enabledAssetTypes = useMemo(() => {
     const set = new Set<JumpAssetType>();
@@ -405,13 +428,21 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
   }, [filters]);
 
   const attributeMatrix = useMemo(
-    () => buildAttributeMatrix(form, derived, { enabledAssetTypes }),
-    [form, derived, enabledAssetTypes]
+    () =>
+      buildAttributeMatrix(form, derived, {
+        enabledAssetTypes,
+        includeBoosterEntries,
+      }),
+    [form, derived, enabledAssetTypes, includeBoosterEntries]
   );
 
   const skillMatrix = useMemo(
-    () => buildSkillMatrix(form, derived, { enabledAssetTypes }),
-    [form, derived, enabledAssetTypes]
+    () =>
+      buildSkillMatrix(form, derived, {
+        enabledAssetTypes,
+        includeBoosterEntries,
+      }),
+    [form, derived, enabledAssetTypes, includeBoosterEntries]
   );
 
   const essenceSummary = useMemo(
@@ -453,6 +484,16 @@ export const PassportAggregations: React.FC<PassportAggregationsProps> = ({
               <span>{BOOSTER_LABELS[key]}</span>
             </label>
           ))}
+          <label className="passport__toggle">
+            <input
+              type="checkbox"
+              checked={includeBoosterEntries}
+              onChange={() => setIncludeBoosterEntries((prev) => !prev)}
+              aria-label="Include Booster Entries"
+              data-testid="toggle-include-boosters"
+            />
+            <span>Include Booster Entries</span>
+          </label>
         </div>
       </section>
 
