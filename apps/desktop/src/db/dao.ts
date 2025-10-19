@@ -456,11 +456,15 @@ export interface WarehousePersonalRealityLimitCounter {
   label: string;
   provided: number;
   used: number;
+  baseProvided: number;
+  override?: number | null;
 }
 
 export interface WarehousePersonalRealitySummary {
   wpTotal: number;
   wpCap: number | null;
+  wpBaseCap: number | null;
+  wpOverride?: number | null;
   limits: WarehousePersonalRealityLimitCounter[];
 }
 
@@ -2705,6 +2709,7 @@ const aggregatePersonalReality = (
       label: formatLimitLabel(key),
       provided: 0,
       used: 0,
+      baseProvided: 0,
     };
     limitMap.set(normalizedKey, entry);
     return entry;
@@ -2741,19 +2746,87 @@ const aggregatePersonalReality = (
 
   const limits = Array.from(limitMap.values())
     .filter((entry) => entry.provided !== 0 || entry.used !== 0)
-    .map((entry) => ({
-      ...entry,
-      provided: Number.isFinite(entry.provided) ? entry.provided : 0,
-      used: Number.isFinite(entry.used) ? entry.used : 0,
-    }))
+    .map((entry) => {
+      const sanitizedProvided = Number.isFinite(entry.provided) ? entry.provided : 0;
+      const sanitizedUsed = Number.isFinite(entry.used) ? entry.used : 0;
+      return {
+        ...entry,
+        provided: sanitizedProvided,
+        used: sanitizedUsed,
+        baseProvided: sanitizedProvided,
+      };
+    })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 
   return { wpTotal, limits };
 };
 
+interface WarehousePersonalRealitySettingsParseResult {
+  wpCap: number | null | undefined;
+  hasWpCapOverride: boolean;
+  limits: Record<string, number | null>;
+}
+
+const parseWarehousePersonalRealitySettings = (
+  raw: string | null
+): WarehousePersonalRealitySettingsParseResult => {
+  const result: WarehousePersonalRealitySettingsParseResult = {
+    wpCap: undefined,
+    hasWpCapOverride: false,
+    limits: {},
+  };
+
+  if (!raw) {
+    return result;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return result;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(parsed, "wpCap")) {
+      const value = (parsed as Record<string, unknown>).wpCap;
+      if (value === null) {
+        result.hasWpCapOverride = true;
+        result.wpCap = null;
+      } else {
+        const numeric = toFiniteNumber(value);
+        if (numeric !== null) {
+          result.hasWpCapOverride = true;
+          result.wpCap = numeric;
+        }
+      }
+    }
+
+    const limitsRaw = (parsed as Record<string, unknown>).limits;
+    if (limitsRaw && typeof limitsRaw === "object") {
+      Object.entries(limitsRaw as Record<string, unknown>).forEach(([key, value]) => {
+        const normalizedKey = key.trim().toLowerCase();
+        if (!normalizedKey.length) {
+          return;
+        }
+        if (value === null) {
+          result.limits[normalizedKey] = null;
+          return;
+        }
+        const numeric = toFiniteNumber(value);
+        if (numeric !== null) {
+          result.limits[normalizedKey] = numeric;
+        }
+      });
+    }
+  } catch {
+    return result;
+  }
+
+  return result;
+};
+
 export async function loadWarehousePersonalRealitySummary(): Promise<WarehousePersonalRealitySummary> {
   return withInit(async (db) => {
-    const [itemRows, universalRows] = await Promise.all([
+    const [itemRows, universalRows, metadataRows] = await Promise.all([
       db.select<InventoryItemRecord[]>(
         `SELECT * FROM inventory_items WHERE scope = $1 ORDER BY sort_order ASC, created_at ASC`,
         ["warehouse"]
@@ -2762,18 +2835,78 @@ export async function loadWarehousePersonalRealitySummary(): Promise<WarehousePe
         `SELECT * FROM universal_drawback_settings WHERE id = $1`,
         [UNIVERSAL_DRAWBACK_SETTING_ID]
       ),
+      db.select<AppSettingRecord[]>(
+        `SELECT * FROM app_settings WHERE key = $1`,
+        [WAREHOUSE_PERSONAL_REALITY_SETTING_KEY]
+      ),
     ]);
 
-    const { wpTotal, limits } = aggregatePersonalReality(itemRows as InventoryItemRecord[]);
+    const { wpTotal, limits: baseLimits } = aggregatePersonalReality(itemRows as InventoryItemRecord[]);
     const universalSettings = mapUniversalSettings(universalRows[0]);
+    const overrides = parseWarehousePersonalRealitySettings(
+      (metadataRows as AppSettingRecord[])[0]?.value ?? null
+    );
 
     const cap = Number.isFinite(universalSettings.warehouseWP)
       ? (universalSettings.warehouseWP as number)
       : DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP;
+    const baseCap = Number.isFinite(cap) ? (cap as number) : null;
+
+    let effectiveCap = baseCap;
+    let wpOverride: number | null | undefined = undefined;
+    if (overrides.hasWpCapOverride) {
+      wpOverride = overrides.wpCap ?? null;
+      effectiveCap = overrides.wpCap ?? null;
+    }
+
+    const limitMap = new Map<string, WarehousePersonalRealityLimitCounter>();
+    baseLimits.forEach((limit) => {
+      const overrideApplied = Object.prototype.hasOwnProperty.call(overrides.limits, limit.key);
+      const overrideValue = overrides.limits[limit.key];
+      const entry: WarehousePersonalRealityLimitCounter = {
+        ...limit,
+        override: undefined,
+        provided: limit.provided,
+        baseProvided: limit.baseProvided,
+      };
+      if (overrideApplied) {
+        entry.override = overrideValue ?? null;
+        entry.provided = overrideValue ?? 0;
+      }
+      limitMap.set(limit.key, entry);
+    });
+
+    Object.entries(overrides.limits).forEach(([key, value]) => {
+      const normalizedKey = key.trim().toLowerCase();
+      if (!normalizedKey.length) {
+        return;
+      }
+      if (limitMap.has(normalizedKey)) {
+        return;
+      }
+      limitMap.set(normalizedKey, {
+        key: normalizedKey,
+        label: formatLimitLabel(normalizedKey),
+        provided: value ?? 0,
+        used: 0,
+        baseProvided: 0,
+        override: value ?? null,
+      });
+    });
+
+    const limits = Array.from(limitMap.values())
+      .map((entry) => ({
+        ...entry,
+        provided: Number.isFinite(entry.provided) ? entry.provided : 0,
+        used: Number.isFinite(entry.used) ? entry.used : 0,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 
     return {
       wpTotal,
-      wpCap: Number.isFinite(cap) ? cap : null,
+      wpCap: effectiveCap,
+      wpBaseCap: baseCap,
+      wpOverride,
       limits,
     };
   });
@@ -2835,6 +2968,7 @@ export const SUPPLEMENT_SETTING_KEY = "options.supplements";
 export const WAREHOUSE_MODE_SETTING_KEY = "options.warehouseMode";
 export const CATEGORY_PRESETS_SETTING_KEY = "options.categoryPresets";
 export const EXPORT_PREFERENCES_SETTING_KEY = "options.exportPreferences";
+export const WAREHOUSE_PERSONAL_REALITY_SETTING_KEY = "warehouse.personalReality";
 
 export const DEFAULT_JUMP_DEFAULTS: JumpDefaultsSettings = {
   standardBudget: 1000,
