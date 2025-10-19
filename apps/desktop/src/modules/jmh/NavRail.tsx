@@ -51,7 +51,14 @@ export const NavRail: React.FC = () => {
                       `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
                     }
                   >
-                    <span className="jmh-nav__label">{module.title}</span>
+                    <span className="jmh-nav__label-row">
+                      <span className="jmh-nav__label">{module.title}</span>
+                      {module.badge ? (
+                        <span className="jmh-nav__badge" aria-label={`${module.badge} badge`}>
+                          {module.badge}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="jmh-nav__hint">{module.description}</span>
                   </NavLink>
                 </li>

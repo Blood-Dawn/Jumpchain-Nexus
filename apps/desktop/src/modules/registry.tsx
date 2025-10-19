@@ -39,6 +39,7 @@ const moduleList: ModuleDef[] = [
     section: "build",
     element: lazyModule("Jump Hub", () => import("./jmh")),
     requiredPermissions: ["jump-hub-sql"],
+    badge: "Alpha",
   },
   {
     id: "cosmic-passport",
@@ -48,6 +49,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Passport", () => import("./passport")),
     requiredPermissions: ["cosmic-passport-sql"],
+    badge: "Preview",
   },
   {
     id: "cosmic-warehouse",
@@ -57,6 +59,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
     requiredPermissions: ["cosmic-warehouse-sql"],
+    badge: "Alpha",
   },
   {
     id: "cosmic-locker",
@@ -66,6 +69,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Cosmic Locker", () => import("./locker")),
     requiredPermissions: ["cosmic-locker-sql"],
+    badge: "Alpha",
   },
   {
     id: "drawback-supplement",
@@ -75,6 +79,7 @@ const moduleList: ModuleDef[] = [
     section: "supplements",
     element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
     requiredPermissions: ["drawback-supplement-sql"],
+    badge: "Preview",
   },
   {
     id: "exporter",
@@ -84,6 +89,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Exports", () => import("./export")),
     requiredPermissions: ["export-tools"],
+    badge: "Beta",
   },
   {
     id: "statistics",
@@ -93,6 +99,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Statistics", () => import("./stats")),
     requiredPermissions: ["statistics-sql"],
+    badge: "Prototype",
   },
   {
     id: "jump-options",
@@ -102,6 +109,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Jump Options", () => import("./options")),
     requiredPermissions: ["jump-options-sql"],
+    badge: "Prototype",
   },
   {
     id: "knowledge-base",
@@ -111,6 +119,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
     requiredPermissions: ["knowledge-base-sql"],
+    badge: "Preview",
   },
   {
     id: "input-formatter",
@@ -120,6 +129,7 @@ const moduleList: ModuleDef[] = [
     section: "tools",
     element: lazyModule("Input Formatter", () => import("./formatter")),
     requiredPermissions: ["input-formatter-tools"],
+    badge: "Beta",
   },
   {
     id: "story-studio",
@@ -129,6 +139,7 @@ const moduleList: ModuleDef[] = [
     section: "story",
     element: lazyModule("Story Studio", () => import("./studio")),
     requiredPermissions: ["story-studio-sql"],
+    badge: "Beta",
   },
 ];
 
@@ -143,6 +154,7 @@ if (devToolsEnabled) {
     section: "tools",
     element: lazyModule("Developer Tools", () => import("./devtools")),
     requiredPermissions: ["devtools-shell"],
+    badge: "Internal",
   });
 }
 
