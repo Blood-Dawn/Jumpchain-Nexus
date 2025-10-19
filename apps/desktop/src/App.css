@@ -3450,6 +3450,14 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.locker__filters-hint {
+  font-size: 0.75rem;
+  color: rgba(240, 247, 255, 0.62);
+  margin: 0.6rem 0 0;
+  max-width: 460px;
+  line-height: 1.5;
+}
+
 .locker__filter-group--select label {
   display: flex;
   flex-direction: column;
@@ -3465,18 +3473,92 @@ a:hover {
 }
 
 .locker__chip {
+  --locker-chip-accent: rgba(122, 203, 255, 0.45);
+  --locker-chip-glow: rgba(122, 203, 255, 0.2);
   border-radius: 999px;
   border: 1px solid transparent;
   padding: 0.4rem 0.95rem;
   background: rgba(16, 26, 42, 0.82);
   color: rgba(240, 247, 255, 0.72);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  position: relative;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.locker__chip--status,
+.locker__chip--priority,
+.locker__chip--bodymod,
+.locker__chip--booster {
+  padding-left: 2rem;
+}
+
+.locker__chip-band {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.32rem;
+  bottom: 0.32rem;
+  width: 0.32rem;
+  border-radius: 999px;
+  background: var(--locker-chip-accent);
+  opacity: 0;
+  transform: scaleY(0.3);
+  transform-origin: center;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.locker__chip-icon {
+  position: absolute;
+  left: 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.locker__chip-label {
+  position: relative;
+  z-index: 1;
+}
+
+.locker__chip--status {
+  --locker-chip-accent: rgba(90, 209, 255, 0.8);
+  --locker-chip-glow: rgba(90, 209, 255, 0.24);
+}
+
+.locker__chip--priority {
+  --locker-chip-accent: rgba(255, 177, 70, 0.82);
+  --locker-chip-glow: rgba(255, 177, 70, 0.24);
+}
+
+.locker__chip--bodymod {
+  --locker-chip-accent: rgba(188, 140, 255, 0.82);
+  --locker-chip-glow: rgba(188, 140, 255, 0.26);
+}
+
+.locker__chip--booster {
+  --locker-chip-accent: rgba(120, 255, 188, 0.82);
+  --locker-chip-glow: rgba(120, 255, 188, 0.24);
 }
 
 .locker__chip--active {
-  border-color: rgba(122, 203, 255, 0.45);
-  box-shadow: 0 10px 24px rgba(122, 203, 255, 0.2);
+  border-color: var(--locker-chip-accent);
+  box-shadow: 0 10px 24px var(--locker-chip-glow);
   color: #f0f7ff;
+}
+
+.locker__chip--active .locker__chip-band {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.locker__chip--active .locker__chip-icon {
+  opacity: 1;
 }
 
 .locker__layout {

@@ -49,6 +49,13 @@ import {
   parseLockerMetadata,
 } from "./lockerUtils";
 
+const filterAccents = {
+  packed: { icon: "📦", className: "locker__chip--status" },
+  priority: { icon: "⚡", className: "locker__chip--priority" },
+  bodyMod: { icon: "🧬", className: "locker__chip--bodymod" },
+  booster: { icon: "🚀", className: "locker__chip--booster" },
+} as const;
+
 interface LockerFormState {
   id: string;
   name: string;
@@ -450,10 +457,14 @@ const CosmicLocker: React.FC = () => {
                 <button
                   key={option.value}
                   type="button"
-                  className={filters.packed === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  className={`locker__chip ${filterAccents.packed.className}${
+                    filters.packed === option.value ? " locker__chip--active" : ""
+                  }`}
                   onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as LockerFilters["packed"] }))}
                 >
-                  {option.label}
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.packed.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
                 </button>
               ))}
             </div>
@@ -470,7 +481,9 @@ const CosmicLocker: React.FC = () => {
                 <button
                   key={option.value}
                   type="button"
-                  className={filters.priority === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  className={`locker__chip ${filterAccents.priority.className}${
+                    filters.priority === option.value ? " locker__chip--active" : ""
+                  }`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
@@ -478,7 +491,9 @@ const CosmicLocker: React.FC = () => {
                     }))
                   }
                 >
-                  {option.label}
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.priority.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
                 </button>
               ))}
             </div>
@@ -495,7 +510,9 @@ const CosmicLocker: React.FC = () => {
                 <button
                   key={option.value}
                   type="button"
-                  className={filters.bodyMod === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  className={`locker__chip ${filterAccents.bodyMod.className}${
+                    filters.bodyMod === option.value ? " locker__chip--active" : ""
+                  }`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
@@ -503,7 +520,9 @@ const CosmicLocker: React.FC = () => {
                     }))
                   }
                 >
-                  {option.label}
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.bodyMod.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
                 </button>
               ))}
             </div>
@@ -519,7 +538,9 @@ const CosmicLocker: React.FC = () => {
                 <button
                   key={option.value}
                   type="button"
-                  className={filters.booster === option.value ? "locker__chip locker__chip--active" : "locker__chip"}
+                  className={`locker__chip ${filterAccents.booster.className}${
+                    filters.booster === option.value ? " locker__chip--active" : ""
+                  }`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
@@ -527,11 +548,18 @@ const CosmicLocker: React.FC = () => {
                     }))
                   }
                 >
-                  {option.label}
+                  <span className="locker__chip-band" aria-hidden="true" />
+                  <span className="locker__chip-icon" aria-hidden="true">{filterAccents.booster.icon}</span>
+                  <span className="locker__chip-label">{option.label}</span>
                 </button>
               ))}
             </div>
           </div>
+          <p className="locker__filters-hint">
+            Active status filters add a blue {filterAccents.packed.icon} band, priority chips glow amber with{" "}
+            {filterAccents.priority.icon}, body mods use a violet {filterAccents.bodyMod.icon}, and boosters pulse green
+            with {filterAccents.booster.icon} so color and icon cues reinforce one another.
+          </p>
           {tagOptions.length > 0 && (
             <div className="locker__filter-group">
               <span>Tags</span>
