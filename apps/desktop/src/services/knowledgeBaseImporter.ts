@@ -22,20 +22,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import type { UpsertKnowledgeArticleInput } from "../db/dao";
+import type {
+  KnowledgeArticleRecord,
+  KnowledgeBaseImportError,
+  UpsertKnowledgeArticleInput,
+} from "../db/dao";
 import {
   buildArticleDraft,
   extractFileName,
   type KnowledgeBaseArticleDraft,
 } from "./knowledgeBaseImportUtils";
-import type { KnowledgeArticleRecord } from "../db/dao";
 import { openFileDialog } from "./dialogService";
 import { getPlatform } from "./platform";
-
-export interface KnowledgeBaseImportError {
-  path: string;
-  reason: string;
-}
 
 export interface KnowledgeBaseImportSelection {
   drafts: KnowledgeBaseArticleDraft[];
@@ -186,4 +184,8 @@ export async function importKnowledgeBaseArticles(
   }
 
   return finish(options.signal?.aborted ?? false);
+}
+
+export async function loadKnowledgeBaseDraft(path: string): Promise<KnowledgeBaseArticleDraft> {
+  return buildDraftFromFile(path);
 }

@@ -32,6 +32,7 @@ import {
 import type { ThousandsSeparatorOption } from "../services/formatter";
 import baseSchema from "./migrations/001_init.sql?raw";
 import supplementsSchema from "./migrations/004_supplements.sql?raw";
+import knowledgeImportErrorsSchema from "./migrations/005_knowledge_import_errors.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
 
 export type EntityKind =
@@ -116,6 +117,25 @@ interface KnowledgeArticleRow {
   tags: string | null;
   source: string | null;
   is_system: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeBaseImportError {
+  path: string;
+  reason: string;
+}
+
+interface KnowledgeBaseImportErrorRow {
+  id: string;
+  path: string;
+  reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeBaseImportErrorRecord extends KnowledgeBaseImportError {
+  id: string;
   created_at: string;
   updated_at: string;
 }
@@ -1237,6 +1257,53 @@ export async function deleteKnowledgeArticle(id: string): Promise<void> {
   });
 }
 
+export async function recordKnowledgeBaseImportErrors(
+  errors: KnowledgeBaseImportError[]
+): Promise<void> {
+  if (!errors.length) {
+    return;
+  }
+
+  await withInit(async (db) => {
+    for (const error of errors) {
+      const timestamp = new Date().toISOString();
+      await db.execute(
+        `INSERT INTO knowledge_import_errors (id, path, reason, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $4)
+         ON CONFLICT(path)
+         DO UPDATE SET reason = excluded.reason, updated_at = excluded.updated_at`,
+        [uuid(), error.path, error.reason, timestamp]
+      );
+    }
+  });
+}
+
+export async function listKnowledgeBaseImportErrors(): Promise<KnowledgeBaseImportErrorRecord[]> {
+  return withInit(async (db) => {
+    const rows = (await db.select<KnowledgeBaseImportErrorRow[]>(
+      `SELECT id, path, reason, created_at, updated_at
+         FROM knowledge_import_errors
+        ORDER BY updated_at DESC, created_at DESC`
+    )) as KnowledgeBaseImportErrorRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      path: row.path,
+      reason: row.reason,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  });
+}
+
+export async function deleteKnowledgeBaseImportError(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM knowledge_import_errors WHERE id = $1`, [id]));
+}
+
+export async function clearKnowledgeBaseImportErrors(): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM knowledge_import_errors`));
+}
+
 export async function upsertNote(
   note: Omit<NoteRecord, "created_at" | "updated_at"> & { created_at?: string; updated_at?: string }
 ): Promise<NoteRecord> {
@@ -1957,6 +2024,7 @@ export async function clearAllData(): Promise<void> {
     await db.execute("DELETE FROM next_actions");
     await db.execute("DELETE FROM entities");
     await db.execute("DELETE FROM knowledge_articles");
+    await db.execute("DELETE FROM knowledge_import_errors");
     await db.execute("DELETE FROM companion_imports");
     await db.execute("DELETE FROM jump_stipend_toggles");
     await db.execute("DELETE FROM jumps");
