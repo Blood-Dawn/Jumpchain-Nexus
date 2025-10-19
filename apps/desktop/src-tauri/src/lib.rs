@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager, Window};
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+use tauri_plugin_shell::{process::CommandChild, process::CommandEvent, ShellExt};
 
 const TEST_RUN_EVENT: &str = "devtools://test-run";
 
@@ -54,8 +54,12 @@ enum TestRunPayload {
         message: String,
         source: LogSource,
     },
-    Terminated { code: Option<i32> },
-    Error { message: String },
+    Terminated {
+        code: Option<i32>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -115,6 +119,11 @@ fn classify_level(source: LogSource, message: &str) -> LogLevel {
     } else {
         LogLevel::Info
     }
+}
+
+#[derive(Default)]
+struct TestRunnerState {
+    child: Arc<Mutex<Option<CommandChild>>>,
 }
 
 fn locate_workspace_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -212,7 +221,10 @@ async fn index_pdf(
 }
 
 #[tauri::command]
-async fn run_full_test_suite(window: Window) -> Result<(), String> {
+async fn run_full_test_suite(
+    window: Window,
+    state: State<'_, TestRunnerState>,
+) -> Result<(), String> {
     let app = window.app_handle();
     let workspace_dir = locate_workspace_dir(&app)?;
 
@@ -224,13 +236,23 @@ async fn run_full_test_suite(window: Window) -> Result<(), String> {
         .env("FORCE_COLOR", "0")
         .env("npm_config_color", "false");
 
+    let mut guard = state
+        .child
+        .lock()
+        .map_err(|_| "Unable to access test runner state".to_string())?;
+    if guard.is_some() {
+        return Err("Test suite is already running".into());
+    }
+
     let (mut rx, child) = command.spawn().map_err(|err| err.to_string())?;
+    *guard = Some(child);
+    drop(guard);
 
     let _ = window.emit(TEST_RUN_EVENT, &TestRunPayload::Started);
 
     let event_window = window.clone();
+    let runner_state = Arc::clone(&state.child);
     tauri::async_runtime::spawn(async move {
-        let _child_handle = child;
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -256,10 +278,16 @@ async fn run_full_test_suite(window: Window) -> Result<(), String> {
                     }
                 }
                 CommandEvent::Terminated(details) => {
+                    if let Ok(mut guard) = runner_state.lock() {
+                        let _ = guard.take();
+                    }
                     let payload = TestRunPayload::Terminated { code: details.code };
                     let _ = event_window.emit(TEST_RUN_EVENT, &payload);
                 }
                 CommandEvent::Error(error) => {
+                    if let Ok(mut guard) = runner_state.lock() {
+                        let _ = guard.take();
+                    }
                     let payload = TestRunPayload::Error { message: error };
                     let _ = event_window.emit(TEST_RUN_EVENT, &payload);
                 }
@@ -271,6 +299,23 @@ async fn run_full_test_suite(window: Window) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn cancel_full_test_suite(state: State<'_, TestRunnerState>) -> Result<(), String> {
+    let child = {
+        let mut guard = state
+            .child
+            .lock()
+            .map_err(|_| "Unable to access test runner state".to_string())?;
+        guard.take()
+    };
+
+    if let Some(mut child) = child {
+        child.kill().map_err(|err| err.to_string())?
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -278,11 +323,13 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
+        .manage(TestRunnerState::default())
         .invoke_handler(tauri::generate_handler![
             db_query,
             file_pick,
             index_pdf,
-            run_full_test_suite
+            run_full_test_suite,
+            cancel_full_test_suite
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
