@@ -34,6 +34,7 @@ import baseSchema from "./migrations/001_init.sql?raw";
 import supplementsSchema from "./migrations/004_supplements.sql?raw";
 import knowledgeImportErrorsSchema from "./migrations/005_knowledge_import_errors.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
+import { aggregatePersonalReality } from "./personalReality";
 
 export type EntityKind =
   | "perk"
