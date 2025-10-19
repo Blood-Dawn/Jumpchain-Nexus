@@ -246,13 +246,30 @@ const CosmicWarehouse: React.FC = () => {
         quantity: 1,
       }),
     onSuccess: (item) => {
-      queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) => {
+        const items = existing ? [...existing] : [];
+        const index = items.findIndex((existingItem) => existingItem.id === item.id);
+        if (index >= 0) {
+          items[index] = item;
+          return items;
+        }
+        items.push(item);
+        return items;
+      });
       if (isPersonalReality) {
-        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
       }
       setSelectedId(item.id);
       setFocusId(item.id);
       setPendingFocusId(item.id);
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+      if (isPersonalReality) {
+        queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+      }
     },
   });
 
@@ -262,6 +279,25 @@ const CosmicWarehouse: React.FC = () => {
       setSelectedId(item.id);
       setFocusId(item.id);
       setPendingFocusId(item.id);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) => {
+        if (!existing || existing.length === 0) {
+          return [item];
+        }
+        const items = existing.map((existingItem) =>
+          existingItem.id === item.id ? item : existingItem
+        );
+        if (!items.some((existingItem) => existingItem.id === item.id)) {
+          items.push(item);
+        }
+        return items;
+      });
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -271,10 +307,20 @@ const CosmicWarehouse: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteInventoryItem(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       setSelectedId(null);
       setFocusId(null);
       setPendingFocusId(null);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) =>
+        existing ? existing.filter((item) => item.id !== id) : existing
+      );
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -284,10 +330,20 @@ const CosmicWarehouse: React.FC = () => {
 
   const moveMutation = useMutation({
     mutationFn: (payload: { id: string; scope: InventoryScope }) => moveInventoryItem(payload.id, payload.scope),
-    onSuccess: () => {
+    onSuccess: (_, payload) => {
       setSelectedId(null);
       setFocusId(null);
       setPendingFocusId(null);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) =>
+        existing ? existing.filter((item) => item.id !== payload.id) : existing
+      );
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
