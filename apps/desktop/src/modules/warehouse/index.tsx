@@ -122,6 +122,106 @@ const parseTags = (raw: string | null): string[] => {
     .filter(Boolean);
 };
 
+const LIST_ROW_HEIGHT = 88;
+const MAX_VISIBLE_ROWS = 8;
+const LIST_OVERSCAN = 4;
+
+interface WarehouseRowData {
+  items: InventoryItemRecord[];
+  onSelect: (id: string) => void;
+  selectedId: string | null;
+  focusId: string | null;
+  setFocusId: (id: string) => void;
+  moveFocus: (index: number, direction: -1 | 1) => void;
+  pendingFocusId: string | null;
+  clearPendingFocus: () => void;
+}
+
+interface CachedInventoryItem {
+  record: InventoryItemRecord;
+  searchValues: string[];
+}
+
+const ListInnerElement = React.forwardRef<HTMLUListElement, React.HTMLAttributes<HTMLUListElement>>(
+  ({ className, style, ...props }, ref) => (
+    <ul
+      {...props}
+      ref={ref}
+      className={className ? `warehouse__virtual-list ${className}` : "warehouse__virtual-list"}
+      style={style}
+      role="presentation"
+    />
+  )
+);
+
+const WarehouseItemRow: React.FC<ListChildComponentProps<WarehouseRowData>> = ({ index, style, data }) => {
+  const item = data.items[index];
+  const isActive = item.id === data.selectedId;
+  const isFocused = item.id === data.focusId;
+  const { pendingFocusId, clearPendingFocus } = data;
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (pendingFocusId === item.id && buttonRef.current) {
+      buttonRef.current.focus();
+      clearPendingFocus();
+    }
+  }, [pendingFocusId, item.id, clearPendingFocus]);
+
+  if (!item) {
+    return null;
+  }
+
+  const ariaLabelSegments = [item.name];
+  ariaLabelSegments.push(`Category ${item.category ?? "Unsorted"}`);
+  ariaLabelSegments.push(`Quantity ${formatNumber(item.quantity ?? 0)}`);
+  if (item.slot) {
+    ariaLabelSegments.push(`Slot ${item.slot}`);
+  }
+
+  const handleClick = () => {
+    data.onSelect(item.id);
+    data.setFocusId(item.id);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      data.moveFocus(index, 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      data.moveFocus(index, -1);
+    }
+  };
+
+  return (
+    <li
+      style={{ ...style, width: "100%", padding: "0.35rem 0", boxSizing: "border-box" }}
+      className="warehouse__item-row"
+      role="presentation"
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        id={`warehouse-item-${item.id}`}
+        className={isActive ? "warehouse__item warehouse__item--active" : "warehouse__item"}
+        onClick={handleClick}
+        onFocus={() => data.setFocusId(item.id)}
+        onKeyDown={handleKeyDown}
+        tabIndex={isFocused ? 0 : -1}
+        aria-label={ariaLabelSegments.join(". ")}
+        aria-current={isActive ? "true" : undefined}
+      >
+        <strong>{item.name}</strong>
+        <span>
+          {item.category ?? "Unsorted"} • Qty {item.quantity}
+          {item.slot ? ` • ${item.slot}` : ""}
+        </span>
+      </button>
+    </li>
+  );
+};
+
 const CosmicWarehouse: React.FC = () => {
   const queryClient = useQueryClient();
   const itemsQuery = useQuery({
@@ -161,6 +261,9 @@ const CosmicWarehouse: React.FC = () => {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+
+  const hasActiveFilters = Boolean(activeCategory) || activeTags.length > 0 || search.length > 0;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -171,17 +274,24 @@ const CosmicWarehouse: React.FC = () => {
         quantity: 1,
       }),
     onSuccess: (item) => {
-      let updatedItems: InventoryItemRecord[] | undefined;
-      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
-        const base = current ?? [];
-        const next = sortInventoryItems([...base, item]);
-        updatedItems = next;
-        return next;
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) => {
+        const items = existing ? [...existing] : [];
+        const index = items.findIndex((existingItem) => existingItem.id === item.id);
+        if (index >= 0) {
+          items[index] = item;
+          return items;
+        }
+        items.push(item);
+        return items;
       });
-      if (updatedItems) {
-        updatePersonalRealityCache(updatedItems);
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
       }
       setSelectedId(item.id);
+      setFocusId(item.id);
+      setPendingFocusId(item.id);
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
@@ -213,6 +323,25 @@ const CosmicWarehouse: React.FC = () => {
         }
       }
       setSelectedId(item.id);
+      setFocusId(item.id);
+      setPendingFocusId(item.id);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) => {
+        if (!existing || existing.length === 0) {
+          return [item];
+        }
+        const items = existing.map((existingItem) =>
+          existingItem.id === item.id ? item : existingItem
+        );
+        if (!items.some((existingItem) => existingItem.id === item.id)) {
+          items.push(item);
+        }
+        return items;
+      });
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
@@ -225,24 +354,17 @@ const CosmicWarehouse: React.FC = () => {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteInventoryItem(id),
     onSuccess: (_, id) => {
-      let updatedItems: InventoryItemRecord[] | undefined;
-      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
-        if (!current) {
-          return current;
-        }
-        const next = current.filter((item) => item.id !== id);
-        updatedItems = next;
-        return next;
-      });
-      if (updatedItems) {
-        updatePersonalRealityCache(updatedItems);
-      } else {
-        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
-        if (isPersonalReality) {
-          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
-        }
-      }
       setSelectedId(null);
+      setFocusId(null);
+      setPendingFocusId(null);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) =>
+        existing ? existing.filter((item) => item.id !== id) : existing
+      );
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
@@ -254,25 +376,18 @@ const CosmicWarehouse: React.FC = () => {
 
   const moveMutation = useMutation({
     mutationFn: (payload: { id: string; scope: InventoryScope }) => moveInventoryItem(payload.id, payload.scope),
-    onSuccess: (_, variables) => {
-      let updatedItems: InventoryItemRecord[] | undefined;
-      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
-        if (!current) {
-          return current;
-        }
-        const next = current.filter((item) => item.id !== variables.id);
-        updatedItems = next;
-        return next;
-      });
-      if (updatedItems) {
-        updatePersonalRealityCache(updatedItems);
-      } else {
-        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
-        if (isPersonalReality) {
-          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
-        }
-      }
+    onSuccess: (_, payload) => {
       setSelectedId(null);
+      setFocusId(null);
+      setPendingFocusId(null);
+      queryClient.setQueryData<InventoryItemRecord[]>(scopeKey, (existing) =>
+        existing ? existing.filter((item) => item.id !== payload.id) : existing
+      );
+      if (isPersonalReality) {
+        queryClient.setQueryData(personalRealityKey, (current) =>
+          current ? { ...current } : current
+        );
+      }
     },
     onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
@@ -283,14 +398,44 @@ const CosmicWarehouse: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!itemsQuery.data?.length) {
-      setSelectedId(null);
+    const items = itemsQuery.data ?? [];
+    if (items.length === 0) {
+      if (selectedId !== null) {
+        setSelectedId(null);
+      }
+      if (focusId !== null) {
+        setFocusId(null);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
       return;
     }
-    if (!selectedId || !itemsQuery.data.some((item) => item.id === selectedId)) {
-      setSelectedId(itemsQuery.data[0].id);
+
+    const selectedExists = selectedId ? items.some((item) => item.id === selectedId) : false;
+    if (!selectedExists) {
+      const fallbackId = items[0].id;
+      if (selectedId !== fallbackId) {
+        setSelectedId(fallbackId);
+      }
+      if (focusId !== fallbackId) {
+        setFocusId(fallbackId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+      return;
     }
-  }, [itemsQuery.data, selectedId]);
+
+    if (focusId === null || !items.some((item) => item.id === focusId)) {
+      if (focusId !== selectedId) {
+        setFocusId(selectedId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+    }
+  }, [itemsQuery.data, selectedId, focusId, pendingFocusId]);
 
   const categories = useMemo(() => {
     const all = new Set<string>();
@@ -307,37 +452,146 @@ const CosmicWarehouse: React.FC = () => {
     return Array.from(all).sort((a, b) => a.localeCompare(b));
   }, [categoryPresetsQuery.data, itemsQuery.data]);
 
-  const searchableItems = useMemo<SearchableItem[]>(() => {
+  const tags = useMemo(() => {
+    const all = new Set<string>();
+    itemsQuery.data?.forEach((item) => {
+      parseTags(item.tags).forEach((tag) => {
+        if (tag) {
+          all.add(tag);
+        }
+      });
+    });
+    return Array.from(all).sort((a, b) => a.localeCompare(b));
+  }, [itemsQuery.data]);
+
+  const searchableItems = useMemo<CachedInventoryItem[]>(() => {
     const base = itemsQuery.data ?? [];
     return base.map((item) => {
-      const tokens = [item.name, item.category, item.slot, item.notes]
+      const searchValues = [item.name, item.category, item.slot, item.notes]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.toLowerCase());
+
       return {
         record: item,
-        searchText: tokens.join("\u0000"),
+        searchValues,
       };
     });
   }, [itemsQuery.data]);
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-    if (!activeCategory && !normalizedSearch) {
-      return searchableItems.map((entry) => entry.record);
-    }
+
     return searchableItems
-      .filter(({ record, searchText }) => {
+      .filter(({ record, searchValues }) => {
         const matchesCategory = !activeCategory || record.category === activeCategory;
-        if (!matchesCategory) {
-          return false;
-        }
+
         if (!normalizedSearch) {
-          return true;
+          return matchesCategory;
         }
-        return searchText.includes(normalizedSearch);
+
+        const matchesSearch = searchValues.some((value) => value.includes(normalizedSearch));
+        return matchesCategory && matchesSearch;
       })
-      .map((entry) => entry.record);
-  }, [searchableItems, activeCategory, search]);
+      .map(({ record }) => record);
+  }, [searchableItems, activeCategory, activeTags, search]);
+
+  useEffect(() => {
+    if (!filteredItems.length) {
+      if (focusId !== null) {
+        setFocusId(null);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+      return;
+    }
+
+    const focusExists = focusId ? filteredItems.some((item) => item.id === focusId) : false;
+    if (!focusExists) {
+      const fallbackId =
+        selectedId && filteredItems.some((item) => item.id === selectedId)
+          ? selectedId
+          : filteredItems[0].id;
+      if (focusId !== fallbackId) {
+        setFocusId(fallbackId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+    }
+  }, [filteredItems, focusId, selectedId, pendingFocusId]);
+
+  useEffect(() => {
+    if (!focusId) {
+      return;
+    }
+    const index = filteredItems.findIndex((item) => item.id === focusId);
+    if (index >= 0) {
+      listRef.current?.scrollToItem(index, "smart");
+    }
+  }, [focusId, filteredItems]);
+
+  useEffect(() => {
+    if (selectedId && focusId !== selectedId && filteredItems.some((item) => item.id === selectedId)) {
+      setFocusId(selectedId);
+    }
+  }, [selectedId, focusId, filteredItems]);
+
+  const handleSelectItem = useCallback((id: string) => {
+    setSelectedId(id);
+    setFocusId(id);
+    setPendingFocusId(id);
+  }, []);
+
+  const moveFocus = useCallback(
+    (index: number, direction: -1 | 1) => {
+      if (!filteredItems.length) {
+        return;
+      }
+      const nextIndex = Math.min(Math.max(index + direction, 0), filteredItems.length - 1);
+      const nextItem = filteredItems[nextIndex];
+      if (!nextItem) {
+        return;
+      }
+      if (focusId !== nextItem.id) {
+        setFocusId(nextItem.id);
+      }
+      setPendingFocusId(nextItem.id);
+      listRef.current?.scrollToItem(nextIndex, "smart");
+    },
+    [filteredItems, focusId, setPendingFocusId]
+  );
+
+  const clearPendingFocus = useCallback(() => {
+    setPendingFocusId(null);
+  }, []);
+
+  const listHeight = filteredItems.length
+    ? Math.min(filteredItems.length, MAX_VISIBLE_ROWS) * LIST_ROW_HEIGHT
+    : 0;
+
+  const itemData: WarehouseRowData = useMemo(
+    () => ({
+      items: filteredItems,
+      onSelect: handleSelectItem,
+      selectedId,
+      focusId,
+      setFocusId,
+      moveFocus,
+      pendingFocusId,
+      clearPendingFocus,
+    }),
+    [
+      filteredItems,
+      handleSelectItem,
+      selectedId,
+      focusId,
+      setFocusId,
+      moveFocus,
+      pendingFocusId,
+      clearPendingFocus,
+    ]
+  );
 
   const selectedItem = useMemo(
     () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,
@@ -345,21 +599,141 @@ const CosmicWarehouse: React.FC = () => {
   );
 
   const personalRealitySummary = personalRealityQuery.data;
-  const updatePersonalRealityCache = useCallback(
-    (items: InventoryItemRecord[]) => {
-      if (!isPersonalReality) {
+  const [wpCapInput, setWpCapInput] = useState<string>("");
+  const [limitInputs, setLimitInputs] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!personalRealitySummary) {
+      setWpCapInput("");
+      setLimitInputs({});
+      return;
+    }
+
+    if (personalRealitySummary.wpOverride !== undefined && personalRealitySummary.wpOverride !== null) {
+      setWpCapInput(String(personalRealitySummary.wpOverride));
+    } else {
+      setWpCapInput("");
+    }
+
+    setLimitInputs(() => {
+      const next: Record<string, string> = {};
+      personalRealitySummary.limits.forEach((limit) => {
+        if (limit.override !== undefined && limit.override !== null) {
+          next[limit.key] = String(limit.override);
+        } else {
+          next[limit.key] = "";
+        }
+      });
+      return next;
+    });
+  }, [personalRealitySummary]);
+
+  const numbersAreClose = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+
+  const updatePersonalRealityMutation = useMutation({
+    mutationFn: updateWarehousePersonalRealitySummary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+    },
+  });
+
+  const wpCapHint = useMemo(() => {
+    if (!personalRealitySummary) {
+      return "";
+    }
+    if (personalRealitySummary.wpOverride === undefined) {
+      if (personalRealitySummary.wpBaseCap !== null) {
+        return `Automatic cap ${formatNumber(personalRealitySummary.wpBaseCap)} WP`;
+      }
+      return "Automatic cap not recorded";
+    }
+    if (personalRealitySummary.wpOverride === null) {
+      return "Manual override disabled";
+    }
+    return `Manual override ${formatNumber(personalRealitySummary.wpOverride)} WP`;
+  }, [personalRealitySummary]);
+
+  const handleSavePersonalRealitySettings = () => {
+    if (!personalRealitySummary) {
+      return;
+    }
+
+    const limitQuotas: Record<string, number | null | undefined> = {};
+    personalRealitySummary.limits.forEach((limit) => {
+      const rawValue = limitInputs[limit.key] ?? "";
+      const trimmed = rawValue.trim();
+      const existingOverride = limit.override;
+
+      if (!trimmed.length) {
+        if (existingOverride !== undefined) {
+          limitQuotas[limit.key] = undefined;
+        }
         return;
       }
-      queryClient.setQueryData<WarehousePersonalRealitySummary | undefined>(
-        personalRealityKey,
-        (currentSummary) => {
-          const cap = currentSummary?.wpCap ?? personalRealitySummary?.wpCap ?? null;
-          return derivePersonalRealitySummary(items, cap);
+
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed)) {
+        return;
+      }
+
+      if (existingOverride === undefined) {
+        if (!numbersAreClose(parsed, limit.baseProvided)) {
+          limitQuotas[limit.key] = parsed;
         }
-      );
-    },
-    [isPersonalReality, personalRealitySummary?.wpCap, queryClient]
-  );
+      } else if (existingOverride === null) {
+        if (!numbersAreClose(parsed, 0)) {
+          limitQuotas[limit.key] = parsed;
+        }
+      } else if (!numbersAreClose(parsed, existingOverride)) {
+        limitQuotas[limit.key] = parsed;
+      }
+    });
+
+    const trimmedCap = wpCapInput.trim();
+    const existingWpOverride = personalRealitySummary.wpOverride;
+    let hasWpCapUpdate = false;
+    let wpCapPayload: number | null | undefined;
+
+    if (!trimmedCap.length) {
+      if (existingWpOverride !== undefined) {
+        hasWpCapUpdate = true;
+        wpCapPayload = undefined;
+      }
+    } else {
+      const parsedCap = Number(trimmedCap);
+      if (Number.isFinite(parsedCap)) {
+        if (existingWpOverride === undefined) {
+          const baseCap = personalRealitySummary.wpBaseCap;
+          if (baseCap === null || !numbersAreClose(parsedCap, baseCap)) {
+            hasWpCapUpdate = true;
+            wpCapPayload = parsedCap;
+          }
+        } else if (existingWpOverride === null) {
+          if (!numbersAreClose(parsedCap, 0)) {
+            hasWpCapUpdate = true;
+            wpCapPayload = parsedCap;
+          }
+        } else if (!numbersAreClose(parsedCap, existingWpOverride)) {
+          hasWpCapUpdate = true;
+          wpCapPayload = parsedCap;
+        }
+      }
+    }
+
+    if (!hasWpCapUpdate && Object.keys(limitQuotas).length === 0) {
+      return;
+    }
+
+    const payload: Parameters<typeof updateWarehousePersonalRealitySummary>[0] = {};
+    if (hasWpCapUpdate) {
+      payload.wpCap = wpCapPayload;
+    }
+    if (Object.keys(limitQuotas).length > 0) {
+      payload.limitQuotas = limitQuotas;
+    }
+
+    updatePersonalRealityMutation.mutate(payload);
+  };
   const personalRealityWarnings = useMemo(() => {
     if (!isPersonalReality || !personalRealitySummary) {
       return [] as string[];
@@ -502,7 +876,15 @@ const CosmicWarehouse: React.FC = () => {
           </p>
         </div>
         <div className="warehouse__actions">
-          <button type="button" onClick={() => setActiveCategory(null)} disabled={!activeCategory}>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveCategory(null);
+              setActiveTags([]);
+              setSearch("");
+            }}
+            disabled={!hasActiveFilters}
+          >
             Clear Filters
           </button>
           <button type="button" onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
@@ -527,10 +909,35 @@ const CosmicWarehouse: React.FC = () => {
                 <div>
                   <dt>Warehouse Points</dt>
                   <dd>
-                    {formatNumber(personalRealitySummary.wpTotal)}
-                    {personalRealitySummary.wpCap !== null
-                      ? ` / ${formatNumber(personalRealitySummary.wpCap)}`
-                      : ""}
+                    <span className="warehouse__pr-figure">
+                      {formatNumber(personalRealitySummary.wpTotal)}
+                      {personalRealitySummary.wpCap !== null
+                        ? ` / ${formatNumber(personalRealitySummary.wpCap)}`
+                        : ""}
+                    </span>
+                    <div className="warehouse__pr-input-group">
+                      <label htmlFor="warehouse-wp-cap">Override stipend cap</label>
+                      <input
+                        id="warehouse-wp-cap"
+                        type="number"
+                        inputMode="decimal"
+                        className="warehouse__pr-input"
+                        value={wpCapInput}
+                        placeholder={
+                          personalRealitySummary.wpOverride === undefined &&
+                          personalRealitySummary.wpBaseCap !== null
+                            ? formatNumber(personalRealitySummary.wpBaseCap)
+                            : undefined
+                        }
+                        aria-describedby="warehouse-wp-cap-hint"
+                        onChange={(event) => setWpCapInput(event.target.value)}
+                      />
+                      <small id="warehouse-wp-cap-hint" className="warehouse__pr-hint">
+                        {wpCapHint
+                          ? `${wpCapHint}. Leave blank to follow automatic updates.`
+                          : "Leave blank to follow automatic updates."}
+                      </small>
+                    </div>
                   </dd>
                   {personalRealitySummary.wpCap !== null ? (
                     <span className="warehouse__pr-remaining">
@@ -548,12 +955,48 @@ const CosmicWarehouse: React.FC = () => {
                   {personalRealitySummary.limits.map((limit) => {
                     const remaining = limit.provided - limit.used;
                     const overBudget = remaining < 0;
+                    const limitInputId = `warehouse-limit-${limit.key}`;
+                    const limitHintId = `${limitInputId}-hint`;
+                    let limitHint: string;
+                    if (limit.override === undefined) {
+                      limitHint =
+                        limit.baseProvided !== 0
+                          ? `Automatic quota ${formatNumber(limit.baseProvided)}`
+                          : "Automatic quota not recorded";
+                    } else if (limit.override === null) {
+                      limitHint = "Manual override disabled";
+                    } else {
+                      limitHint = `Manual override ${formatNumber(limit.override)}`;
+                    }
                     return (
                       <div key={limit.key} className="warehouse__pr-card">
                         <span className="warehouse__pr-label">{limit.label}</span>
-                        <strong className="warehouse__pr-value">
+                        <span className="warehouse__pr-figure">
                           {formatNumber(limit.used)} / {formatNumber(limit.provided)}
-                        </strong>
+                        </span>
+                        <div className="warehouse__pr-input-group">
+                          <label htmlFor={limitInputId}>Override quota</label>
+                          <input
+                            id={limitInputId}
+                            type="number"
+                            inputMode="decimal"
+                            className="warehouse__pr-input"
+                            value={limitInputs[limit.key] ?? ""}
+                            placeholder={
+                              limit.override === undefined && limit.baseProvided !== 0
+                                ? formatNumber(limit.baseProvided)
+                                : undefined
+                            }
+                            aria-describedby={limitHintId}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setLimitInputs((prev) => ({ ...prev, [limit.key]: value }));
+                            }}
+                          />
+                          <small id={limitHintId} className="warehouse__pr-hint">
+                            {`${limitHint}. Leave blank to follow automatic updates.`}
+                          </small>
+                        </div>
                         <span
                           className={
                             overBudget
@@ -581,6 +1024,17 @@ const CosmicWarehouse: React.FC = () => {
                   ))}
                 </ul>
               )}
+              <div className="warehouse__pr-actions">
+                <button
+                  type="button"
+                  onClick={handleSavePersonalRealitySettings}
+                  disabled={updatePersonalRealityMutation.isPending}
+                >
+                  {updatePersonalRealityMutation.isPending
+                    ? "Saving Personal Reality limits…"
+                    : "Save Personal Reality limits"}
+                </button>
+              </div>
             </>
           ) : null}
         </section>
@@ -608,10 +1062,39 @@ const CosmicWarehouse: React.FC = () => {
               className={activeCategory === category ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
               onClick={() => setActiveCategory(category)}
             >
-              {category}
-            </button>
+            {category}
+          </button>
           ))}
         </div>
+        {tags.length > 0 && (
+          <div className="warehouse__tags">
+            <span className="warehouse__tags-label">Tags</span>
+            <div className="warehouse__tags-chips">
+              {tags.map((tag) => {
+                const isActive = activeTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={
+                      isActive ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"
+                    }
+                    aria-pressed={isActive}
+                    onClick={() =>
+                      setActiveTags((prev) =>
+                        prev.includes(tag)
+                          ? prev.filter((existing) => existing !== tag)
+                          : [...prev, tag]
+                      )
+                    }
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="warehouse__layout">

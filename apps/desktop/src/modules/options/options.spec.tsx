@@ -23,21 +23,25 @@ SOFTWARE.
 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import JumpchainOptions from "./index";
 import InputFormatter from "../formatter";
 import {
+  CATEGORY_PRESETS_SETTING_KEY,
   DEFAULT_SUPPLEMENT_SETTINGS,
   DEFAULT_WAREHOUSE_MODE,
+  getAppSetting,
   loadSupplementSettings,
   loadWarehouseModeSetting,
   loadFormatterSettings,
   setAppSetting,
   SUPPLEMENT_SETTING_KEY,
+  EXPORT_PREFERENCES_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 import type {
   AppSettingRecord,
   EssentialBodyModEssenceRecord,
@@ -154,13 +158,16 @@ describe("JumpchainOptions", () => {
     (globalThis as { __resetAppSettings?: () => void }).__resetAppSettings?.();
     await setAppSetting(SUPPLEMENT_SETTING_KEY, DEFAULT_SUPPLEMENT_SETTINGS);
     await setAppSetting(WAREHOUSE_MODE_SETTING_KEY, DEFAULT_WAREHOUSE_MODE);
+    const exportPresetsMock = vi.mocked(listExportPresets);
+    exportPresetsMock.mockReset();
+    exportPresetsMock.mockResolvedValue([]);
   });
 
   it("@smoke highlights the planned configuration surface", () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["app-settings"], []);
     queryClient.setQueryData(["export-presets"], []);
-    queryClient.setQueryData(["app-settings", "formatter"], {
+    queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, {
       removeAllLineBreaks: false,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "none",
@@ -301,5 +308,155 @@ describe("JumpchainOptions", () => {
     await waitFor(() => expect(formatterToggle).not.toBeChecked());
     formatterRender.unmount();
     formatterClient.clear();
+  });
+
+  it("allows reordering categories and keeps the order after reload", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const first = render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const perkList = await screen.findByRole("list", { name: /perk categories/i });
+    const perkColumn = perkList.parentElement as HTMLElement;
+    const perkInput = within(perkColumn).getByPlaceholderText("Add perk category");
+    const addPerkButton = within(perkColumn).getByRole("button", { name: "Add perk category" });
+
+    for (const category of ["Alpha", "Beta", "Gamma"]) {
+      await user.type(perkInput, category);
+      await user.click(addPerkButton);
+    }
+
+    const readOrder = (list: HTMLElement) =>
+      within(list)
+        .queryAllByRole("listitem")
+        .map((item) => item.querySelector(".options__category-label")?.textContent?.trim())
+        .filter((value): value is string => Boolean(value));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Alpha", "Beta", "Gamma"]);
+    });
+
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    await waitFor(async () => {
+      const record = await getAppSetting(CATEGORY_PRESETS_SETTING_KEY);
+      const parsed = parseCategoryPresets(record ?? null);
+      expect(parsed.perkCategories).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    first.unmount();
+    queryClient.clear();
+
+    const secondClient = createTestQueryClient();
+    const second = render(
+      <QueryClientProvider client={secondClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const restoredList = await screen.findByRole("list", { name: /perk categories/i });
+    await waitFor(() => {
+      expect(readOrder(restoredList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    second.unmount();
+    secondClient.clear();
+  });
+
+  it("shows the export preset summary and updates when the selection changes", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const now = new Date().toISOString();
+    const presets = [
+      {
+        id: "alpha",
+        name: "Alpha Layout",
+        description: null,
+        options_json: JSON.stringify({
+          format: "markdown",
+          sectionPreferences: {
+            header: { format: "markdown", spoiler: false },
+            totals: { format: "markdown", spoiler: false },
+            jumps: { format: "markdown", spoiler: true },
+            inventory: { format: "bbcode", spoiler: false },
+            profiles: { format: "bbcode", spoiler: true },
+            notes: { format: "markdown", spoiler: false },
+            recaps: { format: "markdown", spoiler: false },
+          },
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: "beta",
+        name: "Beta Layout",
+        description: null,
+        options_json: JSON.stringify({
+          format: "bbcode",
+          sectionPreferences: {
+            header: { format: "bbcode", spoiler: false },
+            totals: { format: "bbcode", spoiler: false },
+            jumps: { format: "bbcode", spoiler: false },
+            inventory: { format: "markdown", spoiler: false },
+            profiles: { format: "markdown", spoiler: false },
+            notes: { format: "markdown", spoiler: true },
+            recaps: { format: "markdown", spoiler: false },
+          },
+        }),
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+
+    vi.mocked(listExportPresets).mockResolvedValue(presets);
+    queryClient.setQueryData(["export-presets"], presets);
+    queryClient.setQueryData(["app-settings", "formatter"], {
+      removeAllLineBreaks: false,
+      leaveDoubleLineBreaks: false,
+      thousandsSeparator: "none",
+      spellcheckEnabled: true,
+    });
+
+    await setAppSetting(EXPORT_PREFERENCES_SETTING_KEY, { defaultPresetId: "alpha" });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const summary = await screen.findByTestId("preset-summary");
+    expect(within(summary).getByTestId("preset-summary-format-value")).toHaveTextContent("Markdown");
+
+    const jumpsSection = within(summary).getByTestId("preset-summary-section-jumps");
+    expect(within(jumpsSection).getByText("Jump Breakdown")).toBeInTheDocument();
+    expect(within(jumpsSection).getByText("Markdown · Spoiler")).toBeInTheDocument();
+
+    const inventorySection = within(summary).getByTestId("preset-summary-section-inventory");
+    expect(within(inventorySection).getByText("Inventory Snapshot")).toBeInTheDocument();
+    expect(within(inventorySection).getByText("BBCode · Visible")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/Default preset/i), "beta");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preset-summary-format-value")).toHaveTextContent("BBCode");
+    });
+
+    const updatedSummary = await screen.findByTestId("preset-summary");
+    const updatedJumps = within(updatedSummary).getByTestId("preset-summary-section-jumps");
+    expect(within(updatedJumps).getByText("BBCode · Visible")).toBeInTheDocument();
+
+    const updatedNotes = within(updatedSummary).getByTestId("preset-summary-section-notes");
+    expect(within(updatedNotes).getByText("Markdown · Spoiler")).toBeInTheDocument();
   });
 });

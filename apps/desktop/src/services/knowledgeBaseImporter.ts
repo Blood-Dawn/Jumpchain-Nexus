@@ -22,20 +22,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import type { UpsertKnowledgeArticleInput } from "../db/dao";
+import type {
+  KnowledgeArticleRecord,
+  KnowledgeBaseImportError,
+  UpsertKnowledgeArticleInput,
+} from "../db/dao";
 import {
   buildArticleDraft,
   extractFileName,
   type KnowledgeBaseArticleDraft,
 } from "./knowledgeBaseImportUtils";
-import type { KnowledgeArticleRecord } from "../db/dao";
 import { openFileDialog } from "./dialogService";
 import { getPlatform } from "./platform";
-
-export interface KnowledgeBaseImportError {
-  path: string;
-  reason: string;
-}
 
 export interface KnowledgeBaseImportSelection {
   drafts: KnowledgeBaseArticleDraft[];
@@ -72,6 +70,31 @@ async function buildDraftFromFile(path: string): Promise<KnowledgeBaseArticleDra
   throw new Error(`Unsupported file type: ${ext ? `.${ext}` : "unknown"}`);
 }
 
+async function buildSelectionFromPaths(paths: string[]): Promise<KnowledgeBaseImportSelection> {
+  const drafts: KnowledgeBaseArticleDraft[] = [];
+  const errors: KnowledgeBaseImportError[] = [];
+
+  for (const path of paths) {
+    try {
+      const draft = await buildDraftFromFile(path);
+      drafts.push(draft);
+    } catch (error) {
+      errors.push({
+        path,
+        reason: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return { drafts, errors };
+}
+
+export async function collectKnowledgeBaseDraftsFromPaths(
+  paths: string[]
+): Promise<KnowledgeBaseImportSelection> {
+  return buildSelectionFromPaths(paths);
+}
+
 export async function promptKnowledgeBaseImport(): Promise<KnowledgeBaseImportSelection | null> {
   const selection = await openFileDialog({
     title: "Import knowledge base articles",
@@ -87,32 +110,66 @@ export async function promptKnowledgeBaseImport(): Promise<KnowledgeBaseImportSe
     return null;
   }
 
-  const drafts: KnowledgeBaseArticleDraft[] = [];
-  const errors: KnowledgeBaseImportError[] = [];
+  const result = await buildSelectionFromPaths(selection);
 
-  for (const path of selection) {
-    try {
-      const draft = await buildDraftFromFile(path);
-      drafts.push(draft);
-    } catch (error) {
-      errors.push({
-        path,
-        reason: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
-  }
+  return result;
+}
 
-  return { drafts, errors };
+export interface KnowledgeBaseImportProgress {
+  processed: number;
+  total: number;
+  saved: number;
+  failed: number;
+  currentPath: string | null;
+}
+
+export interface KnowledgeBaseImportOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: KnowledgeBaseImportProgress) => void;
+  waitIfPaused?: () => Promise<void> | void;
 }
 
 export async function importKnowledgeBaseArticles(
   drafts: KnowledgeBaseArticleDraft[],
-  save: (payload: UpsertKnowledgeArticleInput) => Promise<KnowledgeArticleRecord>
-): Promise<{ saved: KnowledgeArticleRecord[]; errors: KnowledgeBaseImportError[] }> {
+  save: (payload: UpsertKnowledgeArticleInput) => Promise<KnowledgeArticleRecord>,
+  options: KnowledgeBaseImportOptions = {}
+): Promise<{ saved: KnowledgeArticleRecord[]; errors: KnowledgeBaseImportError[]; cancelled: boolean }> {
   const saved: KnowledgeArticleRecord[] = [];
   const errors: KnowledgeBaseImportError[] = [];
+  const total = drafts.length;
+
+  const emitProgress = (currentPath: string | null = null) => {
+    options.onProgress?.({
+      processed: saved.length + errors.length,
+      total,
+      saved: saved.length,
+      failed: errors.length,
+      currentPath,
+    });
+  };
+
+  const finish = (cancelled: boolean) => {
+    emitProgress(null);
+    return { saved, errors, cancelled };
+  };
+
+  emitProgress(null);
 
   for (const draft of drafts) {
+    if (options.signal?.aborted) {
+      return finish(true);
+    }
+
+    emitProgress(draft.path);
+
+    if (options.waitIfPaused) {
+      await options.waitIfPaused();
+    }
+
+    if (options.signal?.aborted) {
+      return finish(true);
+    }
+
     try {
       const record = await save(draft.payload);
       saved.push(record);
@@ -122,7 +179,13 @@ export async function importKnowledgeBaseArticles(
         reason: error instanceof Error ? error.message : "Failed to save article",
       });
     }
+
+    emitProgress(null);
   }
 
-  return { saved, errors };
+  return finish(options.signal?.aborted ?? false);
+}
+
+export async function loadKnowledgeBaseDraft(path: string): Promise<KnowledgeBaseArticleDraft> {
+  return buildDraftFromFile(path);
 }

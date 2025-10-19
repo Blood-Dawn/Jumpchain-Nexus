@@ -79,8 +79,11 @@ class FakeDb {
     if (normalized.startsWith("PRAGMA TABLE_INFO")) {
       return [];
     }
-    if (normalized.includes("FROM KNOWLEDGE_ARTICLES")) {
+    if (normalized.includes("COUNT(*) AS COUNT FROM KNOWLEDGE_ARTICLES")) {
       return [{ count: 0 }];
+    }
+    if (normalized.includes("FROM KNOWLEDGE_ARTICLE_ASSETS")) {
+      return [];
     }
     if (!this.selectQueue.length) {
       return [];
@@ -98,12 +101,71 @@ async function importDao() {
 }
 
 type PurchaseCostInput = import("./dao").PurchaseCostInput;
+type JumpAssetType = import("./dao").JumpAssetType;
 
 const cryptoImpl = globalThis.crypto ?? webcrypto;
 
 beforeEach(() => {
   vi.resetModules();
   loadMock.mockReset();
+});
+
+describe("fetchKnowledgeArticles", () => {
+  it("deduplicates rows that share the same article id", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const now = new Date().toISOString();
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM knowledge_articles") && sql.includes("ORDER BY"),
+      () => [
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-1",
+          title: "Duplicate Entry",
+          category: "Systems",
+          summary: "Duplicate row should be ignored",
+          content: "Body",
+          tags: JSON.stringify(["dup"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: "article-2",
+          title: "Unique Entry",
+          category: "Systems",
+          summary: "",
+          content: "Body",
+          tags: JSON.stringify(["unique"]),
+          source: "Imported",
+          is_system: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    const { fetchKnowledgeArticles } = await importDao();
+    const articles = await fetchKnowledgeArticles();
+
+    expect(articles).toHaveLength(2);
+    expect(articles.map((article) => article.id)).toEqual(["article-1", "article-2"]);
+  });
 });
 
 describe("computeBudget", () => {
@@ -180,6 +242,68 @@ describe("computeBudget", () => {
       freebies: 0,
       netCost: 0,
     });
+  });
+});
+
+describe("knowledge base import errors", () => {
+  it("persists each error with upsert semantics", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { recordKnowledgeBaseImportErrors } = await importDao();
+    const errors = [
+      { path: "/tmp/alpha.txt", reason: "Unsupported format" },
+      { path: "/tmp/beta.txt", reason: "Read failure" },
+    ];
+
+    await recordKnowledgeBaseImportErrors(errors);
+
+    expect(fakeDb.executeCalls).toHaveLength(errors.length);
+    const statement = fakeDb.executeCalls[0]?.sql ?? "";
+    expect(statement).toContain("INSERT INTO knowledge_import_errors");
+    expect(statement).toContain("ON CONFLICT(path)");
+  });
+
+  it("maps stored errors from the database", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.enqueueSelect([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+
+    const { listKnowledgeBaseImportErrors } = await importDao();
+    const rows = await listKnowledgeBaseImportErrors();
+
+    expect(rows).toEqual([
+      {
+        id: "err-1",
+        path: "/tmp/alpha.txt",
+        reason: "Unsupported format",
+        created_at: "2025-01-01T00:00:00.000Z",
+        updated_at: "2025-01-02T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("deletes individual entries and clears the table", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { deleteKnowledgeBaseImportError, clearKnowledgeBaseImportErrors } = await importDao();
+
+    await deleteKnowledgeBaseImportError("err-1");
+    await clearKnowledgeBaseImportErrors();
+
+    expect(fakeDb.executeCalls.map((entry) => entry.sql)).toEqual([
+      "DELETE FROM knowledge_import_errors WHERE id = $1",
+      "DELETE FROM knowledge_import_errors",
+    ]);
   });
 });
 
@@ -356,101 +480,244 @@ describe("summarizeJumpBudget", () => {
   });
 });
 
+type JumpCpRowShape = {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+};
+
+type AssetTypeAggregateRowShape = {
+  asset_type: JumpAssetType;
+  item_count: number | null;
+  gross_cost: number | null;
+  net_cost: number | null;
+  credit: number | null;
+  discounted_count: number | null;
+  freebie_count: number | null;
+};
+
+type InventoryCategoryAggregateRowShape = {
+  category: string | null;
+  item_count: number | null;
+  total_quantity: number | null;
+  warehouse_count: number | null;
+  locker_count: number | null;
+};
+
+type GauntletAggregateRowShape = {
+  jump_id: string;
+  title: string;
+  status: string | null;
+  cp_budget: number | null;
+  spent: number | null;
+  earned: number | null;
+};
+
+type BoosterSourceRowShape = {
+  id: string;
+  name: string;
+  attributes_json: string | null;
+  traits_json: string | null;
+};
+
+function makeJumpCpRow(overrides: Partial<JumpCpRowShape>): JumpCpRowShape {
+  return {
+    jump_id: "jump-default",
+    title: "Untitled",
+    status: null,
+    cp_budget: 0,
+    spent: 0,
+    earned: 0,
+    ...overrides,
+  } satisfies JumpCpRowShape;
+}
+
+function makeAssetAggregateRow(
+  overrides: Partial<AssetTypeAggregateRowShape> & Pick<AssetTypeAggregateRowShape, "asset_type">
+): AssetTypeAggregateRowShape {
+  return {
+    asset_type: overrides.asset_type,
+    item_count: overrides.item_count ?? 0,
+    gross_cost: overrides.gross_cost ?? 0,
+    net_cost: overrides.net_cost ?? 0,
+    credit: overrides.credit ?? 0,
+    discounted_count: overrides.discounted_count ?? 0,
+    freebie_count: overrides.freebie_count ?? 0,
+  } satisfies AssetTypeAggregateRowShape;
+}
+
+function makeInventoryAggregateRow(
+  overrides: Partial<InventoryCategoryAggregateRowShape> & Pick<InventoryCategoryAggregateRowShape, "category">
+): InventoryCategoryAggregateRowShape {
+  return {
+    category: overrides.category,
+    item_count: overrides.item_count ?? 0,
+    total_quantity: overrides.total_quantity ?? 0,
+    warehouse_count: overrides.warehouse_count ?? 0,
+    locker_count: overrides.locker_count ?? 0,
+  } satisfies InventoryCategoryAggregateRowShape;
+}
+
+function makeGauntletAggregateRow(
+  overrides: Partial<GauntletAggregateRowShape> & Pick<GauntletAggregateRowShape, "jump_id" | "title">
+): GauntletAggregateRowShape {
+  return {
+    jump_id: overrides.jump_id,
+    title: overrides.title,
+    status: overrides.status ?? null,
+    cp_budget: overrides.cp_budget ?? 0,
+    spent: overrides.spent ?? 0,
+    earned: overrides.earned ?? 0,
+  } satisfies GauntletAggregateRowShape;
+}
+
+function makeBoosterSourceRow(
+  options: { id: string; name: string; attributes?: unknown; traits?: unknown } &
+    Partial<Omit<BoosterSourceRowShape, "id" | "name" | "attributes_json" | "traits_json">>
+): BoosterSourceRowShape {
+  const { id, name, attributes, traits, ...rest } = options;
+  const attributesJson =
+    "attributes_json" in rest
+      ? rest.attributes_json ?? null
+      : attributes === undefined
+        ? null
+        : attributes === null
+          ? null
+          : JSON.stringify(attributes);
+  const traitsJson =
+    "traits_json" in rest
+      ? rest.traits_json ?? null
+      : traits === undefined
+        ? null
+        : traits === null
+          ? null
+          : JSON.stringify(traits);
+  return {
+    id,
+    name,
+    attributes_json: attributesJson,
+    traits_json: traitsJson,
+  } satisfies BoosterSourceRowShape;
+}
+
 describe("statistics snapshot", () => {
   it("aggregates cp, inventory, gauntlet, and boosters", async () => {
     const fakeDb = new FakeDb();
+    const cpRows = [
+      makeJumpCpRow({
+        jump_id: "jump-1",
+        title: "Arc One",
+        status: "Gauntlet",
+        cp_budget: 1500,
+        spent: 600,
+        earned: 400,
+      }),
+      makeJumpCpRow({
+        jump_id: "jump-2",
+        title: "World Two",
+        status: "Completed",
+        cp_budget: 1000,
+        spent: 850,
+        earned: 50,
+      }),
+    ] satisfies JumpCpRowShape[];
+    const assetRows = [
+      makeAssetAggregateRow({
+        asset_type: "perk",
+        item_count: 4,
+        gross_cost: 1000,
+        net_cost: 900,
+        credit: 0,
+        discounted_count: 2,
+        freebie_count: 1,
+      }),
+      makeAssetAggregateRow({
+        asset_type: "item",
+        item_count: 3,
+        gross_cost: 600,
+        net_cost: 550,
+      }),
+      makeAssetAggregateRow({
+        asset_type: "drawback",
+        item_count: 2,
+        gross_cost: 450,
+        net_cost: 0,
+        credit: 450,
+      }),
+    ] satisfies AssetTypeAggregateRowShape[];
+    const inventoryRows = [
+      makeInventoryAggregateRow({
+        category: "Weapons",
+        item_count: 4,
+        total_quantity: 8,
+        warehouse_count: 3,
+        locker_count: 1,
+      }),
+      makeInventoryAggregateRow({
+        category: null,
+        item_count: 1,
+        total_quantity: 1,
+        warehouse_count: 0,
+        locker_count: 1,
+      }),
+    ] satisfies InventoryCategoryAggregateRowShape[];
+    const gauntletRows = [
+      makeGauntletAggregateRow({
+        jump_id: "jump-1",
+        title: "Arc One",
+        status: "Gauntlet",
+        cp_budget: 1500,
+        spent: 600,
+        earned: 400,
+      }),
+      makeGauntletAggregateRow({
+        jump_id: "jump-3",
+        title: "Trial of Courage",
+        status: "GAUNTLET-PHASE",
+        cp_budget: 1200,
+        spent: 1300,
+        earned: 200,
+      }),
+    ] satisfies GauntletAggregateRowShape[];
+    const boosterRows = [
+      makeBoosterSourceRow({
+        id: "char-1",
+        name: "Alicia Storm",
+        attributes: { boosters: ["Regeneration", { name: "Speed Burst" }] },
+        traits: [{ name: "Courage", type: "virtue" }],
+      }),
+      makeBoosterSourceRow({
+        id: "char-2",
+        name: "Borin Flame",
+        attributes: { boosters: { "Fire Core": { rank: "A" } } },
+        traits: [{ name: "Fire Core", type: "booster" }],
+      }),
+      makeBoosterSourceRow({
+        id: "char-3",
+        name: "Cara Shade",
+        attributes: null,
+        traits: [{ name: "Shadow Blend", type: "booster" }],
+      }),
+    ] satisfies BoosterSourceRowShape[];
+
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM jumps j") && sql.includes("GROUP BY j.id") && !sql.includes("gauntlet_jumps"),
-      () => [
-        {
-          jump_id: "jump-1",
-          title: "Arc One",
-          status: "Gauntlet",
-          cp_budget: 1500,
-          spent: 600,
-          earned: 400,
-        },
-        {
-          jump_id: "jump-2",
-          title: "World Two",
-          status: "Completed",
-          cp_budget: 1000,
-          spent: 850,
-          earned: 50,
-        },
-      ]
+      () => cpRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM jump_assets") && sql.includes("GROUP BY asset_type"),
-      () => [
-        {
-          asset_type: "perk",
-          item_count: 4,
-          gross_cost: 1000,
-          net_cost: 900,
-          credit: 0,
-          discounted_count: 2,
-          freebie_count: 1,
-        },
-        {
-          asset_type: "item",
-          item_count: 3,
-          gross_cost: 600,
-          net_cost: 550,
-          credit: 0,
-          discounted_count: 0,
-          freebie_count: 0,
-        },
-        {
-          asset_type: "drawback",
-          item_count: 2,
-          gross_cost: 450,
-          net_cost: 0,
-          credit: 450,
-          discounted_count: 0,
-          freebie_count: 0,
-        },
-      ]
+      () => assetRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM normalized_inventory"),
-      () => [
-        {
-          category: "Weapons",
-          item_count: 4,
-          total_quantity: 8,
-          warehouse_count: 3,
-          locker_count: 1,
-        },
-        {
-          category: null,
-          item_count: 1,
-          total_quantity: 1,
-          warehouse_count: 0,
-          locker_count: 1,
-        },
-      ]
+      () => inventoryRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM gauntlet_jumps"),
-      () => [
-        {
-          jump_id: "jump-1",
-          title: "Arc One",
-          status: "Gauntlet",
-          cp_budget: 1500,
-          spent: 600,
-          earned: 400,
-        },
-        {
-          jump_id: "jump-3",
-          title: "Trial of Courage",
-          status: "GAUNTLET-PHASE",
-          cp_budget: 1200,
-          spent: 1300,
-          earned: 200,
-        },
-      ]
+      () => gauntletRows.map((row) => ({ ...row }))
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM universal_drawback_settings"),
@@ -470,26 +737,7 @@ describe("statistics snapshot", () => {
     );
     fakeDb.whenSelect(
       (sql) => sql.includes("FROM character_profiles"),
-      () => [
-        {
-          id: "char-1",
-          name: "Alicia Storm",
-          attributes_json: JSON.stringify({ boosters: ["Regeneration", { name: "Speed Burst" }] }),
-          traits_json: JSON.stringify([{ name: "Courage", type: "virtue" }]),
-        },
-        {
-          id: "char-2",
-          name: "Borin Flame",
-          attributes_json: JSON.stringify({ boosters: { "Fire Core": { rank: "A" } } }),
-          traits_json: JSON.stringify([{ name: "Fire Core", type: "booster" }]),
-        },
-        {
-          id: "char-3",
-          name: "Cara Shade",
-          attributes_json: null,
-          traits_json: JSON.stringify([{ name: "Shadow Blend", type: "booster" }]),
-        },
-      ]
+      () => boosterRows.map((row) => ({ ...row }))
     );
 
     loadMock.mockResolvedValue(fakeDb);
@@ -567,6 +815,7 @@ describe("jump asset dao", () => {
       sort_order: 3,
       created_at: insertedAt.toISOString(),
       updated_at: insertedAt.toISOString(),
+      knowledge_article_ids: [],
     };
     fakeDb.whenSelect(
       (sql, params) => sql.includes("SELECT * FROM jump_assets WHERE id = $1") && params[0] === "asset-123",
@@ -1271,6 +1520,53 @@ describe("export preset dao", () => {
   });
 });
 
+describe("loadExportSnapshot", () => {
+  it("includes export presets with spoiler preferences", async () => {
+    const fakeDb = new FakeDb();
+    const now = "2025-01-12T00:00:00.000Z";
+    const options = {
+      includeNotes: true,
+      sectionPreferences: {
+        notes: { spoiler: true },
+      },
+    };
+
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM export_presets ORDER BY name"),
+      () => [
+        {
+          id: "preset-1",
+          name: "Spoiler Export",
+          description: null,
+          options_json: JSON.stringify(options),
+          created_at: now,
+          updated_at: now,
+        },
+      ],
+      { once: true }
+    );
+
+    loadMock.mockResolvedValue(fakeDb);
+
+    const { loadExportSnapshot } = await importDao();
+    const snapshot = await loadExportSnapshot();
+
+    expect(snapshot.presets).toEqual([
+      {
+        id: "preset-1",
+        name: "Spoiler Export",
+        description: null,
+        options_json: JSON.stringify(options),
+        created_at: now,
+        updated_at: now,
+      },
+    ]);
+
+    const parsed = JSON.parse(snapshot.presets[0]?.options_json ?? "{}");
+    expect(parsed.sectionPreferences?.notes?.spoiler).toBe(true);
+  });
+});
+
 describe("warehouse personal reality summary", () => {
   it("aggregates WP and limit contributions", async () => {
     const fakeDb = new FakeDb();
@@ -1337,15 +1633,21 @@ describe("warehouse personal reality summary", () => {
       ],
       { once: true }
     );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
 
     const { loadWarehousePersonalRealitySummary } = await importDao();
     const summary = await loadWarehousePersonalRealitySummary();
-    expect(summary).toEqual({
+    expect(summary).toMatchObject({
       wpTotal: 10,
       wpCap: 12,
+      wpBaseCap: 12,
       limits: [
-        { key: "residents", label: "Residents", provided: 6, used: 4 },
-        { key: "structures", label: "Structures", provided: 3, used: 2 },
+        { key: "residents", label: "Residents", provided: 6, used: 4, baseProvided: 6 },
+        { key: "structures", label: "Structures", provided: 3, used: 2, baseProvided: 3 },
       ],
     });
   });
@@ -1399,13 +1701,210 @@ describe("warehouse personal reality summary", () => {
       () => [],
       { once: true }
     );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
 
     const { loadWarehousePersonalRealitySummary, DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS } = await importDao();
     const summary = await loadWarehousePersonalRealitySummary();
     expect(summary.wpTotal).toBe(7);
     expect(summary.wpCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
+    expect(summary.wpBaseCap).toBe(DEFAULT_UNIVERSAL_DRAWBACK_SETTINGS.warehouseWP);
     expect(summary.limits).toEqual([
-      { key: "power", label: "Power", provided: 10, used: 0 },
+      { key: "power", label: "Power", provided: 10, used: 0, baseProvided: 10 },
     ]);
+  });
+
+  it("applies stored overrides to Personal Reality summary", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM inventory_items") && sql.includes("scope = $1"),
+      () => [
+        {
+          id: "item-1",
+          scope: "warehouse",
+          name: "Docking Ring",
+          category: null,
+          quantity: 1,
+          slot: null,
+          notes: null,
+          tags: null,
+          jump_id: null,
+          metadata: JSON.stringify({
+            personalReality: {
+              provides: { structures: 3 },
+              consumes: { ships: 2 },
+            },
+          }),
+          sort_order: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql) => sql.includes("FROM universal_drawback_settings"),
+      () => [
+        {
+          id: "universal-default",
+          total_cp: 0,
+          companion_cp: 0,
+          item_cp: 0,
+          warehouse_wp: 20,
+          allow_gauntlet: 0,
+          gauntlet_halved: 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          updated_at: "2025-01-01T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            wpCap: 30,
+            limits: {
+              structures: 8,
+              hangar: 5,
+            },
+          }),
+          updated_at: "2025-01-02T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    const { loadWarehousePersonalRealitySummary } = await importDao();
+    const summary = await loadWarehousePersonalRealitySummary();
+    expect(summary.wpBaseCap).toBe(20);
+    expect(summary.wpCap).toBe(30);
+    expect(summary.wpOverride).toBe(30);
+    expect(summary.limits).toEqual([
+      {
+        key: "hangar",
+        label: "Hangar",
+        provided: 5,
+        used: 0,
+        baseProvided: 0,
+        override: 5,
+      },
+      {
+        key: "ships",
+        label: "Ships",
+        provided: 0,
+        used: 2,
+        baseProvided: 0,
+        override: undefined,
+      },
+      {
+        key: "structures",
+        label: "Structures",
+        provided: 8,
+        used: 0,
+        baseProvided: 3,
+        override: 8,
+      },
+    ]);
+  });
+
+  it("updates Personal Reality overrides in metadata", async () => {
+    const fakeDb = new FakeDb();
+    loadMock.mockResolvedValue(fakeDb);
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [],
+      { once: true }
+    );
+
+    const { updateWarehousePersonalRealitySummary } = await importDao();
+    await updateWarehousePersonalRealitySummary({
+      wpCap: 25,
+      limitQuotas: {
+        structures: 12,
+      },
+    });
+
+    const initialInsert = fakeDb.executeCalls.at(-1);
+    expect(initialInsert?.sql).toContain("INSERT INTO app_settings");
+    expect(initialInsert?.params[0]).toBe("warehouse.personalReality");
+    const payload = JSON.parse(String(initialInsert?.params[1]));
+    expect(payload).toEqual({
+      wpCap: 25,
+      limits: {
+        structures: 12,
+      },
+    });
+
+    fakeDb.clearCalls();
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            wpCap: 25,
+            limits: {
+              structures: 12,
+              hangar: 5,
+            },
+          }),
+          updated_at: "2025-01-03T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    await updateWarehousePersonalRealitySummary({
+      wpCap: undefined,
+      limitQuotas: {
+        structures: undefined,
+        hangar: 4,
+      },
+    });
+
+    const secondInsert = fakeDb.executeCalls.at(-1);
+    expect(secondInsert?.sql).toContain("INSERT INTO app_settings");
+    expect(secondInsert?.params[0]).toBe("warehouse.personalReality");
+    const secondPayload = JSON.parse(String(secondInsert?.params[1]));
+    expect(secondPayload).toEqual({
+      limits: {
+        hangar: 4,
+      },
+    });
+
+    fakeDb.clearCalls();
+    fakeDb.whenSelect(
+      (sql, params) => sql.includes("FROM app_settings") && params[0] === "warehouse.personalReality",
+      () => [
+        {
+          key: "warehouse.personalReality",
+          value: JSON.stringify({
+            limits: {
+              hangar: 4,
+            },
+          }),
+          updated_at: "2025-01-04T00:00:00.000Z",
+        },
+      ],
+      { once: true }
+    );
+
+    await updateWarehousePersonalRealitySummary({
+      wpCap: undefined,
+      limitQuotas: {
+        hangar: undefined,
+      },
+    });
+
+    const finalCall = fakeDb.executeCalls.at(-1);
+    expect(finalCall?.sql).toContain("DELETE FROM app_settings");
+    expect(finalCall?.params).toEqual(["warehouse.personalReality"]);
   });
 });

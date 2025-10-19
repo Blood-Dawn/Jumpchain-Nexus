@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CATEGORY_PRESETS_SETTING_KEY,
@@ -67,12 +67,110 @@ import {
   type EssentialEpAccessMode,
   type EssentialEpAccessModifier,
   type ExportPreferenceSettings,
+  type ExportPresetRecord,
   type JumpDefaultsSettings,
   type SupplementToggleSettings,
   type UniversalDrawbackSettings,
   type WarehouseModeOption,
   type FormatterSettings,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
+
+const EXPORT_PRESET_FORMAT_LABELS = {
+  markdown: "Markdown",
+  bbcode: "BBCode",
+  text: "Plain text",
+} as const;
+
+const EXPORT_PRESET_SECTION_DEFINITIONS = [
+  { key: "header", label: "Jumpchain Export" },
+  { key: "totals", label: "Chain Totals" },
+  { key: "jumps", label: "Jump Breakdown" },
+  { key: "inventory", label: "Inventory Snapshot" },
+  { key: "profiles", label: "Character Profiles" },
+  { key: "notes", label: "Notes Overview" },
+  { key: "recaps", label: "Recap Highlights" },
+] as const;
+
+type ExportPresetFormat = keyof typeof EXPORT_PRESET_FORMAT_LABELS;
+type ExportSectionPreferenceFormat = "markdown" | "bbcode";
+type ExportPresetSectionKey = (typeof EXPORT_PRESET_SECTION_DEFINITIONS)[number]["key"];
+
+interface ExportPresetSummarySection {
+  key: ExportPresetSectionKey;
+  label: string;
+  format: ExportSectionPreferenceFormat;
+  spoiler: boolean;
+}
+
+interface ExportPresetSummary {
+  format: ExportPresetFormat;
+  sections: ExportPresetSummarySection[];
+}
+
+const PREVIEW_FORMAT_LABELS: Record<ExportSectionPreferenceFormat, string> = {
+  markdown: "Markdown",
+  bbcode: "BBCode",
+};
+
+function isExportPresetFormat(value: unknown): value is ExportPresetFormat {
+  return value === "markdown" || value === "bbcode" || value === "text";
+}
+
+function isSectionPreferenceFormat(value: unknown): value is ExportSectionPreferenceFormat {
+  return value === "markdown" || value === "bbcode";
+}
+
+function parsePresetSummary(record: ExportPresetRecord | null): ExportPresetSummary | null {
+  if (!record) {
+    return null;
+  }
+
+  let parsed: Record<string, unknown> = {};
+  try {
+    if (record.options_json) {
+      const raw = JSON.parse(record.options_json) as unknown;
+      if (raw && typeof raw === "object") {
+        parsed = raw as Record<string, unknown>;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to parse export preset options", error);
+  }
+
+  const formatValue = parsed.format;
+  const format: ExportPresetFormat = isExportPresetFormat(formatValue) ? formatValue : "markdown";
+
+  const sectionPreferences = parsed.sectionPreferences;
+  const sections: ExportPresetSummarySection[] = EXPORT_PRESET_SECTION_DEFINITIONS.map((definition) => {
+    const preference =
+      sectionPreferences && typeof sectionPreferences === "object"
+        ? (sectionPreferences as Record<string, unknown>)[definition.key]
+        : null;
+
+    const preferenceFormat =
+      preference && typeof preference === "object"
+        ? (preference as Record<string, unknown>).format
+        : null;
+    const sectionFormat: ExportSectionPreferenceFormat = isSectionPreferenceFormat(preferenceFormat)
+      ? preferenceFormat
+      : "markdown";
+
+    const spoilerValue =
+      preference && typeof preference === "object"
+        ? (preference as Record<string, unknown>).spoiler
+        : null;
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      format: sectionFormat,
+      spoiler: spoilerValue === true,
+    } satisfies ExportPresetSummarySection;
+  });
+
+  return { format, sections } satisfies ExportPresetSummary;
+}
 
 interface SettingPayload {
   key: string;
@@ -191,10 +289,7 @@ const JumpchainOptions: React.FC = () => {
     queryKey: ["universal-drawback-settings"],
     queryFn: loadUniversalDrawbackSettings,
   });
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
@@ -251,6 +346,8 @@ const JumpchainOptions: React.FC = () => {
   });
   const [perkInput, setPerkInput] = useState("");
   const [itemInput, setItemInput] = useState("");
+  const perkListLabelId = useId();
+  const itemListLabelId = useId();
   const [defaultPresetId, setDefaultPresetId] = useState<string | null>(DEFAULT_EXPORT_PREFERENCES.defaultPresetId);
   const [sectionStatus, setSectionStatus] = useState<SectionStatusMap>({});
 
@@ -266,6 +363,15 @@ const JumpchainOptions: React.FC = () => {
     }
     return new Map(settingsQuery.data.map((record) => [record.key, record]));
   }, [settingsQuery.data]);
+
+  const selectedPreset = useMemo(() => {
+    if (!defaultPresetId) {
+      return null;
+    }
+    return exportPresetsQuery.data?.find((preset) => preset.id === defaultPresetId) ?? null;
+  }, [defaultPresetId, exportPresetsQuery.data]);
+
+  const presetSummary = useMemo(() => parsePresetSummary(selectedPreset), [selectedPreset]);
 
   useEffect(() => {
     if (!settingsQuery.data) {
@@ -399,6 +505,12 @@ const JumpchainOptions: React.FC = () => {
         next.push(fresh);
         return next.sort((a, b) => a.key.localeCompare(b.key));
       });
+
+      if (variables.key.startsWith("formatter.")) {
+        await queryClient
+          .invalidateQueries({ queryKey: FORMATTER_PREFERENCES_QUERY_KEY })
+          .catch(() => undefined);
+      }
 
       switch (variables.key) {
         case JUMP_DEFAULTS_SETTING_KEY: {
@@ -700,7 +812,6 @@ const JumpchainOptions: React.FC = () => {
   };
 
   const updateCategoryPresets = (next: CategoryPresetSettings) => {
-    setCategoryPresets(next);
     persistSetting({
       key: CATEGORY_PRESETS_SETTING_KEY,
       value: next,
@@ -724,7 +835,7 @@ const JumpchainOptions: React.FC = () => {
       return;
     }
 
-    const nextList = [...existing, normalized].sort((a, b) => a.localeCompare(b));
+    const nextList = [...existing, normalized];
     const nextPresets: CategoryPresetSettings =
       kind === "perk"
         ? { ...categoryPresets, perkCategories: nextList }
@@ -737,6 +848,7 @@ const JumpchainOptions: React.FC = () => {
       setItemInput("");
     }
 
+    setCategoryPresets(nextPresets);
     updateCategoryPresets(nextPresets);
   };
 
@@ -747,6 +859,28 @@ const JumpchainOptions: React.FC = () => {
       kind === "perk"
         ? { ...categoryPresets, perkCategories: nextList }
         : { ...categoryPresets, itemCategories: nextList };
+    setCategoryPresets(nextPresets);
+    updateCategoryPresets(nextPresets);
+  };
+
+  const handleMoveCategory = (kind: "perk" | "item", fromIndex: number, toIndex: number) => {
+    const source = kind === "perk" ? categoryPresets.perkCategories : categoryPresets.itemCategories;
+    if (toIndex < 0 || toIndex >= source.length || fromIndex === toIndex) {
+      return;
+    }
+
+    const nextList = [...source];
+    const [moved] = nextList.splice(fromIndex, 1);
+    if (moved === undefined) {
+      return;
+    }
+    nextList.splice(toIndex, 0, moved);
+
+    const nextPresets: CategoryPresetSettings =
+      kind === "perk"
+        ? { ...categoryPresets, perkCategories: nextList }
+        : { ...categoryPresets, itemCategories: nextList };
+    setCategoryPresets(nextPresets);
     updateCategoryPresets(nextPresets);
   };
 
@@ -1386,6 +1520,44 @@ const JumpchainOptions: React.FC = () => {
             {!exportPresetsQuery.isLoading && !exportPresetsQuery.isError && !exportPresetsQuery.data?.length && (
               <p className="options__hint">Create presets in the Export module to enable quick switching.</p>
             )}
+            {presetSummary && (
+              <div className="options__preset-summary" data-testid="preset-summary">
+                <div className="options__preset-summary-row">
+                  <span className="options__preset-summary-label">Output format</span>
+                  <span
+                    className="options__preset-summary-value"
+                    data-testid="preset-summary-format-value"
+                  >
+                    {EXPORT_PRESET_FORMAT_LABELS[presetSummary.format]}
+                  </span>
+                </div>
+                <div className="options__preset-summary-sections" role="group" aria-label="Section formatting">
+                  {presetSummary.sections.map((section) => (
+                    <div
+                      key={section.key}
+                      className="options__preset-summary-section"
+                      data-testid={`preset-summary-section-${section.key}`}
+                    >
+                      <span className="options__preset-summary-section-title">{section.label}</span>
+                      <span className="options__preset-summary-section-meta">
+                        {`${PREVIEW_FORMAT_LABELS[section.format]} · ${section.spoiler ? "Spoiler" : "Visible"}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!presetSummary &&
+              !exportPresetsQuery.isLoading &&
+              !exportPresetsQuery.isError &&
+              !!exportPresetsQuery.data?.length &&
+              !defaultPresetId && <p className="options__hint">Select a preset to preview its formatting.</p>}
+            {defaultPresetId &&
+              !presetSummary &&
+              !exportPresetsQuery.isLoading &&
+              !exportPresetsQuery.isError && (
+                <p className="options__error">Selected preset is unavailable.</p>
+              )}
           </div>
           {sectionMessage("export-preferences")}
         </section>
@@ -1397,24 +1569,49 @@ const JumpchainOptions: React.FC = () => {
           </header>
           <div className="options__categories">
             <div className="options__category-column">
-              <h3>Perk Categories</h3>
-              <div className="options__chips">
-                {categoryPresets.perkCategories.length === 0 && (
-                  <span className="options__chip options__chip--empty">No perk categories yet.</span>
+              <h3 id={perkListLabelId}>Perk Categories</h3>
+              <ul className="options__category-list" aria-labelledby={perkListLabelId}>
+                {categoryPresets.perkCategories.length === 0 ? (
+                  <li className="options__category-empty">No perk categories yet.</li>
+                ) : (
+                  categoryPresets.perkCategories.map((category, index) => (
+                    <li key={category} className="options__category-row">
+                      <span className="options__category-label">{category}</span>
+                      <div className="options__category-actions">
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move perk category ${category} up`}
+                          title="Move up"
+                          onClick={() => handleMoveCategory("perk", index, index - 1)}
+                          disabled={index === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move perk category ${category} down`}
+                          title="Move down"
+                          onClick={() => handleMoveCategory("perk", index, index + 1)}
+                          disabled={index === categoryPresets.perkCategories.length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button options__category-button--remove"
+                          aria-label={`Remove perk category ${category}`}
+                          title="Remove"
+                          onClick={() => handleRemoveCategory("perk", category)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </li>
+                  ))
                 )}
-                {categoryPresets.perkCategories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className="options__chip"
-                    onClick={() => handleRemoveCategory("perk", category)}
-                    title="Remove category"
-                  >
-                    {category}
-                    <span aria-hidden="true">×</span>
-                  </button>
-                ))}
-              </div>
+              </ul>
               <div className="options__add-row">
                 <input
                   type="text"
@@ -1428,30 +1625,57 @@ const JumpchainOptions: React.FC = () => {
                     }
                   }}
                 />
-                <button type="button" onClick={() => handleAddCategory("perk")}>Add</button>
+                <button type="button" onClick={() => handleAddCategory("perk")} aria-label="Add perk category">
+                  Add
+                </button>
               </div>
               {categoryErrors.perk && <p className="options__error">{categoryErrors.perk}</p>}
             </div>
 
             <div className="options__category-column">
-              <h3>Item Categories</h3>
-              <div className="options__chips">
-                {categoryPresets.itemCategories.length === 0 && (
-                  <span className="options__chip options__chip--empty">No item categories yet.</span>
+              <h3 id={itemListLabelId}>Item Categories</h3>
+              <ul className="options__category-list" aria-labelledby={itemListLabelId}>
+                {categoryPresets.itemCategories.length === 0 ? (
+                  <li className="options__category-empty">No item categories yet.</li>
+                ) : (
+                  categoryPresets.itemCategories.map((category, index) => (
+                    <li key={category} className="options__category-row">
+                      <span className="options__category-label">{category}</span>
+                      <div className="options__category-actions">
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move item category ${category} up`}
+                          title="Move up"
+                          onClick={() => handleMoveCategory("item", index, index - 1)}
+                          disabled={index === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move item category ${category} down`}
+                          title="Move down"
+                          onClick={() => handleMoveCategory("item", index, index + 1)}
+                          disabled={index === categoryPresets.itemCategories.length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button options__category-button--remove"
+                          aria-label={`Remove item category ${category}`}
+                          title="Remove"
+                          onClick={() => handleRemoveCategory("item", category)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </li>
+                  ))
                 )}
-                {categoryPresets.itemCategories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className="options__chip"
-                    onClick={() => handleRemoveCategory("item", category)}
-                    title="Remove category"
-                  >
-                    {category}
-                    <span aria-hidden="true">×</span>
-                  </button>
-                ))}
-              </div>
+              </ul>
               <div className="options__add-row">
                 <input
                   type="text"
@@ -1465,7 +1689,9 @@ const JumpchainOptions: React.FC = () => {
                     }
                   }}
                 />
-                <button type="button" onClick={() => handleAddCategory("item")}>Add</button>
+                <button type="button" onClick={() => handleAddCategory("item")} aria-label="Add item category">
+                  Add
+                </button>
               </div>
               {categoryErrors.item && <p className="options__error">{categoryErrors.item}</p>}
             </div>
