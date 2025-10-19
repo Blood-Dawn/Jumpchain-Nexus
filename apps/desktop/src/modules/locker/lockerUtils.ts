@@ -24,7 +24,7 @@ SOFTWARE.
 
 import type { InventoryItemRecord } from "../../db/dao";
 
-export type LockerPriority = "essential" | "standard" | "luxury";
+export type LockerPriority = "low" | "medium" | "high";
 export type BodyModType = "universal" | "essential";
 
 export interface LockerMetadata extends Record<string, unknown> {
@@ -44,6 +44,7 @@ export interface LockerItemAnalysis {
   metadata: LockerMetadata;
   packed: boolean;
   priority: LockerPriority;
+  manualWarnings: LockerWarning[];
   tags: string[];
   tagSet: Set<string>;
   bodyModType: BodyModType | null;
@@ -70,7 +71,11 @@ export interface LockerAvailabilitySettings {
   universalEnabled: boolean;
 }
 
-export type LockerWarningType = "missing-booster" | "body-mod-disabled" | "universal-disabled";
+export type LockerWarningType =
+  | "missing-booster"
+  | "body-mod-disabled"
+  | "universal-disabled"
+  | "priority-high";
 
 export interface LockerWarning {
   type: LockerWarningType;
@@ -104,13 +109,22 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+const LEGACY_PRIORITY_MAP: Record<string, LockerPriority> = {
+  essential: "high",
+  standard: "medium",
+  luxury: "low",
+};
+
 function normalizePriority(value: unknown): LockerPriority | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === "essential" || normalized === "standard" || normalized === "luxury") {
+  if (normalized === "low" || normalized === "medium" || normalized === "high") {
     return normalized;
+  }
+  if (normalized in LEGACY_PRIORITY_MAP) {
+    return LEGACY_PRIORITY_MAP[normalized];
   }
   return undefined;
 }
@@ -263,7 +277,11 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
     const tags = parseTags(item.tags);
     const { bodyModType, boosterIds, dependencies } = analyzeTags(tags, metadata);
     const packed = typeof metadata.packed === "boolean" ? metadata.packed : false;
-    const priority = metadata.priority ?? "standard";
+    const priority = metadata.priority ?? "medium";
+    const manualWarnings: LockerWarning[] = [];
+    if (priority === "high") {
+      manualWarnings.push({ type: "priority-high", message: "Marked as high priority." });
+    }
     const tagSet = new Set(tags.map((tag) => normalizeTagValue(tag)));
     const searchText = [item.name, item.category, item.slot, item.notes, ...tags]
       .filter(Boolean)
@@ -274,6 +292,7 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
       metadata,
       packed,
       priority,
+      manualWarnings,
       tags,
       tagSet,
       bodyModType,
@@ -396,7 +415,7 @@ export function computeLockerWarnings(
   });
 
   items.forEach((entry) => {
-    const entryWarnings: LockerWarning[] = [];
+    const entryWarnings: LockerWarning[] = [...entry.manualWarnings];
     entry.dependencies.forEach((dependency) => {
       const normalizedId = dependency.id;
       let satisfied = false;
