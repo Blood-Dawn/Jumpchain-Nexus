@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createInventoryItem,
   deleteInventoryItem,
@@ -30,13 +30,17 @@ import {
   listJumps,
   moveInventoryItem,
   updateInventoryItem,
+  type InventoryItemRecord,
   type InventoryScope,
   type JumpRecord,
   loadWarehouseModeSetting,
   loadCategoryPresets,
   loadWarehousePersonalRealitySummary,
+  type WarehousePersonalRealitySummary,
 } from "../../db/dao";
+import { derivePersonalRealitySummary } from "../../db/personalReality";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FixedSizeList, type ListChildComponentProps } from "react-window";
 
 interface WarehouseFormState {
   id: string;
@@ -54,8 +58,23 @@ interface UpdatePayload {
   updates: Parameters<typeof updateInventoryItem>[1];
 }
 
+interface SearchableItem {
+  record: InventoryItemRecord;
+  searchText: string;
+}
+
 const scopeKey = ["warehouse-items"] as const;
 const personalRealityKey = ["warehouse-personal-reality"] as const;
+const baseQueryConfig = {
+  staleTime: 5 * 60 * 1000,
+  gcTime: 30 * 60 * 1000,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  networkMode: "offlineFirst" as const,
+  structuralSharing: true,
+  retry: 1,
+};
+const ITEM_ROW_HEIGHT = 68;
 
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
@@ -64,6 +83,27 @@ const formatNumber = (value: number): string => {
     return "0";
   }
   return numberFormatter.format(value);
+};
+
+const compareInventoryItems = (a: InventoryItemRecord, b: InventoryItemRecord): number => {
+  const orderA = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
+  const orderB = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  const createdA = a.created_at ?? "";
+  const createdB = b.created_at ?? "";
+  if (createdA && createdB) {
+    const comparison = createdA.localeCompare(createdB);
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+  return a.id.localeCompare(b.id);
+};
+
+const sortInventoryItems = (items: InventoryItemRecord[]): InventoryItemRecord[] => {
+  return [...items].sort(compareInventoryItems);
 };
 
 const parseTags = (raw: string | null): string[] => {
@@ -87,10 +127,23 @@ const CosmicWarehouse: React.FC = () => {
   const itemsQuery = useQuery({
     queryKey: scopeKey,
     queryFn: () => listInventoryItems("warehouse"),
+    ...baseQueryConfig,
   });
-  const jumpsQuery = useQuery({ queryKey: ["jumps"], queryFn: listJumps });
-  const warehouseModeQuery = useQuery({ queryKey: ["warehouse-mode"], queryFn: loadWarehouseModeSetting });
-  const categoryPresetsQuery = useQuery({ queryKey: ["category-presets"], queryFn: loadCategoryPresets });
+  const jumpsQuery = useQuery({
+    queryKey: ["jumps", "warehouse"],
+    queryFn: listJumps,
+    ...baseQueryConfig,
+  });
+  const warehouseModeQuery = useQuery({
+    queryKey: ["warehouse-mode"],
+    queryFn: loadWarehouseModeSetting,
+    ...baseQueryConfig,
+  });
+  const categoryPresetsQuery = useQuery({
+    queryKey: ["category-presets"],
+    queryFn: loadCategoryPresets,
+    ...baseQueryConfig,
+  });
 
   const warehouseMode = warehouseModeQuery.data?.mode ?? "generic";
   const warehouseModeLabel = useMemo(() => {
@@ -102,6 +155,7 @@ const CosmicWarehouse: React.FC = () => {
     queryKey: personalRealityKey,
     queryFn: loadWarehousePersonalRealitySummary,
     enabled: isPersonalReality,
+    ...baseQueryConfig,
   });
 
   const [search, setSearch] = useState("");
@@ -117,18 +171,50 @@ const CosmicWarehouse: React.FC = () => {
         quantity: 1,
       }),
     onSuccess: (item) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        const base = current ?? [];
+        const next = sortInventoryItems([...base, item]);
+        updatedItems = next;
+        return next;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      }
+      setSelectedId(item.id);
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
       }
-      setSelectedId(item.id);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: (payload: UpdatePayload) => updateInventoryItem(payload.id, payload.updates),
     onSuccess: (item) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        if (!current) {
+          return current;
+        }
+        const replaced = current.map((existing) => (existing.id === item.id ? item : existing));
+        const sorted = sortInventoryItems(replaced);
+        updatedItems = sorted;
+        return sorted;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      } else {
+        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+        if (isPersonalReality) {
+          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        }
+      }
       setSelectedId(item.id);
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -138,8 +224,27 @@ const CosmicWarehouse: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteInventoryItem(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        if (!current) {
+          return current;
+        }
+        const next = current.filter((item) => item.id !== id);
+        updatedItems = next;
+        return next;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      } else {
+        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+        if (isPersonalReality) {
+          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        }
+      }
       setSelectedId(null);
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -149,8 +254,27 @@ const CosmicWarehouse: React.FC = () => {
 
   const moveMutation = useMutation({
     mutationFn: (payload: { id: string; scope: InventoryScope }) => moveInventoryItem(payload.id, payload.scope),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        if (!current) {
+          return current;
+        }
+        const next = current.filter((item) => item.id !== variables.id);
+        updatedItems = next;
+        return next;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      } else {
+        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+        if (isPersonalReality) {
+          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        }
+      }
       setSelectedId(null);
+    },
+    onError: () => {
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -183,18 +307,37 @@ const CosmicWarehouse: React.FC = () => {
     return Array.from(all).sort((a, b) => a.localeCompare(b));
   }, [categoryPresetsQuery.data, itemsQuery.data]);
 
-  const filteredItems = useMemo(() => {
+  const searchableItems = useMemo<SearchableItem[]>(() => {
     const base = itemsQuery.data ?? [];
-    return base.filter((item) => {
-      const matchesCategory = !activeCategory || item.category === activeCategory;
-      const matchesSearch = !search
-        ? true
-        : [item.name, item.category, item.slot, item.notes]
-            .filter(Boolean)
-            .some((value) => value!.toLowerCase().includes(search.toLowerCase()));
-      return matchesCategory && matchesSearch;
+    return base.map((item) => {
+      const tokens = [item.name, item.category, item.slot, item.notes]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase());
+      return {
+        record: item,
+        searchText: tokens.join("\u0000"),
+      };
     });
-  }, [itemsQuery.data, activeCategory, search]);
+  }, [itemsQuery.data]);
+
+  const filteredItems = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    if (!activeCategory && !normalizedSearch) {
+      return searchableItems.map((entry) => entry.record);
+    }
+    return searchableItems
+      .filter(({ record, searchText }) => {
+        const matchesCategory = !activeCategory || record.category === activeCategory;
+        if (!matchesCategory) {
+          return false;
+        }
+        if (!normalizedSearch) {
+          return true;
+        }
+        return searchText.includes(normalizedSearch);
+      })
+      .map((entry) => entry.record);
+  }, [searchableItems, activeCategory, search]);
 
   const selectedItem = useMemo(
     () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,
@@ -202,6 +345,21 @@ const CosmicWarehouse: React.FC = () => {
   );
 
   const personalRealitySummary = personalRealityQuery.data;
+  const updatePersonalRealityCache = useCallback(
+    (items: InventoryItemRecord[]) => {
+      if (!isPersonalReality) {
+        return;
+      }
+      queryClient.setQueryData<WarehousePersonalRealitySummary | undefined>(
+        personalRealityKey,
+        (currentSummary) => {
+          const cap = currentSummary?.wpCap ?? personalRealitySummary?.wpCap ?? null;
+          return derivePersonalRealitySummary(items, cap);
+        }
+      );
+    },
+    [isPersonalReality, personalRealitySummary?.wpCap, queryClient]
+  );
   const personalRealityWarnings = useMemo(() => {
     if (!isPersonalReality || !personalRealitySummary) {
       return [] as string[];
@@ -270,6 +428,68 @@ const CosmicWarehouse: React.FC = () => {
       moveMutation.mutate({ id: selectedId, scope: "locker" });
     }
   };
+
+  const listViewportRef = useRef<HTMLDivElement | null>(null);
+  const [listHeight, setListHeight] = useState<number>(360);
+  const [listWidth, setListWidth] = useState<number>(320);
+
+  useEffect(() => {
+    const element = listViewportRef.current;
+    if (!element || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setListHeight(entry.contentRect.height || ITEM_ROW_HEIGHT * 5);
+      setListWidth(entry.contentRect.width || element.clientWidth || 320);
+    });
+    observer.observe(element);
+    setListHeight(element.clientHeight || ITEM_ROW_HEIGHT * 5);
+    setListWidth(element.clientWidth || 320);
+    return () => observer.disconnect();
+  }, []);
+
+  type ItemData = {
+    items: InventoryItemRecord[];
+    selectedId: string | null;
+    onSelect: (id: string) => void;
+  };
+
+  const itemData = useMemo<ItemData>(
+    () => ({
+      items: filteredItems,
+      selectedId,
+      onSelect: (id: string) => setSelectedId(id),
+    }),
+    [filteredItems, selectedId, setSelectedId],
+  );
+
+  const renderRow = useCallback(
+    ({ index, style, data }: ListChildComponentProps<ItemData>) => {
+      const item = data.items[index];
+      if (!item) {
+        return null;
+      }
+      const isActive = item.id === data.selectedId;
+      return (
+        <li style={style}>
+          <button
+            type="button"
+            className={isActive ? "warehouse__item warehouse__item--active" : "warehouse__item"}
+            onClick={() => data.onSelect(item.id)}
+          >
+            <strong>{item.name}</strong>
+            <span>
+              {item.category ?? "Unsorted"} • Qty {item.quantity}
+              {item.slot ? ` • ${item.slot}` : ""}
+            </span>
+          </button>
+        </li>
+      );
+    },
+    [],
+  );
 
   return (
     <section className="warehouse">
@@ -401,23 +621,21 @@ const CosmicWarehouse: React.FC = () => {
           {!itemsQuery.isLoading && filteredItems.length === 0 && (
             <p className="warehouse__empty">No items match the current filters.</p>
           )}
-          <ul>
-            {filteredItems.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={item.id === selectedId ? "warehouse__item warehouse__item--active" : "warehouse__item"}
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.category ?? "Unsorted"} • Qty {item.quantity}
-                    {item.slot ? ` • ${item.slot}` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="warehouse__list-viewport" ref={listViewportRef}>
+            {filteredItems.length > 0 ? (
+              <FixedSizeList
+                height={listHeight}
+                width={listWidth}
+                itemCount={filteredItems.length}
+                itemSize={ITEM_ROW_HEIGHT}
+                itemData={itemData}
+                innerElementType="ul"
+                itemKey={(index, data) => data.items[index]?.id ?? `${index}`}
+              >
+                {renderRow}
+              </FixedSizeList>
+            ) : null}
+          </div>
         </aside>
 
         <div className="warehouse__detail">
