@@ -24,7 +24,7 @@ SOFTWARE.
 
 import type { InventoryItemRecord } from "../../db/dao";
 
-export type LockerPriority = "essential" | "standard" | "luxury";
+export type LockerPriority = "low" | "medium" | "high";
 export type BodyModType = "universal" | "essential";
 
 export interface LockerMetadata extends Record<string, unknown> {
@@ -44,6 +44,7 @@ export interface LockerItemAnalysis {
   metadata: LockerMetadata;
   packed: boolean;
   priority: LockerPriority;
+  manualWarnings: LockerWarning[];
   tags: string[];
   tagSet: Set<string>;
   bodyModType: BodyModType | null;
@@ -58,7 +59,6 @@ export interface LockerFilters {
   priority: "all" | LockerPriority;
   bodyMod: "all" | BodyModType | "none";
   booster: "all" | "booster" | "non-booster";
-  tag: "all" | string;
 }
 
 export interface LockerTagOption {
@@ -71,7 +71,11 @@ export interface LockerAvailabilitySettings {
   universalEnabled: boolean;
 }
 
-export type LockerWarningType = "missing-booster" | "body-mod-disabled" | "universal-disabled";
+export type LockerWarningType =
+  | "missing-booster"
+  | "body-mod-disabled"
+  | "universal-disabled"
+  | "priority-high";
 
 export interface LockerWarning {
   type: LockerWarningType;
@@ -105,13 +109,22 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
+const LEGACY_PRIORITY_MAP: Record<string, LockerPriority> = {
+  essential: "high",
+  standard: "medium",
+  luxury: "low",
+};
+
 function normalizePriority(value: unknown): LockerPriority | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === "essential" || normalized === "standard" || normalized === "luxury") {
+  if (normalized === "low" || normalized === "medium" || normalized === "high") {
     return normalized;
+  }
+  if (normalized in LEGACY_PRIORITY_MAP) {
+    return LEGACY_PRIORITY_MAP[normalized];
   }
   return undefined;
 }
@@ -264,7 +277,11 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
     const tags = parseTags(item.tags);
     const { bodyModType, boosterIds, dependencies } = analyzeTags(tags, metadata);
     const packed = typeof metadata.packed === "boolean" ? metadata.packed : false;
-    const priority = metadata.priority ?? "standard";
+    const priority = metadata.priority ?? "medium";
+    const manualWarnings: LockerWarning[] = [];
+    if (priority === "high") {
+      manualWarnings.push({ type: "priority-high", message: "Marked as high priority." });
+    }
     const tagSet = new Set(tags.map((tag) => normalizeTagValue(tag)));
     const searchText = [item.name, item.category, item.slot, item.notes, ...tags]
       .filter(Boolean)
@@ -275,6 +292,7 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
       metadata,
       packed,
       priority,
+      manualWarnings,
       tags,
       tagSet,
       bodyModType,
@@ -286,8 +304,16 @@ export function mapLockerItems(records: InventoryItemRecord[]): LockerItemAnalys
   });
 }
 
-export function filterLockerItems(items: LockerItemAnalysis[], filters: LockerFilters, search: string): LockerItemAnalysis[] {
+export function filterLockerItems(
+  items: LockerItemAnalysis[],
+  filters: LockerFilters,
+  search: string,
+  activeTags: string[] = []
+): LockerItemAnalysis[] {
   const trimmedSearch = search.trim().toLowerCase();
+  const requiredTags = activeTags
+    .map((tag) => normalizeTagValue(tag))
+    .filter((tag, index, array) => tag.length > 0 && array.indexOf(tag) === index);
   return items.filter((entry) => {
     if (filters.packed !== "all") {
       if (filters.packed === "packed" && !entry.packed) {
@@ -314,8 +340,12 @@ export function filterLockerItems(items: LockerItemAnalysis[], filters: LockerFi
     if (filters.booster === "non-booster" && entry.hasBooster) {
       return false;
     }
-    if (filters.tag !== "all" && !entry.tagSet.has(filters.tag)) {
-      return false;
+    if (requiredTags.length > 0) {
+      for (const tag of requiredTags) {
+        if (!entry.tagSet.has(tag)) {
+          return false;
+        }
+      }
     }
     if (!trimmedSearch.length) {
       return true;
@@ -385,7 +415,7 @@ export function computeLockerWarnings(
   });
 
   items.forEach((entry) => {
-    const entryWarnings: LockerWarning[] = [];
+    const entryWarnings: LockerWarning[] = [...entry.manualWarnings];
     entry.dependencies.forEach((dependency) => {
       const normalizedId = dependency.id;
       let satisfied = false;

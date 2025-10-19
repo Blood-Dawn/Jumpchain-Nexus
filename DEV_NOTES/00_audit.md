@@ -58,11 +58,11 @@ SOFTWARE.
 - `CosmicPassportView`: character management (create/delete), tabbed profile editor covering biography, physical traits, personality, skills/attributes, boosters, alt-forms.
 - `CosmicWarehouseView`: supplement-focused UI with statistics, categorized purchases, additions, limitations depending on selected warehouse mode (Generic vs Personal Reality toggles).
 - `CosmicLockerView`, `DrawbackSupplementView`, `StatisticsView`, `JumpchainOptionsView`: specialized panels for body mods, drawback add-ons, analytics, and global options respectively.
-- `Messages/` folder defines toolkit messenger payloads for save/load, settings, randomizer events, enabling loose coupling between viewmodels and services.
+- `Messages/` folder defines toolkit messenger payloads for save/load and settings events, enabling loose coupling between viewmodels and services.
 
 ## PDF Handling Status
 - No dedicated PDF ingestion or parsing pipeline exists. Only indirect touchpoint is `FormatHelper.RemoveLineBreaks`, which cleans text pasted from PDFs for manual entry. Future PDF preview/extraction must be built from scratch.
 
 ## Notable Services
-- `RandomizeListAccess`, `ListOperationsClass`, `ListValidationClass`, `AttributeCalculationClass`, etc., provide business rules for point totals, list movement, validation, attribute math.
-- `Services/` implements `DialogService`, settings persistence, clipboard helpers, and randomization utilities used across the MVVM layer.
+- `ListOperationsClass`, `ListValidationClass`, `AttributeCalculationClass`, etc., provide business rules for point totals, list movement, validation, attribute math.
+- `Services/` implements `DialogService`, settings persistence, clipboard helpers, and other utilities used across the MVVM layer.

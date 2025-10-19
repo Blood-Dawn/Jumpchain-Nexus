@@ -173,6 +173,26 @@
   overflow: auto;
 }
 
+.knowledge-base__stage--drop {
+  border-color: color-mix(in srgb, var(--kb-accent) 70%, var(--kb-border-muted));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kb-accent) 30%, transparent);
+}
+
+.knowledge-base__drop-indicator {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--kb-accent) 14%, transparent);
+  color: var(--kb-accent-text);
+  text-align: center;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .knowledge-base__feedback {
   position: absolute;
   top: 1rem;
@@ -184,58 +204,184 @@
   font-size: 0.85rem;
 }
 
-.knowledge-base__import-issues {
-  margin-bottom: 1rem;
+.knowledge-base__import-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--kb-border-strong);
+  background: color-mix(in srgb, var(--kb-accent) 16%, transparent);
+  color: var(--kb-accent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  z-index: 15;
+}
+
+.knowledge-base__import-drawer {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: min(360px, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.75rem;
   padding: 1rem 1.25rem;
   border-radius: 0.75rem;
   border: 1px solid var(--kb-border-strong);
-  background: color-mix(in srgb, var(--kb-accent) 18%, transparent);
-  display: grid;
+  background: color-mix(in srgb, var(--kb-accent) 18%, rgba(6, 10, 18, 0.88));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 20;
+}
+
+.knowledge-base__import-drawer[data-open="false"] {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(120%);
+  visibility: hidden;
+}
+
+.knowledge-base__import-drawer header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 0.75rem;
 }
 
-.knowledge-base__import-issues header {
+.knowledge-base__import-drawer header div {
   display: grid;
   gap: 0.35rem;
 }
 
-.knowledge-base__import-issues h3 {
+.knowledge-base__import-drawer h3 {
   margin: 0;
 }
 
-.knowledge-base__import-issues p {
+.knowledge-base__import-drawer p {
   margin: 0;
   color: var(--kb-accent-text);
   font-size: 0.9rem;
 }
 
-.knowledge-base__import-issues ul {
+.knowledge-base__import-drawer ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.6rem;
+  overflow: auto;
 }
 
-.knowledge-base__import-issues li {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+.knowledge-base__import-drawer li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
   border: 1px solid var(--kb-border-muted);
-  background: color-mix(in srgb, var(--kb-surface) 70%, transparent);
+  background: color-mix(in srgb, var(--kb-surface) 72%, transparent);
 }
 
-.knowledge-base__import-issues code {
+.knowledge-base__import-drawer li button {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.knowledge-base__import-details {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.knowledge-base__import-details code {
   font-size: 0.85rem;
   color: var(--kb-accent-text);
   word-break: break-all;
 }
 
-.knowledge-base__import-issues span {
+.knowledge-base__import-details span {
   font-size: 0.9rem;
   color: var(--kb-text-muted);
+}
+
+.knowledge-base__progress-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(4, 10, 18, 0.7);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+.knowledge-base__progress-modal {
+  width: min(420px, 90vw);
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--kb-border-strong);
+  background: color-mix(in srgb, var(--kb-surface) 94%, var(--kb-surface-raised));
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.45);
+}
+
+.knowledge-base__progress-modal header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.knowledge-base__progress-modal header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.knowledge-base__progress-modal header p {
+  margin: 0;
+  color: var(--kb-text-muted);
+  font-size: 0.95rem;
+}
+
+.knowledge-base__progress-status {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.knowledge-base__progress-bar {
+  width: 100%;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--kb-accent-muted) 40%, transparent);
+  overflow: hidden;
+}
+
+.knowledge-base__progress-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--kb-accent) 0%, color-mix(in srgb, var(--kb-accent) 55%, white) 100%);
+  transition: width 160ms ease-out;
+}
+
+.knowledge-base__progress-counts {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.knowledge-base__progress-path {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--kb-text-muted);
+  word-break: break-all;
+}
+
+.knowledge-base__progress-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .knowledge-base__import-issues footer {
@@ -273,6 +419,56 @@
   border-radius: 0.5rem;
   border: 1px solid var(--kb-border-muted);
   background: color-mix(in srgb, var(--kb-accent) 14%, transparent);
+}
+
+.knowledge-base__references {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--kb-border-muted);
+  background: color-mix(in srgb, var(--kb-accent) 10%, transparent);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.knowledge-base__references h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.knowledge-base__references--loading,
+.knowledge-base__references--error {
+  border-style: dashed;
+  color: var(--kb-text-muted);
+}
+
+.knowledge-base__references--error {
+  border-color: rgba(255, 102, 133, 0.45);
+  color: #ffb3c6;
+}
+
+.knowledge-base__reference-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.knowledge-base__reference-chip {
+  border: 1px solid var(--kb-border-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  background: color-mix(in srgb, var(--kb-accent) 16%, transparent);
+  color: inherit;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.knowledge-base__reference-chip small {
+  font-size: 0.75rem;
+  color: var(--kb-text-muted);
 }
 
 .knowledge-base__pill-group {
@@ -397,6 +593,83 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.knowledge-base__editor-references {
+  border: 1px solid var(--kb-border-muted);
+  border-radius: 0.65rem;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.6rem;
+  background: rgba(10, 16, 28, 0.55);
+}
+
+.knowledge-base__editor-references header {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.knowledge-base__editor-references header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.knowledge-base__editor-references header p {
+  margin: 0;
+  color: var(--kb-text-muted);
+  font-size: 0.85rem;
+}
+
+.knowledge-base__editor-references-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--kb-text-muted);
+}
+
+.knowledge-base__editor-reference-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.knowledge-base__editor-reference-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--kb-border-muted);
+  background: color-mix(in srgb, var(--kb-accent) 12%, transparent);
+}
+
+.knowledge-base__editor-reference-chip strong {
+  font-size: 0.85rem;
+}
+
+.knowledge-base__editor-reference-chip small {
+  font-size: 0.75rem;
+  color: var(--kb-text-muted);
+}
+
+.knowledge-base__editor-reference-chip button {
+  border: none;
+  background: transparent;
+  color: var(--kb-text-muted);
+  align-self: flex-end;
+  cursor: pointer;
+}
+
+.knowledge-base__editor-reference-select {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.knowledge-base__editor-reference-select select {
+  border-radius: 0.5rem;
+  border: 1px solid var(--kb-border-muted);
+  background: rgba(5, 8, 15, 0.65);
+  color: inherit;
+  padding: 0.5rem 0.6rem;
 }
 
 @media (max-width: 1024px) {

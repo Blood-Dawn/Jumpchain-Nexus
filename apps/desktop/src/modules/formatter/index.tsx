@@ -23,18 +23,15 @@ SOFTWARE.
 */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  loadFormatterSettings,
-  updateFormatterSettings,
-  type FormatterSettings,
-} from "../../db/dao";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { updateFormatterSettings, type FormatterSettings } from "../../db/dao";
 import {
   formatBudget,
   formatInputText,
   THOUSANDS_SEPARATOR_CHOICES,
   type ThousandsSeparatorOption,
 } from "../../services/formatter";
+import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 import "./formatter.css";
 
 const SAMPLE_BUDGETS = [1000, 12500, 250000, -4250];
@@ -48,21 +45,18 @@ const InputFormatter: React.FC = () => {
   const [spellcheckEnabled, setSpellcheckEnabled] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const settingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterPreferencesQuery = useFormatterPreferences();
 
   useEffect(() => {
-    if (!settingsQuery.data) {
+    if (!formatterPreferencesQuery.data) {
       return;
     }
 
-    setRemoveAllLineBreaks(settingsQuery.data.removeAllLineBreaks);
-    setLeaveDoubleLineBreaks(settingsQuery.data.leaveDoubleLineBreaks);
-    setSeparator(settingsQuery.data.thousandsSeparator);
-    setSpellcheckEnabled(settingsQuery.data.spellcheckEnabled);
-  }, [settingsQuery.data]);
+    setRemoveAllLineBreaks(formatterPreferencesQuery.data.removeAllLineBreaks);
+    setLeaveDoubleLineBreaks(formatterPreferencesQuery.data.leaveDoubleLineBreaks);
+    setSeparator(formatterPreferencesQuery.data.thousandsSeparator);
+    setSpellcheckEnabled(formatterPreferencesQuery.data.spellcheckEnabled);
+  }, [formatterPreferencesQuery.data]);
 
   const formattingOptions = useMemo(
     () => ({
@@ -95,7 +89,10 @@ const InputFormatter: React.FC = () => {
   const preferencesMutation = useMutation({
     mutationFn: (overrides: Partial<FormatterSettings>) => updateFormatterSettings(overrides),
     onSuccess: (next) => {
-      queryClient.setQueryData(["app-settings", "formatter"], next);
+      queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, next);
+      void queryClient.invalidateQueries({ queryKey: FORMATTER_PREFERENCES_QUERY_KEY }).catch(
+        () => undefined,
+      );
       setStatusMessage("Preferences saved");
     },
     onError: (error) => {
@@ -270,9 +267,9 @@ const InputFormatter: React.FC = () => {
               </button>
             </div>
           </header>
-          {settingsQuery.isLoading ? (
+          {formatterPreferencesQuery.isLoading ? (
             <div className="formatter__loading">Loading preferences…</div>
-          ) : settingsQuery.isError ? (
+          ) : formatterPreferencesQuery.isError ? (
             <div className="formatter__loading formatter__loading--error">
               Failed to load formatter preferences.
             </div>

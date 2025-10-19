@@ -22,26 +22,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEventHandler } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./knowledgeBase.css";
 import {
   countKnowledgeArticles,
   deleteKnowledgeArticle,
   ensureKnowledgeBaseSeeded,
   fetchKnowledgeArticles,
+  listKnowledgeBaseImportErrors,
+  recordKnowledgeBaseImportErrors,
+  deleteKnowledgeBaseImportError,
+  clearKnowledgeBaseImportErrors,
   upsertKnowledgeArticle,
   type KnowledgeArticleQuery,
   type KnowledgeArticleRecord,
+  type KnowledgeBaseImportError,
+  type KnowledgeBaseImportErrorRecord,
   type UpsertKnowledgeArticleInput,
 } from "../../db/dao";
 import {
+  collectKnowledgeBaseDraftsFromPaths,
   importKnowledgeBaseArticles,
   promptKnowledgeBaseImport,
   type KnowledgeBaseImportError,
+  type KnowledgeBaseImportProgress,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
+import { getPlatform } from "../../services/platform";
 
 interface EditorState {
   open: boolean;
@@ -49,10 +59,23 @@ interface EditorState {
   editingId?: string;
 }
 
+interface KnowledgeBaseLocationState {
+  articleId?: string;
+}
+
 interface ImportMutationResult {
   cancelled: boolean;
   saved: KnowledgeArticleRecord[];
   errors: KnowledgeBaseImportError[];
+}
+
+interface ImportProgressState {
+  status: "running" | "paused";
+  processed: number;
+  total: number;
+  saved: number;
+  failed: number;
+  currentPath: string | null;
 }
 
 const emptyDraft: UpsertKnowledgeArticleInput = {
@@ -62,6 +85,7 @@ const emptyDraft: UpsertKnowledgeArticleInput = {
   content: "",
   tags: [],
   source: "",
+  relatedAssetIds: [],
 };
 
 function parseTags(input: string): string[] {
@@ -89,6 +113,11 @@ function formatDate(value: string): string {
 
 const KnowledgeBase = () => {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
+  const setActiveAssetType = useJmhStore((state) => state.setActiveAssetType);
+  const setSelectedAssetId = useJmhStore((state) => state.setSelectedAssetId);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -99,6 +128,8 @@ const KnowledgeBase = () => {
   });
   const [feedback, setFeedback] = useState<string | null>(null);
   const [importIssues, setImportIssues] = useState<KnowledgeBaseImportError[] | null>(null);
+  const [isDropActive, setDropActive] = useState(false);
+  const stageElementRef = useRef<HTMLElement | null>(null);
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -123,6 +154,14 @@ const KnowledgeBase = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const state = location.state as KnowledgeBaseLocationState | null;
+    if (state?.articleId) {
+      setSelectedId(state.articleId);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
+
   const articleQuery = useQuery({
     queryKey: ["knowledge-base", filters],
     queryFn: () => fetchKnowledgeArticles(filters),
@@ -134,6 +173,53 @@ const KnowledgeBase = () => {
     queryFn: countKnowledgeArticles,
     staleTime: 5 * 60 * 1000,
   });
+
+  const waitIfPaused = async () => {
+    if (!pausedRef.current) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      pauseResolverRef.current = () => {
+        pauseResolverRef.current = null;
+        resolve();
+      };
+    });
+  };
+
+  const handlePauseImport = () => {
+    if (!importProgress || importProgress.status !== "running") {
+      return;
+    }
+    pausedRef.current = true;
+    setImportProgress((prev) => (prev ? { ...prev, status: "paused" } : prev));
+  };
+
+  const handleResumeImport = () => {
+    if (!importProgress || importProgress.status !== "paused") {
+      return;
+    }
+    pausedRef.current = false;
+    const resolver = pauseResolverRef.current;
+    pauseResolverRef.current = null;
+    resolver?.();
+    setImportProgress((prev) => (prev ? { ...prev, status: "running" } : prev));
+  };
+
+  const handleCancelImport = () => {
+    if (!abortControllerRef.current) {
+      return;
+    }
+
+    abortControllerRef.current.abort();
+
+    const resolver = pauseResolverRef.current;
+    pauseResolverRef.current = null;
+    resolver?.();
+
+    pausedRef.current = false;
+    setImportProgress(null);
+  };
 
   const saveArticle = useMutation({
     mutationFn: (payload: UpsertKnowledgeArticleInput) => upsertKnowledgeArticle(payload),
@@ -162,6 +248,48 @@ const KnowledgeBase = () => {
     },
   });
 
+  const processImportResult = useCallback(
+    async (result: ImportMutationResult | null) => {
+      if (!result || result.cancelled) {
+        return;
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
+      ]);
+
+      if (result.errors.length) {
+        await recordKnowledgeBaseImportErrors(result.errors);
+        await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
+      }
+
+      const importedCount = result.saved.length;
+      const skippedCount = result.errors.length;
+
+      const parts: string[] = [];
+      if (importedCount > 0) {
+        parts.push(`Imported ${importedCount} article${importedCount === 1 ? "" : "s"}`);
+      }
+      if (skippedCount > 0) {
+        parts.push(`${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped`);
+        console.warn("Knowledge base import issues", result.errors);
+        setImportIssues(result.errors);
+      } else {
+        setImportIssues(null);
+      }
+      if (parts.length === 0) {
+        parts.push("No articles imported");
+      }
+
+      setFeedback(parts.join(" · "));
+      if (importedCount > 0) {
+        setSelectedId(result.saved[0]?.id ?? null);
+      }
+    },
+    [queryClient]
+  );
+
   const importArticles = useMutation<ImportMutationResult>({
     mutationFn: async () => {
       const selection = await promptKnowledgeBaseImport();
@@ -178,48 +306,121 @@ const KnowledgeBase = () => {
       };
     },
     onSuccess: async (result) => {
-      if (!result || result.cancelled) {
-        setImportIssues(null);
-        return;
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
-        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
-      ]);
-
-      const importedCount = result.saved.length;
-      const skippedCount = result.errors.length;
-
-      const parts: string[] = [];
-      if (importedCount > 0) {
-        parts.push(`Imported ${importedCount} article${importedCount === 1 ? "" : "s"}`);
-      }
-      if (skippedCount > 0) {
-        parts.push(`${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped`);
-        console.warn("Knowledge base import issues", result.errors);
-      }
-      if (parts.length === 0) {
-        parts.push("No articles imported");
-      }
-
-      setFeedback(parts.join(" · "));
-      setImportIssues(result.errors.length ? result.errors : null);
-
-      if (importedCount > 0) {
-        setSelectedId(result.saved[0]?.id ?? null);
-      }
+      await processImportResult(result);
     },
     onError: (error) => {
       console.error("Failed to import articles", error);
       setFeedback(error instanceof Error ? error.message : "Failed to import articles");
-      setImportIssues(null);
     },
   });
 
+  const retryImport = useMutation<KnowledgeArticleRecord, unknown, KnowledgeBaseImportErrorRecord>({
+    mutationFn: async (issue) => {
+      const draft = await loadKnowledgeBaseDraft(issue.path);
+      const article = await upsertKnowledgeArticle(draft.payload);
+      await deleteKnowledgeBaseImportError(issue.id);
+      return article;
+    },
+    onSuccess: async (article) => {
+      setFeedback(`Imported “${article.title}”`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
+        queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] }),
+      ]);
+      setSelectedId(article.id);
+    },
+    onError: async (error, issue) => {
+      const reason = error instanceof Error ? error.message : "Failed to import file";
+      await recordKnowledgeBaseImportErrors([{ path: issue.path, reason }]);
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
+      setFeedback(reason);
+    },
+    onSettled: () => {
+      setRetryingId(null);
+    },
+  });
+
+  const clearImportErrorsMutation = useMutation({
+    mutationFn: clearKnowledgeBaseImportErrors,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
+    },
+    onSettled: () => {
+      abortControllerRef.current = null;
+      pausedRef.current = false;
+      const resolver = pauseResolverRef.current;
+      pauseResolverRef.current = null;
+      resolver?.();
+      setImportProgress(null);
+    },
+  });
+
+  const handleDroppedPaths = useCallback(
+    async (paths: string[]) => {
+      if (!paths.length) {
+        return;
+      }
+      try {
+        const selection = await collectKnowledgeBaseDraftsFromPaths(paths);
+        const combinedErrors = [...selection.errors];
+        let savedArticles: KnowledgeArticleRecord[] = [];
+        if (selection.drafts.length > 0) {
+          const result = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
+          savedArticles = result.saved;
+          combinedErrors.push(...result.errors);
+        }
+
+        await processImportResult({
+          cancelled: false,
+          saved: savedArticles,
+          errors: combinedErrors,
+        });
+      } catch (error) {
+        console.error("Knowledge base drop import failed", error);
+        setFeedback(error instanceof Error ? error.message : "Failed to import dropped files");
+      }
+    },
+    [processImportResult, upsertKnowledgeArticle]
+  );
+
+  useEffect(() => {
+    const element = stageElementRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        const platform = await getPlatform();
+        if (disposed) {
+          return;
+        }
+        cleanup = platform.drop.registerDropTarget(element, {
+          onHover: () => setDropActive(true),
+          onLeave: () => setDropActive(false),
+          onDrop: (paths) => {
+            setDropActive(false);
+            void handleDroppedPaths(paths);
+          },
+        });
+      } catch (error) {
+        console.error("Failed to register knowledge base drop target", error);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      setDropActive(false);
+      cleanup?.();
+    };
+  }, [handleDroppedPaths]);
+
   const handleImport = () => {
     setFeedback(null);
-    setImportIssues(null);
     importArticles.mutate();
   };
 
@@ -246,6 +447,26 @@ const KnowledgeBase = () => {
     return articles.find((article) => article.id === selectedId) ?? articles[0];
   }, [articles, selectedId]);
 
+  const relatedAssetsQuery = useQuery({
+    queryKey: [
+      "knowledge-base",
+      "article-assets",
+      activeArticle?.id ?? "none",
+      activeArticle?.related_asset_ids.join(",") ?? "",
+    ],
+    queryFn: () =>
+      activeArticle && activeArticle.related_asset_ids.length
+        ? lookupAssetReferenceSummaries(activeArticle.related_asset_ids)
+        : Promise.resolve([] as AssetReferenceSummary[]),
+    enabled: Boolean(activeArticle && activeArticle.related_asset_ids.length),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const relatedAssets = relatedAssetsQuery.data ?? [];
+  const relatedAssetError = relatedAssetsQuery.isError
+    ? (relatedAssetsQuery.error as Error)
+    : null;
+
   const categories = useMemo(() => {
     const tally = new Map<string, number>();
     for (const article of articles) {
@@ -269,6 +490,12 @@ const KnowledgeBase = () => {
       .slice(0, 30);
   }, [articles]);
 
+  const assetOptions = assetOptionsQuery.data ?? [];
+  const assetOptionMap = useMemo(() => {
+    return new Map(assetOptions.map((option) => [option.asset_id, option] as const));
+  }, [assetOptions]);
+  const selectedAssetIds = editorState.draft.relatedAssetIds ?? [];
+
   const updateDraft = (update: Partial<UpsertKnowledgeArticleInput>) => {
     setEditorState((prev) => ({
       ...prev,
@@ -277,6 +504,17 @@ const KnowledgeBase = () => {
         ...update,
       },
     }));
+  };
+
+  const handleRetry = (issue: KnowledgeBaseImportErrorRecord) => {
+    setRetryingId(issue.id);
+    retryImport.mutate(issue);
+  };
+
+  const handleDismissAll = () => {
+    clearImportErrorsMutation.mutate(undefined, {
+      onSuccess: () => setImportDrawerOpen(false),
+    });
   };
 
   const openCreate = () => {
@@ -296,6 +534,7 @@ const KnowledgeBase = () => {
         content: article.content,
         tags: [...article.tags],
         source: article.source ?? "",
+        relatedAssetIds: [...article.related_asset_ids],
       },
     });
     setFeedback(null);
@@ -335,6 +574,7 @@ const KnowledgeBase = () => {
       content: trimmedContent,
       tags: editorState.draft.tags ?? [],
       source: trimmedSource.length ? trimmedSource : null,
+      relatedAssetIds: editorState.draft.relatedAssetIds ?? [],
     };
 
     saveArticle.mutate(payload);
@@ -357,7 +597,12 @@ const KnowledgeBase = () => {
     removeArticle.mutate(article.id);
   };
 
-  const renderArticle = (article: KnowledgeArticleRecord | null) => {
+  const renderArticle = (
+    article: KnowledgeArticleRecord | null,
+    references: AssetReferenceSummary[],
+    referencesLoading: boolean,
+    referencesError: Error | null
+  ) => {
     if (!article) {
       return (
         <div className="knowledge-base__empty">
@@ -405,6 +650,37 @@ const KnowledgeBase = () => {
         </header>
 
         {article.summary && <p className="knowledge-base__summary">{article.summary}</p>}
+
+        {referencesLoading && (
+          <section className="knowledge-base__references knowledge-base__references--loading">
+            <p>Loading jump references…</p>
+          </section>
+        )}
+
+        {referencesError && (
+          <section className="knowledge-base__references knowledge-base__references--error">
+            <p>Failed to load jump references. {referencesError.message}</p>
+          </section>
+        )}
+
+        {!referencesLoading && !referencesError && references.length > 0 && (
+          <section className="knowledge-base__references">
+            <h2>Referenced in Jump Hub</h2>
+            <div className="knowledge-base__reference-list">
+              {references.map((reference) => (
+                <button
+                  key={reference.asset_id}
+                  type="button"
+                  className="knowledge-base__reference-chip"
+                  onClick={() => handleNavigateToAsset(reference)}
+                >
+                  <span>{reference.asset_name}</span>
+                  <small>{reference.jump_title}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {article.tags.length > 0 && (
           <ul className="knowledge-base__tag-list">
@@ -552,32 +828,148 @@ const KnowledgeBase = () => {
         </div>
       </aside>
 
-      <section className="knowledge-base__stage">
-        {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
-        {importIssues && (
-          <div className="knowledge-base__import-issues" role="status" aria-live="polite">
-            <header>
-              <h3>Skipped files</h3>
-              <p>We couldn't import the following resources. Resolve the issues and try again.</p>
-            </header>
-            <ul>
-              {importIssues.map((issue) => (
-                <li key={issue.path}>
-                  <code title={issue.path}>{issue.path}</code>
-                  <span>{issue.reason}</span>
-                </li>
-              ))}
-            </ul>
-            <footer>
-              <button type="button" className="ghost" onClick={() => setImportIssues(null)}>
-                Dismiss
-              </button>
-            </footer>
+      <section
+        ref={stageElementRef}
+        className={
+          isDropActive ? "knowledge-base__stage knowledge-base__stage--drop" : "knowledge-base__stage"
+        }
+      >
+        {isDropActive && (
+          <div className="knowledge-base__drop-indicator" role="status" aria-live="polite">
+            <strong>Drop PDFs or text files to import articles</strong>
           </div>
+        )}
+        {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
+        {hasImportErrors && (
+          <>
+            {!importDrawerOpen && (
+              <button
+                type="button"
+                className="knowledge-base__import-toggle"
+                onClick={() => setImportDrawerOpen(true)}
+              >
+                Show failed imports ({importErrors.length})
+              </button>
+            )}
+            <aside
+              className="knowledge-base__import-drawer"
+              data-open={importDrawerOpen ? "true" : "false"}
+              role="complementary"
+              aria-label="Failed knowledge base imports"
+              aria-live="polite"
+            >
+              <header>
+                <div>
+                  <h3>Failed imports</h3>
+                  <p>We couldn't import these files. Resolve each issue and retry.</p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setImportDrawerOpen(false)}
+                  aria-label="Hide failed imports"
+                >
+                  Hide
+                </button>
+              </header>
+              <ul>
+                {importErrors.map((issue) => {
+                  const isRetrying = retryImport.isPending && retryingId === issue.id;
+                  return (
+                    <li key={issue.id}>
+                      <div className="knowledge-base__import-details">
+                        <code title={issue.path}>{issue.path}</code>
+                        <span>{issue.reason}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRetry(issue)}
+                        disabled={retryImport.isPending}
+                      >
+                        {isRetrying ? "Retrying…" : "Retry"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <footer>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={handleDismissAll}
+                  disabled={clearImportErrorsMutation.isPending}
+                >
+                  Dismiss all
+                </button>
+              </footer>
+            </aside>
+          </>
         )}
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
         {!articleQuery.isLoading && renderArticle(activeArticle)}
       </section>
+
+      {importProgress && importArticles.isPending && (
+        <div className="knowledge-base__progress-backdrop" role="presentation">
+          <div
+            className="knowledge-base__progress-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="knowledge-base-import-progress-title"
+          >
+            <header>
+              <h3 id="knowledge-base-import-progress-title">Importing articles</h3>
+              <p>{importProgress.status === "paused" ? "Import paused" : "Import in progress"}</p>
+            </header>
+
+            <div className="knowledge-base__progress-status">
+              <div
+                className="knowledge-base__progress-bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={importProgress.total}
+                aria-valuenow={importProgress.processed}
+              >
+                <div
+                  className="knowledge-base__progress-bar-fill"
+                  style={{
+                    width:
+                      importProgress.total === 0
+                        ? "0%"
+                        : `${Math.min(100, Math.round((importProgress.processed / importProgress.total) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              <p className="knowledge-base__progress-counts">
+                Processed {importProgress.processed} of {importProgress.total}
+                {importProgress.failed > 0 && ` · ${importProgress.failed} failed`}
+              </p>
+
+              {importProgress.currentPath && (
+                <p className="knowledge-base__progress-path">
+                  Working on <code title={importProgress.currentPath}>{importProgress.currentPath}</code>
+                </p>
+              )}
+            </div>
+
+            <footer>
+              {importProgress.status === "paused" ? (
+                <button type="button" onClick={handleResumeImport}>
+                  Resume
+                </button>
+              ) : (
+                <button type="button" onClick={handlePauseImport}>
+                  Pause
+                </button>
+              )}
+              <button type="button" className="ghost" onClick={handleCancelImport}>
+                Cancel
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {editorState.open && (
         <div className="knowledge-base__editor-backdrop" role="presentation" onClick={closeEditor}>
@@ -649,6 +1041,74 @@ const KnowledgeBase = () => {
                   onChange={(event) => updateDraft({ source: event.target.value })}
                 />
               </label>
+
+              <section className="knowledge-base__editor-references">
+                <header>
+                  <h4>Jump Hub assets</h4>
+                  <p>Link this article to specific perks, items, or drawbacks.</p>
+                </header>
+                {assetOptionsQuery.isLoading ? (
+                  <p className="knowledge-base__editor-references-status">Loading assets…</p>
+                ) : assetOptionsQuery.isError ? (
+                  <p className="knowledge-base__editor-references-status">
+                    Failed to load assets. {(assetOptionsQuery.error as Error).message}
+                  </p>
+                ) : assetOptions.length === 0 ? (
+                  <p className="knowledge-base__editor-references-status">
+                    Add jump assets in the Jump Hub to enable cross-links.
+                  </p>
+                ) : (
+                  <>
+                    <div className="knowledge-base__editor-reference-chips">
+                      {selectedAssetIds.map((assetId) => {
+                        const summary = assetOptionMap.get(assetId);
+                        return (
+                          <span key={assetId} className="knowledge-base__editor-reference-chip">
+                            <strong>{summary?.asset_name ?? "Unknown asset"}</strong>
+                            <small>{summary?.jump_title ?? "Unavailable"}</small>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${summary?.asset_name ?? assetId}`}
+                              onClick={() => removeAssetReference(assetId)}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {selectedAssetIds.length === 0 && (
+                        <p className="knowledge-base__editor-references-status">
+                          No assets linked yet.
+                        </p>
+                      )}
+                    </div>
+                    {assetOptions.length > selectedAssetIds.length && (
+                      <label className="knowledge-base__editor-reference-select">
+                        <span>Add reference</span>
+                        <select
+                          value=""
+                          onChange={(event) => {
+                            const value = event.currentTarget.value;
+                            if (value) {
+                              addAssetReference(value);
+                              event.currentTarget.value = "";
+                            }
+                          }}
+                        >
+                          <option value="">Select an asset…</option>
+                          {assetOptions
+                            .filter((option) => !selectedAssetIds.includes(option.asset_id))
+                            .map((option) => (
+                              <option key={option.asset_id} value={option.asset_id}>
+                                {option.asset_name} · {option.jump_title}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    )}
+                  </>
+                )}
+              </section>
 
               <footer>
                 <button type="button" className="ghost" onClick={closeEditor} disabled={saveArticle.isPending}>

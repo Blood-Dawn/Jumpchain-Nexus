@@ -22,20 +22,39 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   createJumpAsset,
   deleteEntity,
   deleteJumpAsset,
+  lookupKnowledgeArticleSummaries,
   listJumpAssets,
   summarizeJumpBudget,
   updateJumpAsset,
   reorderJumpAssets,
   upsertEntity,
-  loadFormatterSettings,
   type JumpAssetRecord,
   type JumpAssetType,
+  type KnowledgeArticleReferenceSummary,
 } from "../../db/dao";
 import { formatBudget } from "../../services/formatter";
 import { confirmDialog } from "../../services/dialogService";
@@ -49,6 +68,7 @@ import {
   type StipendFrequency,
   type StipendMetadata,
 } from "./assetUtils";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 
@@ -97,27 +117,78 @@ const shouldPersistStipend = (form: AssetFormState): boolean => {
   );
 };
 
+interface AssetListRowProps {
+  asset: JumpAssetRecord;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  formatValue: (value: number) => string;
+  reorderDisabled: boolean;
+}
+
+const AssetListRow: React.FC<AssetListRowProps> = ({
+  asset,
+  isSelected,
+  onSelect,
+  formatValue,
+  reorderDisabled,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: asset.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const displayName = asset.name?.trim().length ? asset.name : "asset";
+
+  const className = [isSelected ? "selected" : "", isDragging ? "dragging" : ""]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  return (
+    <li ref={setNodeRef} style={style} className={className || undefined}>
+      <button
+        type="button"
+        className="asset-board__drag-handle"
+        aria-label={`Reorder ${displayName}`}
+        title={`Drag to reorder ${displayName}`}
+        disabled={reorderDisabled}
+        {...(reorderDisabled ? {} : attributes)}
+        {...(reorderDisabled ? {} : listeners)}
+      >
+        <span aria-hidden="true">⋮⋮</span>
+      </button>
+      <button type="button" className="asset-board__select" onClick={() => onSelect(asset.id)}>
+        <span>{asset.name}</span>
+        <small>{formatValue((asset.cost ?? 0) * Math.max(asset.quantity ?? 1, 1))}</small>
+      </button>
+    </li>
+  );
+};
+
 export const AssetWorkbench: React.FC = () => {
   const queryClient = useQueryClient();
   const jumps = useJmhStore((state) => state.jumps);
   const selectedJumpId = useJmhStore((state) => state.selectedJumpId);
   const setSelectedJump = useJmhStore((state) => state.setSelectedJump);
   const setEntities = useJmhStore((state) => state.setEntities);
+  const activeType = useJmhStore((state) => state.activeAssetType);
+  const setActiveType = useJmhStore((state) => state.setActiveAssetType);
+  const selectedAssetId = useJmhStore((state) => state.selectedAssetId);
+  const setSelectedAssetId = useJmhStore((state) => state.setSelectedAssetId);
 
   const [activeType, setActiveType] = useState<JumpAssetType>("origin");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [orderedIds, setOrderedIds] = useState<Record<JumpAssetType, string[]>>({});
   const [formState, setFormState] = useState<AssetFormState | null>(null);
   const [tagDraft, setTagDraft] = useState("");
+  const navigate = useNavigate();
 
   const selectedJump = useMemo(
     () => jumps.find((jump) => jump.id === selectedJumpId) ?? null,
     [jumps, selectedJumpId],
   );
 
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const budgetQuery = useQuery({
     queryKey: ["jump-budget", selectedJumpId],
@@ -150,10 +221,76 @@ export const AssetWorkbench: React.FC = () => {
   }, [assetsQuery.data]);
 
   const currentAssets = assetsByType.get(activeType) ?? [];
+  const displayAssets = useMemo(() => {
+    const ids = orderedIds[activeType];
+    if (!ids) {
+      return currentAssets;
+    }
+    const map = new Map(currentAssets.map((asset) => [asset.id, asset]));
+    const ordered = ids
+      .map((id) => map.get(id))
+      .filter((asset): asset is JumpAssetRecord => Boolean(asset));
+    if (ordered.length === currentAssets.length) {
+      return ordered;
+    }
+    const missing = currentAssets.filter((asset) => !ids.includes(asset.id));
+    return [...ordered, ...missing];
+  }, [activeType, currentAssets, orderedIds]);
   const selectedAsset = useMemo(
-    () => currentAssets.find((asset) => asset.id === selectedAssetId) ?? null,
-    [currentAssets, selectedAssetId],
+    () => displayAssets.find((asset) => asset.id === selectedAssetId) ?? null,
+    [displayAssets, selectedAssetId],
   );
+
+  const knowledgeReferencesQuery = useQuery({
+    queryKey: [
+      "jump-assets",
+      "knowledge-links",
+      selectedAsset?.id ?? "none",
+      selectedAsset?.knowledge_article_ids.join(",") ?? "",
+    ],
+    queryFn: () =>
+      selectedAsset && selectedAsset.knowledge_article_ids.length
+        ? lookupKnowledgeArticleSummaries(selectedAsset.knowledge_article_ids)
+        : Promise.resolve([] as KnowledgeArticleReferenceSummary[]),
+    enabled: Boolean(selectedAsset && selectedAsset.knowledge_article_ids.length),
+    staleTime: 5 * 60 * 1000,
+  });
+  const knowledgeReferences = knowledgeReferencesQuery.data ?? [];
+  const knowledgeReferenceError = knowledgeReferencesQuery.isError
+    ? (knowledgeReferencesQuery.error as Error)
+    : null;
+
+  const openKnowledgeArticle = (reference: KnowledgeArticleReferenceSummary) => {
+    navigate("/knowledge", { state: { articleId: reference.id } });
+  };
+
+  useEffect(() => {
+    if (!selectedAssetId) {
+      return;
+    }
+    const allAssets = assetsQuery.data ?? [];
+    const match = allAssets.find((asset) => asset.id === selectedAssetId);
+    if (match && match.asset_type !== activeType) {
+      setActiveType(match.asset_type);
+    }
+  }, [activeType, assetsQuery.data, selectedAssetId, setActiveType]);
+
+  useEffect(() => {
+    setOrderedIds((prev) => {
+      let changed = false;
+      const next: Record<JumpAssetType, string[]> = { ...prev };
+      for (const type of assetTypeOrder) {
+        const assets = assetsByType.get(type) ?? [];
+        const ids = assets.map((asset) => asset.id);
+        const previous = prev[type];
+        if (!previous || previous.length !== ids.length || previous.some((id, index) => id !== ids[index])) {
+          next[type] = ids;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [assetsByType]);
 
   useEffect(() => {
     if (!selectedJumpId && jumps.length > 0) {
@@ -162,15 +299,15 @@ export const AssetWorkbench: React.FC = () => {
   }, [jumps, selectedJumpId, setSelectedJump]);
 
   useEffect(() => {
-    if (!currentAssets.length) {
+    if (!displayAssets.length) {
       setSelectedAssetId(null);
       setFormState(null);
       return;
     }
-    if (!selectedAssetId || !currentAssets.some((asset) => asset.id === selectedAssetId)) {
-      setSelectedAssetId(currentAssets[0].id);
+    if (!selectedAssetId || !displayAssets.some((asset) => asset.id === selectedAssetId)) {
+      setSelectedAssetId(displayAssets[0].id);
     }
-  }, [currentAssets, selectedAssetId]);
+  }, [displayAssets, selectedAssetId]);
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -247,6 +384,7 @@ export const AssetWorkbench: React.FC = () => {
       }
       mergeEntityIntoStore(asset);
       void upsertEntity(assetToEntity(asset));
+      setActiveType(asset.asset_type);
       setSelectedAssetId(asset.id);
     },
   });
@@ -262,6 +400,8 @@ export const AssetWorkbench: React.FC = () => {
         invalidateAfterMutation(selectedJumpId, asset.asset_type);
       }
       mergeEntityIntoStore(asset);
+      setActiveType(asset.asset_type);
+      setSelectedAssetId(asset.id);
       setFormState(createFormState(asset));
     },
   });
@@ -332,22 +472,39 @@ export const AssetWorkbench: React.FC = () => {
     });
   };
 
-  const handleReorder = (assetId: string, direction: -1 | 1) => {
-    if (!selectedJumpId) return;
-    const list = [...currentAssets];
-    const index = list.findIndex((asset) => asset.id === assetId);
-    if (index < 0) return;
-    const target = index + direction;
-    if (target < 0 || target >= list.length) return;
-    const [entry] = list.splice(index, 1);
-    list.splice(target, 0, entry);
-    reorderMutation.mutate({
-      jumpId: selectedJumpId,
-      type: activeType,
-      orderedIds: list.map((asset) => asset.id),
-    });
-    setSelectedAssetId(entry.id);
-  };
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!selectedJumpId) return;
+      const { active, over } = event;
+      if (!over || active.id === over.id) {
+        return;
+      }
+      const ids = orderedIds[activeType] ?? currentAssets.map((asset) => asset.id);
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) {
+        return;
+      }
+      const reordered = arrayMove(ids, oldIndex, newIndex);
+      setOrderedIds((prev) => ({ ...prev, [activeType]: reordered }));
+      reorderMutation.mutate({
+        jumpId: selectedJumpId,
+        type: activeType,
+        orderedIds: reordered,
+      });
+      setSelectedAssetId(String(active.id));
+    },
+    [activeType, currentAssets, orderedIds, reorderMutation, selectedJumpId],
+  );
 
   const handleDelete = async () => {
     if (!formState) return;
@@ -462,7 +619,7 @@ export const AssetWorkbench: React.FC = () => {
             <div className="asset-board__list">
               {assetsQuery.isLoading ? (
                 <p className="asset-board__empty">Loading assets…</p>
-              ) : currentAssets.length === 0 ? (
+              ) : displayAssets.length === 0 ? (
                 <div className="asset-board__empty">
                   <p>No {ASSET_TYPE_LABELS[activeType].toLowerCase()} recorded yet.</p>
                   <button
@@ -474,39 +631,29 @@ export const AssetWorkbench: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <ul>
-                  {currentAssets.map((asset, index) => {
-                    const isSelected = asset.id === selectedAssetId;
-                    return (
-                      <li key={asset.id} className={isSelected ? "selected" : undefined}>
-                        <button type="button" onClick={() => setSelectedAssetId(asset.id)}>
-                          <span>{asset.name}</span>
-                          <small>
-                            {formatValue((asset.cost ?? 0) * Math.max(asset.quantity ?? 1, 1))}
-                          </small>
-                        </button>
-                        <div className="asset-board__row-actions">
-                          <button
-                            type="button"
-                            onClick={() => handleReorder(asset.id, -1)}
-                            disabled={index === 0 || reorderMutation.isPending}
-                            aria-label="Move up"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReorder(asset.id, 1)}
-                            disabled={index === currentAssets.length - 1 || reorderMutation.isPending}
-                            aria-label="Move down"
-                          >
-                            ↓
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext
+                    items={displayAssets.map((asset) => asset.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <ul
+                      aria-label={`${ASSET_TYPE_LABELS[activeType]} order`}
+                      aria-roledescription="Sortable list"
+                      role="list"
+                    >
+                      {displayAssets.map((asset) => (
+                        <AssetListRow
+                          key={asset.id}
+                          asset={asset}
+                          formatValue={formatValue}
+                          isSelected={asset.id === selectedAssetId}
+                          onSelect={setSelectedAssetId}
+                          reorderDisabled={reorderMutation.isPending}
+                        />
+                      ))}
+                    </ul>
+                  </SortableContext>
+                </DndContext>
               )}
             </div>
 
@@ -590,6 +737,38 @@ export const AssetWorkbench: React.FC = () => {
                       rows={3}
                     />
                   </label>
+
+                  <section className="asset-form__references">
+                    <header>
+                      <h3>Referenced in Knowledge Base</h3>
+                      <p>Jump to related guidance articles for this asset.</p>
+                    </header>
+                    {knowledgeReferencesQuery.isLoading ? (
+                      <p className="asset-form__references-status">Loading references…</p>
+                    ) : knowledgeReferenceError ? (
+                      <p className="asset-form__references-status">
+                        Failed to load knowledge base links. {knowledgeReferenceError.message}
+                      </p>
+                    ) : knowledgeReferences.length === 0 ? (
+                      <p className="asset-form__references-status">
+                        This asset isn't linked to any knowledge base articles yet.
+                      </p>
+                    ) : (
+                      <div className="asset-form__reference-chips">
+                        {knowledgeReferences.map((reference) => (
+                          <button
+                            key={reference.id}
+                            type="button"
+                            className="asset-form__reference-chip"
+                            onClick={() => openKnowledgeArticle(reference)}
+                          >
+                            <span>{reference.title}</span>
+                            {reference.summary && <small>{reference.summary}</small>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
 
                   <section className="asset-form__tags">
                     <header>
