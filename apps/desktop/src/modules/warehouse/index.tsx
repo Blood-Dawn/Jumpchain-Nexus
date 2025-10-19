@@ -109,6 +109,11 @@ interface WarehouseRowData {
   clearPendingFocus: () => void;
 }
 
+interface CachedInventoryItem {
+  record: InventoryItemRecord;
+  searchValues: string[];
+}
+
 const ListInnerElement = React.forwardRef<HTMLUListElement, React.HTMLAttributes<HTMLUListElement>>(
   ({ className, style, ...props }, ref) => (
     <ul
@@ -357,22 +362,36 @@ const CosmicWarehouse: React.FC = () => {
     return Array.from(all).sort((a, b) => a.localeCompare(b));
   }, [itemsQuery.data]);
 
-  const filteredItems = useMemo(() => {
+  const searchableItems = useMemo<CachedInventoryItem[]>(() => {
     const base = itemsQuery.data ?? [];
-    const normalizedSearch = search.trim().toLowerCase();
-    return base.filter((item) => {
-      const itemTags = parseTags(item.tags);
-      const matchesCategory = !activeCategory || item.category === activeCategory;
-      if (!normalizedSearch) {
-        return matchesCategory;
-      }
-      const haystack = [item.name, item.category, item.slot, item.notes]
+    return base.map((item) => {
+      const searchValues = [item.name, item.category, item.slot, item.notes]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.toLowerCase());
-      const matchesSearch = haystack.some((value) => value.includes(normalizedSearch));
-      return matchesCategory && matchesSearch;
+
+      return {
+        record: item,
+        searchValues,
+      };
     });
-  }, [itemsQuery.data, activeCategory, activeTags, search]);
+  }, [itemsQuery.data]);
+
+  const filteredItems = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return searchableItems
+      .filter(({ record, searchValues }) => {
+        const matchesCategory = !activeCategory || record.category === activeCategory;
+
+        if (!normalizedSearch) {
+          return matchesCategory;
+        }
+
+        const matchesSearch = searchValues.some((value) => value.includes(normalizedSearch));
+        return matchesCategory && matchesSearch;
+      })
+      .map(({ record }) => record);
+  }, [searchableItems, activeCategory, activeTags, search]);
 
   useEffect(() => {
     if (!filteredItems.length) {
