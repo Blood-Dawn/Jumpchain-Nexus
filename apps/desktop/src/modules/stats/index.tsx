@@ -56,12 +56,151 @@ const assetLabels: Record<JumpAssetType, string> = {
 };
 
 const assetColors: Record<JumpAssetType, string> = {
-  origin: "#7ACBFF",
-  perk: "#83E6C6",
-  item: "#FFB677",
-  companion: "#C6A7FF",
-  drawback: "#FF9CAB",
+  origin: "#8A6BFF",
+  perk: "#5AD1FF",
+  item: "#FF7AD5",
+  companion: "#B78CFF",
+  drawback: "#FF8FA4",
 };
+
+const assetIcons: Record<JumpAssetType, React.ReactNode> = {
+  origin: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 4.5a7.5 7.5 0 1 1-6.708 4.125m2.566-4.33C8.73 3.81 10.314 3 12 3c4.97 0 9 4.03 9 9s-4.03 9-9 9-9-4.03-9-9c0-1.687.815-3.275 1.8-4.169"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M4 12h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  perk: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.5 9.5 9.5H3.5l5 3.6-2 6.4L12 16.5l5.5 3-2-6.4 5-3.6h-6L12 3.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+  item: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6.5 7.5 12 4l5.5 3.5v9L12 20l-5.5-3.5v-9Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M6.5 7.5 12 11m0 0 5.5-3.5M12 11v9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+  companion: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M8.5 5.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0Zm-2 13v-1a3.5 3.5 0 0 1 3.5-3.5h6a3.5 3.5 0 0 1 3.5 3.5v1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.5 10.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0Zm0 8v-0.5a2.5 2.5 0 0 1 2.5-2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+  drawback: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3v4m0 10v4m7-7h-4m-6 0H5m10.95-7.95-2.83 2.83m-4.24 4.24-2.83 2.83m9.9 0-2.83-2.83m-4.24-4.24L6.05 6.05"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+};
+
+const panelIcons = {
+  cp: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 12c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8-8-3.582-8-8Zm0 0c2.5-1 5-1 8 0s5.5 1 8 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M12 6v12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  ledger: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6.5 4.5h8.5L19.5 9v10.5h-13V4.5Zm0 4.5h13M10 12.5h5m-5 4h3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+  inventory: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4.5 7.5 12 3l7.5 4.5v9L12 21l-7.5-4.5v-9Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M4.5 7.5 12 12l7.5-4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  gauntlet: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3 6 5v6c0 4.142 2.686 7.5 6 9 3.314-1.5 6-4.858 6-9V5l-6-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M9 9h6m-6 3h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  booster: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3v6m0 0a3 3 0 1 1-3 3m3-3a3 3 0 1 0 3 3m-3-3c-4.5 0-7.5 3.5-7.5 8 2.5-1.5 4-1.5 7.5 0 3.5-1.5 5-1.5 7.5 0 0-4.5-3-8-7.5-8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+} as const;
 
 const EMPTY_STATS: StatisticsSnapshot = {
   cp: {
@@ -116,6 +255,11 @@ const StatisticsHub: React.FC = () => {
   const cpChartSummaryId = useId();
   const inventoryChartCaptionId = useId();
   const inventoryChartSummaryId = useId();
+  const inventoryGradientUid = useId();
+  const inventoryGradientId = useMemo(
+    () => `inventory-gradient-${inventoryGradientUid.replace(/:/g, "")}`,
+    [inventoryGradientUid],
+  );
 
   const totalJumps = cpRows.length;
   const { totalPurchases, totalSpend, totalCredit } = useMemo(() => {
@@ -186,7 +330,13 @@ const StatisticsHub: React.FC = () => {
   );
 
   const inventoryBarKey = totalTrackedQuantity > 0 ? "quantity" : "entries";
-  const inventoryBarColor = totalTrackedQuantity > 0 ? "#7ACBFF" : "#83E6C6";
+  const inventoryGradient = totalTrackedQuantity > 0
+    ? { from: "#5AD1FF", to: "#8A6BFF" }
+    : { from: "#B78CFF", to: "#FF7AD5" };
+  const inventoryLegendLabel = inventoryBarKey === "quantity" ? "Total Quantity" : "Entry Count";
+  const inventoryLegendDescription = inventoryBarKey === "quantity"
+    ? "Quantity represented per category"
+    : "Entries represented per category";
 
   const inventoryChartSummary = useMemo(() => {
     if (!inventoryChartData.length) {
@@ -211,14 +361,29 @@ const StatisticsHub: React.FC = () => {
       const data = payload[0];
       const chartEntry = data.payload as (typeof cpChartData)[number];
       const unit = chartEntry.assetType === "drawback" ? "credit" : "spent";
+      const accent = assetColors[chartEntry.assetType];
+      const percent = totalChartedCP > 0 ? Number(data.value ?? 0) / totalChartedCP : 0;
       return (
         <div className="stats__tooltip">
-          <strong>{chartEntry.name}</strong>
-          <span>{formatCP(Number(data.value ?? 0))} CP {unit}</span>
+          <div className="stats__tooltip-header">
+            <span
+              className="stats__tooltip-badge"
+              style={{
+                background: `linear-gradient(135deg, ${accent} 0%, rgba(10, 16, 28, 0.65) 100%)`,
+              }}
+            >
+              {assetIcons[chartEntry.assetType]}
+            </span>
+            <div className="stats__tooltip-meta">
+              <strong>{chartEntry.name}</strong>
+              <span>{formatCP(Number(data.value ?? 0))} CP {unit}</span>
+              <span>{formatPercent(percent)}</span>
+            </div>
+          </div>
         </div>
       );
     },
-    [cpChartData]
+    [cpChartData, totalChartedCP]
   );
 
   const renderInventoryTooltip = useCallback(
@@ -230,16 +395,29 @@ const StatisticsHub: React.FC = () => {
       const chartEntry = data.payload as (typeof inventoryChartData)[number];
       return (
         <div className="stats__tooltip">
-          <strong>{label}</strong>
-          <span>{formatCount(chartEntry.quantity)} total quantity</span>
-          <span>{formatCount(chartEntry.entries)} entries</span>
-          <span>
-            {formatCount(chartEntry.warehouse)} warehouse • {formatCount(chartEntry.locker)} locker
-          </span>
+          <div className="stats__tooltip-header">
+            <span
+              className="stats__tooltip-badge"
+              style={{
+                background: `linear-gradient(135deg, ${inventoryGradient.from} 0%, ${inventoryGradient.to} 100%)`,
+              }}
+            >
+              {panelIcons.inventory}
+            </span>
+            <div className="stats__tooltip-meta">
+              <strong>{label}</strong>
+              <span>{formatCount(chartEntry.quantity)} total quantity</span>
+              <span>{formatCount(chartEntry.entries)} entries tracked</span>
+            </div>
+          </div>
+          <div className="stats__tooltip-grid">
+            <span>{formatCount(chartEntry.warehouse)} warehouse</span>
+            <span>{formatCount(chartEntry.locker)} locker</span>
+          </div>
         </div>
       );
     },
-    [inventoryChartData]
+    [inventoryChartData, inventoryGradient.from, inventoryGradient.to]
   );
 
   const cpRowRenderer = useCallback(
@@ -383,13 +561,16 @@ const StatisticsHub: React.FC = () => {
           </div>
 
           <div className="stats__grid">
-            <section className="stats__panel">
+            <section className="stats__panel stats__panel--cp">
               <header className="stats__panel-header">
-                <div className="stats__panel-heading">
-                  <h2>CP Breakdown</h2>
-                  <span>
-                    {formatCP(filteredTotalSpend)} CP spent • {formatCP(filteredTotalCredit)} CP earned
-                  </span>
+                <div className="stats__panel-title">
+                  <span className="stats__panel-icon" aria-hidden="true">{panelIcons.cp}</span>
+                  <div className="stats__panel-heading">
+                    <h2>CP Breakdown</h2>
+                    <span>
+                      {formatCP(filteredTotalSpend)} CP spent • {formatCP(filteredTotalCredit)} CP earned
+                    </span>
+                  </div>
                 </div>
                 <div className="stats__panel-controls">
                   <label>
@@ -441,6 +622,33 @@ const StatisticsHub: React.FC = () => {
                         {cpChartSummary}
                       </p>
                     </figure>
+                  )}
+                  {cpChartData.length > 0 && (
+                    <ul className="stats__legend" role="list">
+                      {cpChartData.map((entry) => {
+                        const unitLabel = entry.assetType === "drawback" ? "credit" : "spent";
+                        const share = totalChartedCP > 0 ? entry.value / totalChartedCP : 0;
+                        return (
+                          <li key={entry.assetType} className="stats__legend-item" role="listitem">
+                            <span
+                              className="stats__legend-icon"
+                              aria-hidden="true"
+                              style={{
+                                background: `linear-gradient(135deg, ${assetColors[entry.assetType]} 0%, rgba(255, 255, 255, 0.14) 100%)`,
+                              }}
+                            >
+                              {assetIcons[entry.assetType]}
+                            </span>
+                            <div className="stats__legend-text">
+                              <strong>{entry.name}</strong>
+                              <span>
+                                {formatCP(entry.value)} CP {unitLabel} • {formatPercent(share)}
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                   <div className="stats__asset-grid">
                     {assetBreakdown.map((asset) => {
@@ -501,15 +709,18 @@ const StatisticsHub: React.FC = () => {
               )}
             </section>
 
-            <section className="stats__panel">
+            <section className="stats__panel stats__panel--ledger">
               <header className="stats__panel-header">
-                <div className="stats__panel-heading">
-                  <h2>Spend &amp; Credit by Jump</h2>
-                  <span>
-                    {formatCount(filteredCpRows.length)} {filteredCpRows.length === 1 ? "jump" : "jumps"} •
-                    {" "}
-                    {formatCP(filteredJumpTotals.spent)} CP spent • {formatCP(filteredJumpTotals.earned)} CP earned
-                  </span>
+                <div className="stats__panel-title">
+                  <span className="stats__panel-icon" aria-hidden="true">{panelIcons.ledger}</span>
+                  <div className="stats__panel-heading">
+                    <h2>Spend &amp; Credit by Jump</h2>
+                    <span>
+                      {formatCount(filteredCpRows.length)} {filteredCpRows.length === 1 ? "jump" : "jumps"} •
+                      {" "}
+                      {formatCP(filteredJumpTotals.spent)} CP spent • {formatCP(filteredJumpTotals.earned)} CP earned
+                    </span>
+                  </div>
                 </div>
                 <div className="stats__panel-controls">
                   <label>
@@ -555,13 +766,35 @@ const StatisticsHub: React.FC = () => {
               )}
             </section>
 
-            <section className="stats__panel">
+            <section className="stats__panel stats__panel--inventory">
               <header className="stats__panel-header">
-                <h2>Inventory by Category</h2>
-                <span>{formatCount(snapshot.inventory.totalItems)} items tracked</span>
+                <div className="stats__panel-title">
+                  <span className="stats__panel-icon" aria-hidden="true">{panelIcons.inventory}</span>
+                  <div className="stats__panel-heading">
+                    <h2>Inventory by Category</h2>
+                    <span>{formatCount(snapshot.inventory.totalItems)} items tracked</span>
+                  </div>
+                </div>
               </header>
               {inventoryCategories.length ? (
                 <div className="stats__panel-stack">
+                  <ul className="stats__legend" role="list">
+                    <li className="stats__legend-item" role="listitem">
+                      <span
+                        className="stats__legend-icon"
+                        aria-hidden="true"
+                        style={{
+                          background: `linear-gradient(135deg, ${inventoryGradient.from} 0%, ${inventoryGradient.to} 100%)`,
+                        }}
+                      >
+                        {panelIcons.inventory}
+                      </span>
+                      <div className="stats__legend-text">
+                        <strong>{inventoryLegendLabel}</strong>
+                        <span>{inventoryLegendDescription}</span>
+                      </div>
+                    </li>
+                  </ul>
                   {inventoryChartData.length > 0 && (
                     <figure
                       className="stats__chart"
@@ -571,11 +804,17 @@ const StatisticsHub: React.FC = () => {
                       <div className="stats__chart-visual" aria-hidden="true">
                         <ResponsiveContainer width="100%" height={280}>
                           <BarChart data={inventoryChartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                            <defs>
+                              <linearGradient id={inventoryGradientId} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={inventoryGradient.from} />
+                                <stop offset="100%" stopColor={inventoryGradient.to} />
+                              </linearGradient>
+                            </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(240, 247, 255, 0.12)" />
                             <XAxis dataKey="name" tick={{ fill: "rgba(240, 247, 255, 0.75)", fontSize: 12 }} angle={-20} textAnchor="end" height={50} interval={0} />
                             <YAxis tick={{ fill: "rgba(240, 247, 255, 0.75)", fontSize: 12 }} tickFormatter={formatCount} allowDecimals={false} width={60} />
                             <Tooltip content={renderInventoryTooltip} cursor={{ fill: "rgba(255, 255, 255, 0.05)" }} />
-                            <Bar dataKey={inventoryBarKey} fill={inventoryBarColor} radius={[6, 6, 0, 0]} />
+                            <Bar dataKey={inventoryBarKey} fill={`url(#${inventoryGradientId})`} radius={[6, 6, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -609,10 +848,15 @@ const StatisticsHub: React.FC = () => {
               )}
             </section>
 
-            <section className="stats__panel">
+            <section className="stats__panel stats__panel--gauntlet">
               <header className="stats__panel-header">
-                <h2>Gauntlet Progress</h2>
-                <span>{gauntletSummary.totalGauntlets ? gauntletStatusLabel : "No gauntlet runs logged"}</span>
+                <div className="stats__panel-title">
+                  <span className="stats__panel-icon" aria-hidden="true">{panelIcons.gauntlet}</span>
+                  <div className="stats__panel-heading">
+                    <h2>Gauntlet Progress</h2>
+                    <span>{gauntletSummary.totalGauntlets ? gauntletStatusLabel : "No gauntlet runs logged"}</span>
+                  </div>
+                </div>
               </header>
               {gauntletSummary.totalGauntlets ? (
                 <div className="stats__table">
@@ -638,10 +882,15 @@ const StatisticsHub: React.FC = () => {
               )}
             </section>
 
-            <section className="stats__panel">
+            <section className="stats__panel stats__panel--booster">
               <header className="stats__panel-header">
-                <h2>Booster Usage</h2>
-                <span>{formatCount(boosterSummary.totalCharacters)} profiles analysed</span>
+                <div className="stats__panel-title">
+                  <span className="stats__panel-icon" aria-hidden="true">{panelIcons.booster}</span>
+                  <div className="stats__panel-heading">
+                    <h2>Booster Usage</h2>
+                    <span>{formatCount(boosterSummary.totalCharacters)} profiles analysed</span>
+                  </div>
+                </div>
               </header>
               {boosterSummary.entries.length ? (
                 <div className="stats__table">
