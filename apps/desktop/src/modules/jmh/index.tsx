@@ -127,6 +127,38 @@ export const JumpMemoryHub: React.FC = () => {
     <>
       <PageLayoutRightPane>{rightPane}</PageLayoutRightPane>
       <header className="hub-header">
+        <div className="hub-header__art" aria-hidden="true">
+          <svg viewBox="0 0 800 320" preserveAspectRatio="xMidYMid slice" role="presentation">
+            <defs>
+              <radialGradient id="hubHeaderGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(122, 203, 255, 0.75)" />
+                <stop offset="65%" stopColor="rgba(122, 203, 255, 0.15)" />
+                <stop offset="100%" stopColor="rgba(122, 203, 255, 0)" />
+              </radialGradient>
+              <linearGradient id="hubHeaderWave" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="rgba(91, 115, 255, 0.4)" />
+                <stop offset="100%" stopColor="rgba(78, 205, 196, 0.15)" />
+              </linearGradient>
+            </defs>
+            <g className="hub-header__art-orbs">
+              <circle className="hub-header__art-glow" cx="560" cy="140" r="220" fill="url(#hubHeaderGlow)" />
+              <circle cx="210" cy="60" r="70" fill="rgba(91, 115, 255, 0.22)" />
+              <circle cx="120" cy="250" r="110" fill="rgba(78, 205, 196, 0.18)" />
+            </g>
+            <g className="hub-header__art-particles" stroke="url(#hubHeaderWave)" strokeWidth="1.5" fill="none">
+              <path d="M-20 240 Q 140 180 300 220 T 640 210 T 860 250" opacity="0.45" />
+              <path d="M0 120 Q 160 80 320 110 T 660 130 T 820 150" opacity="0.3" />
+              <path d="M-40 60 Q 120 40 280 70 T 600 90 T 840 120" opacity="0.18" />
+            </g>
+            <g className="hub-header__art-particles" fill="rgba(255, 255, 255, 0.35)">
+              <circle cx="150" cy="140" r="2.5" />
+              <circle cx="280" cy="90" r="3" />
+              <circle cx="380" cy="210" r="2" />
+              <circle cx="520" cy="80" r="2.8" />
+              <circle cx="660" cy="180" r="2.2" />
+            </g>
+          </svg>
+        </div>
         <div className="hub-header__title">
           <h1>Jump Memory Hub</h1>
           <p>Centralize notes, recaps, and prep across your chain.</p>
