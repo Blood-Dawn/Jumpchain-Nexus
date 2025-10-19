@@ -88,5 +88,12 @@ module.exports = {
     'prefer-const': 'off',
     'jsx-a11y/click-events-have-key-events': 'off',
     'jsx-a11y/no-noninteractive-element-interactions': 'off',
+    'complexity': ['error', { max: 20 }],
+    'max-lines-per-function': [
+      'error',
+      { max: 120, skipBlankLines: true, skipComments: true },
+    ],
+    'no-nested-ternary': 'error',
+    '@typescript-eslint/no-implicit-any-catch': 'error',
   },
 };
