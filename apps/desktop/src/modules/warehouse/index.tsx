@@ -94,6 +94,101 @@ const parseTags = (raw: string | null): string[] => {
     .filter(Boolean);
 };
 
+const LIST_ROW_HEIGHT = 88;
+const MAX_VISIBLE_ROWS = 8;
+const LIST_OVERSCAN = 4;
+
+interface WarehouseRowData {
+  items: InventoryItemRecord[];
+  onSelect: (id: string) => void;
+  selectedId: string | null;
+  focusId: string | null;
+  setFocusId: (id: string) => void;
+  moveFocus: (index: number, direction: -1 | 1) => void;
+  pendingFocusId: string | null;
+  clearPendingFocus: () => void;
+}
+
+const ListInnerElement = React.forwardRef<HTMLUListElement, React.HTMLAttributes<HTMLUListElement>>(
+  ({ className, style, ...props }, ref) => (
+    <ul
+      {...props}
+      ref={ref}
+      className={className ? `warehouse__virtual-list ${className}` : "warehouse__virtual-list"}
+      style={style}
+      role="presentation"
+    />
+  )
+);
+
+const WarehouseItemRow: React.FC<ListChildComponentProps<WarehouseRowData>> = ({ index, style, data }) => {
+  const item = data.items[index];
+  const isActive = item.id === data.selectedId;
+  const isFocused = item.id === data.focusId;
+  const { pendingFocusId, clearPendingFocus } = data;
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (pendingFocusId === item.id && buttonRef.current) {
+      buttonRef.current.focus();
+      clearPendingFocus();
+    }
+  }, [pendingFocusId, item.id, clearPendingFocus]);
+
+  if (!item) {
+    return null;
+  }
+
+  const ariaLabelSegments = [item.name];
+  ariaLabelSegments.push(`Category ${item.category ?? "Unsorted"}`);
+  ariaLabelSegments.push(`Quantity ${formatNumber(item.quantity ?? 0)}`);
+  if (item.slot) {
+    ariaLabelSegments.push(`Slot ${item.slot}`);
+  }
+
+  const handleClick = () => {
+    data.onSelect(item.id);
+    data.setFocusId(item.id);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      data.moveFocus(index, 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      data.moveFocus(index, -1);
+    }
+  };
+
+  return (
+    <li
+      style={{ ...style, width: "100%", padding: "0.35rem 0", boxSizing: "border-box" }}
+      className="warehouse__item-row"
+      role="presentation"
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        id={`warehouse-item-${item.id}`}
+        className={isActive ? "warehouse__item warehouse__item--active" : "warehouse__item"}
+        onClick={handleClick}
+        onFocus={() => data.setFocusId(item.id)}
+        onKeyDown={handleKeyDown}
+        tabIndex={isFocused ? 0 : -1}
+        aria-label={ariaLabelSegments.join(". ")}
+        aria-current={isActive ? "true" : undefined}
+      >
+        <strong>{item.name}</strong>
+        <span>
+          {item.category ?? "Unsorted"} • Qty {item.quantity}
+          {item.slot ? ` • ${item.slot}` : ""}
+        </span>
+      </button>
+    </li>
+  );
+};
+
 const CosmicWarehouse: React.FC = () => {
   const queryClient = useQueryClient();
   const itemsQuery = useQuery({
@@ -151,6 +246,8 @@ const CosmicWarehouse: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
       }
       setSelectedId(item.id);
+      setFocusId(item.id);
+      setPendingFocusId(item.id);
     },
   });
 
@@ -158,6 +255,8 @@ const CosmicWarehouse: React.FC = () => {
     mutationFn: (payload: UpdatePayload) => updateInventoryItem(payload.id, payload.updates),
     onSuccess: (item) => {
       setSelectedId(item.id);
+      setFocusId(item.id);
+      setPendingFocusId(item.id);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -169,6 +268,8 @@ const CosmicWarehouse: React.FC = () => {
     mutationFn: (id: string) => deleteInventoryItem(id),
     onSuccess: () => {
       setSelectedId(null);
+      setFocusId(null);
+      setPendingFocusId(null);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -180,6 +281,8 @@ const CosmicWarehouse: React.FC = () => {
     mutationFn: (payload: { id: string; scope: InventoryScope }) => moveInventoryItem(payload.id, payload.scope),
     onSuccess: () => {
       setSelectedId(null);
+      setFocusId(null);
+      setPendingFocusId(null);
       queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
       if (isPersonalReality) {
         queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
@@ -188,14 +291,44 @@ const CosmicWarehouse: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!itemsQuery.data?.length) {
-      setSelectedId(null);
+    const items = itemsQuery.data ?? [];
+    if (items.length === 0) {
+      if (selectedId !== null) {
+        setSelectedId(null);
+      }
+      if (focusId !== null) {
+        setFocusId(null);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
       return;
     }
-    if (!selectedId || !itemsQuery.data.some((item) => item.id === selectedId)) {
-      setSelectedId(itemsQuery.data[0].id);
+
+    const selectedExists = selectedId ? items.some((item) => item.id === selectedId) : false;
+    if (!selectedExists) {
+      const fallbackId = items[0].id;
+      if (selectedId !== fallbackId) {
+        setSelectedId(fallbackId);
+      }
+      if (focusId !== fallbackId) {
+        setFocusId(fallbackId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+      return;
     }
-  }, [itemsQuery.data, selectedId]);
+
+    if (focusId === null || !items.some((item) => item.id === focusId)) {
+      if (focusId !== selectedId) {
+        setFocusId(selectedId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+    }
+  }, [itemsQuery.data, selectedId, focusId, pendingFocusId]);
 
   const categories = useMemo(() => {
     const all = new Set<string>();
@@ -240,6 +373,104 @@ const CosmicWarehouse: React.FC = () => {
       return matchesCategory && matchesSearch;
     });
   }, [itemsQuery.data, activeCategory, activeTags, search]);
+
+  useEffect(() => {
+    if (!filteredItems.length) {
+      if (focusId !== null) {
+        setFocusId(null);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+      return;
+    }
+
+    const focusExists = focusId ? filteredItems.some((item) => item.id === focusId) : false;
+    if (!focusExists) {
+      const fallbackId =
+        selectedId && filteredItems.some((item) => item.id === selectedId)
+          ? selectedId
+          : filteredItems[0].id;
+      if (focusId !== fallbackId) {
+        setFocusId(fallbackId);
+      }
+      if (pendingFocusId !== null) {
+        setPendingFocusId(null);
+      }
+    }
+  }, [filteredItems, focusId, selectedId, pendingFocusId]);
+
+  useEffect(() => {
+    if (!focusId) {
+      return;
+    }
+    const index = filteredItems.findIndex((item) => item.id === focusId);
+    if (index >= 0) {
+      listRef.current?.scrollToItem(index, "smart");
+    }
+  }, [focusId, filteredItems]);
+
+  useEffect(() => {
+    if (selectedId && focusId !== selectedId && filteredItems.some((item) => item.id === selectedId)) {
+      setFocusId(selectedId);
+    }
+  }, [selectedId, focusId, filteredItems]);
+
+  const handleSelectItem = useCallback((id: string) => {
+    setSelectedId(id);
+    setFocusId(id);
+    setPendingFocusId(id);
+  }, []);
+
+  const moveFocus = useCallback(
+    (index: number, direction: -1 | 1) => {
+      if (!filteredItems.length) {
+        return;
+      }
+      const nextIndex = Math.min(Math.max(index + direction, 0), filteredItems.length - 1);
+      const nextItem = filteredItems[nextIndex];
+      if (!nextItem) {
+        return;
+      }
+      if (focusId !== nextItem.id) {
+        setFocusId(nextItem.id);
+      }
+      setPendingFocusId(nextItem.id);
+      listRef.current?.scrollToItem(nextIndex, "smart");
+    },
+    [filteredItems, focusId, setPendingFocusId]
+  );
+
+  const clearPendingFocus = useCallback(() => {
+    setPendingFocusId(null);
+  }, []);
+
+  const listHeight = filteredItems.length
+    ? Math.min(filteredItems.length, MAX_VISIBLE_ROWS) * LIST_ROW_HEIGHT
+    : 0;
+
+  const itemData: WarehouseRowData = useMemo(
+    () => ({
+      items: filteredItems,
+      onSelect: handleSelectItem,
+      selectedId,
+      focusId,
+      setFocusId,
+      moveFocus,
+      pendingFocusId,
+      clearPendingFocus,
+    }),
+    [
+      filteredItems,
+      handleSelectItem,
+      selectedId,
+      focusId,
+      setFocusId,
+      moveFocus,
+      pendingFocusId,
+      clearPendingFocus,
+    ]
+  );
 
   const selectedItem = useMemo(
     () => itemsQuery.data?.find((item) => item.id === selectedId) ?? null,

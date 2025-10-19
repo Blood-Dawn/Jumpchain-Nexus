@@ -2830,15 +2830,24 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-height: 0;
 }
 
-.warehouse__list ul {
+.warehouse__list-viewport {
+  flex: 1;
+  min-height: 0;
+}
+
+.warehouse__virtual-list {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.warehouse__item-row {
   display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
+  align-items: stretch;
+  width: 100%;
 }
 
 .warehouse__item {
