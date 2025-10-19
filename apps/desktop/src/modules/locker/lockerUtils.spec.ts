@@ -60,41 +60,50 @@ describe("lockerUtils filtering", () => {
       id: "core",
       name: "Core Booster",
       tags: JSON.stringify(["booster:core", "body-mod:universal"]),
-      metadata: JSON.stringify({ packed: true, priority: "standard", bodyMod: "universal" }),
+      metadata: JSON.stringify({ packed: true, priority: "medium", bodyMod: "universal" }),
     }),
     createInventoryItem({
       id: "strength",
       name: "Strength Surge",
       tags: JSON.stringify(["booster:strength", "requires:booster:core", "body-mod:essential"]),
-      metadata: JSON.stringify({ packed: false, priority: "essential", bodyMod: "essential" }),
+      metadata: JSON.stringify({ packed: false, priority: "high", bodyMod: "essential" }),
     }),
     createInventoryItem({
       id: "medkit",
       name: "Medical Kit",
       tags: JSON.stringify(["medical", "support"]),
-      metadata: JSON.stringify({ packed: false, priority: "standard" }),
+      metadata: JSON.stringify({ packed: false, priority: "medium" }),
     }),
   ];
   const analyzed = mapLockerItems(records);
 
   it("filters by body mod type", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "essential", booster: "all", tag: "all" };
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "essential", booster: "all" };
     const result = filterLockerItems(analyzed, filters, "");
     expect(result).toHaveLength(1);
     expect(result[0].item.id).toBe("strength");
   });
 
   it("filters boosters only", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "booster", tag: "all" };
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "booster" };
     const result = filterLockerItems(analyzed, filters, "");
     expect(result.map((entry) => entry.item.id)).toEqual(["core", "strength"]);
   });
 
   it("filters by normalized tag value", () => {
-    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all", tag: "medical" };
-    const result = filterLockerItems(analyzed, filters, "");
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all" };
+    const result = filterLockerItems(analyzed, filters, "", ["medical"]);
     expect(result).toHaveLength(1);
     expect(result[0].item.id).toBe("medkit");
+  });
+
+  it("requires all active tags to be present", () => {
+    const filters: LockerFilters = { packed: "all", priority: "all", bodyMod: "all", booster: "all" };
+    const result = filterLockerItems(analyzed, filters, "", ["medical", "support"]);
+    expect(result).toHaveLength(1);
+    expect(result[0].item.id).toBe("medkit");
+    const none = filterLockerItems(analyzed, filters, "", ["medical", "support", "booster:core"]);
+    expect(none).toHaveLength(0);
   });
 
   it("collects unique tag labels", () => {
@@ -106,13 +115,34 @@ describe("lockerUtils filtering", () => {
   });
 });
 
+describe("lockerUtils priority mapping", () => {
+  it("maps legacy priority values and adds manual warning for high priority items", () => {
+    const legacyPriority = createInventoryItem({
+      id: "legacy",
+      metadata: JSON.stringify({ priority: "essential" }),
+    });
+    const analyzed = mapLockerItems([legacyPriority]);
+    expect(analyzed[0].priority).toBe("high");
+    expect(analyzed[0].manualWarnings).toEqual([
+      { type: "priority-high", message: "Marked as high priority." },
+    ]);
+
+    const warnings = computeLockerWarnings(analyzed, {
+      essentialEnabled: true,
+      universalEnabled: true,
+    });
+    expect(warnings.legacy).toBeDefined();
+    expect(warnings.legacy?.some((warning) => warning.type === "priority-high")).toBe(true);
+  });
+});
+
 describe("lockerUtils dependency warnings", () => {
   it("flags missing booster prerequisites and respects availability toggles", () => {
     const dependent = createInventoryItem({
       id: "dependent",
       name: "Meteoric Surge",
       tags: JSON.stringify(["booster:meteoric", "requires:booster:core", "body-mod:essential"]),
-      metadata: JSON.stringify({ priority: "essential" }),
+      metadata: JSON.stringify({ priority: "high" }),
     });
     const analyzed = mapLockerItems([dependent]);
     const warnings = computeLockerWarnings(analyzed, { essentialEnabled: false, universalEnabled: true });
@@ -130,7 +160,7 @@ describe("lockerUtils dependency warnings", () => {
     const dependent = createInventoryItem({
       id: "dependent",
       tags: JSON.stringify(["booster:meteoric", "requires:booster:core"]),
-      metadata: JSON.stringify({ priority: "standard" }),
+      metadata: JSON.stringify({ priority: "medium" }),
     });
     const analyzed = mapLockerItems([core, dependent]);
     const warnings = computeLockerWarnings(analyzed, { essentialEnabled: true, universalEnabled: true });

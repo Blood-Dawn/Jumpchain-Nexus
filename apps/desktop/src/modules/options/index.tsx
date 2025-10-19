@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CATEGORY_PRESETS_SETTING_KEY,
@@ -52,6 +52,7 @@ import {
   saveEssentialBodyModSettings,
   saveUniversalDrawbackSettings,
   loadFormatterSettings,
+  saveFormatterSpellcheck,
   upsertEssentialBodyModEssence,
   deleteEssentialBodyModEssence,
   type AppSettingRecord,
@@ -71,7 +72,9 @@ import {
   type SupplementToggleSettings,
   type UniversalDrawbackSettings,
   type WarehouseModeOption,
+  type FormatterSettings,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const EXPORT_PRESET_FORMAT_LABELS = {
   markdown: "Markdown",
@@ -183,7 +186,8 @@ type SectionKey =
   | "universal-drawbacks"
   | "warehouse-mode"
   | "export-preferences"
-  | "category-presets";
+  | "category-presets"
+  | "formatter";
 
 type JumpDefaultField = keyof JumpDefaultsSettings;
 
@@ -197,6 +201,14 @@ const sectionLabels: Record<SectionKey, string> = {
   "warehouse-mode": "Warehouse mode updated.",
   "export-preferences": "Export defaults saved.",
   "category-presets": "Categories updated.",
+  formatter: "Formatter preferences saved.",
+};
+
+const FALLBACK_FORMATTER_SETTINGS: FormatterSettings = {
+  removeAllLineBreaks: false,
+  leaveDoubleLineBreaks: false,
+  thousandsSeparator: "none",
+  spellcheckEnabled: true,
 };
 
 const STARTING_MODE_OPTIONS: Array<{ value: EssentialStartingMode; label: string }> = [
@@ -277,10 +289,7 @@ const JumpchainOptions: React.FC = () => {
     queryKey: ["universal-drawback-settings"],
     queryFn: loadUniversalDrawbackSettings,
   });
-  const formatterSettingsQuery = useQuery({
-    queryKey: ["app-settings", "formatter"],
-    queryFn: loadFormatterSettings,
-  });
+  const formatterSettingsQuery = useFormatterPreferences();
 
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
@@ -337,12 +346,15 @@ const JumpchainOptions: React.FC = () => {
   });
   const [perkInput, setPerkInput] = useState("");
   const [itemInput, setItemInput] = useState("");
+  const perkListLabelId = useId();
+  const itemListLabelId = useId();
   const [defaultPresetId, setDefaultPresetId] = useState<string | null>(DEFAULT_EXPORT_PREFERENCES.defaultPresetId);
   const [sectionStatus, setSectionStatus] = useState<SectionStatusMap>({});
 
   const statusTimers = useRef<Record<SectionKey, number>>({});
 
-  const spellcheckEnabled = formatterSettingsQuery.data?.spellcheckEnabled ?? true;
+  const spellcheckEnabled =
+    formatterSettingsQuery.data?.spellcheckEnabled ?? FALLBACK_FORMATTER_SETTINGS.spellcheckEnabled;
   const spellcheckProps = { spellCheck: spellcheckEnabled } as const;
 
   const settingsMap = useMemo(() => {
@@ -494,6 +506,12 @@ const JumpchainOptions: React.FC = () => {
         return next.sort((a, b) => a.key.localeCompare(b.key));
       });
 
+      if (variables.key.startsWith("formatter.")) {
+        await queryClient
+          .invalidateQueries({ queryKey: FORMATTER_PREFERENCES_QUERY_KEY })
+          .catch(() => undefined);
+      }
+
       switch (variables.key) {
         case JUMP_DEFAULTS_SETTING_KEY: {
           await queryClient.invalidateQueries({ queryKey: ["jump-defaults"] }).catch(() => undefined);
@@ -564,6 +582,38 @@ const JumpchainOptions: React.FC = () => {
     },
     onError: () => {
       showStatus("universal-drawbacks", "Failed to save Universal Drawback defaults.");
+    },
+  });
+
+  const saveFormatterSpellcheckMutation = useMutation<
+    FormatterSettings,
+    unknown,
+    boolean,
+    { previous?: FormatterSettings }
+  >({
+    mutationFn: (enabled: boolean) => saveFormatterSpellcheck(enabled),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: ["app-settings", "formatter"] });
+      const previous = queryClient.getQueryData<FormatterSettings>(["app-settings", "formatter"]);
+      queryClient.setQueryData<FormatterSettings>(["app-settings", "formatter"], (current) => {
+        const base = current ?? formatterSettingsQuery.data ?? FALLBACK_FORMATTER_SETTINGS;
+        return { ...base, spellcheckEnabled: enabled };
+      });
+      return { previous };
+    },
+    onError: (_error, _value, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["app-settings", "formatter"], context.previous);
+      }
+      showStatus("formatter", "Failed to save formatter preferences.");
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["app-settings", "formatter"], data);
+      showStatus("formatter", sectionLabels.formatter);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["app-settings", "formatter"] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["app-settings"] }).catch(() => undefined);
     },
   });
 
@@ -714,6 +764,10 @@ const JumpchainOptions: React.FC = () => {
     saveUniversalMutation.mutate(universalSettings);
   };
 
+  const handleSpellcheckPreferenceToggle = (value: boolean) => {
+    saveFormatterSpellcheckMutation.mutate(value);
+  };
+
   const handleUniversalToggle = (field: "allowGauntlet" | "gauntletHalved", value: boolean) => {
     setUniversalSettings((prev) => {
       const next: UniversalDrawbackSettings = { ...prev, [field]: value };
@@ -758,7 +812,6 @@ const JumpchainOptions: React.FC = () => {
   };
 
   const updateCategoryPresets = (next: CategoryPresetSettings) => {
-    setCategoryPresets(next);
     persistSetting({
       key: CATEGORY_PRESETS_SETTING_KEY,
       value: next,
@@ -782,7 +835,7 @@ const JumpchainOptions: React.FC = () => {
       return;
     }
 
-    const nextList = [...existing, normalized].sort((a, b) => a.localeCompare(b));
+    const nextList = [...existing, normalized];
     const nextPresets: CategoryPresetSettings =
       kind === "perk"
         ? { ...categoryPresets, perkCategories: nextList }
@@ -795,6 +848,7 @@ const JumpchainOptions: React.FC = () => {
       setItemInput("");
     }
 
+    setCategoryPresets(nextPresets);
     updateCategoryPresets(nextPresets);
   };
 
@@ -805,6 +859,28 @@ const JumpchainOptions: React.FC = () => {
       kind === "perk"
         ? { ...categoryPresets, perkCategories: nextList }
         : { ...categoryPresets, itemCategories: nextList };
+    setCategoryPresets(nextPresets);
+    updateCategoryPresets(nextPresets);
+  };
+
+  const handleMoveCategory = (kind: "perk" | "item", fromIndex: number, toIndex: number) => {
+    const source = kind === "perk" ? categoryPresets.perkCategories : categoryPresets.itemCategories;
+    if (toIndex < 0 || toIndex >= source.length || fromIndex === toIndex) {
+      return;
+    }
+
+    const nextList = [...source];
+    const [moved] = nextList.splice(fromIndex, 1);
+    if (moved === undefined) {
+      return;
+    }
+    nextList.splice(toIndex, 0, moved);
+
+    const nextPresets: CategoryPresetSettings =
+      kind === "perk"
+        ? { ...categoryPresets, perkCategories: nextList }
+        : { ...categoryPresets, itemCategories: nextList };
+    setCategoryPresets(nextPresets);
     updateCategoryPresets(nextPresets);
   };
 
@@ -916,6 +992,28 @@ const JumpchainOptions: React.FC = () => {
             ))}
           </div>
           {sectionMessage("supplements")}
+        </section>
+
+        <section className="options__card">
+          <header className="options__card-header">
+            <h2>Formatter Preferences</h2>
+            <p>Choose editor defaults shared across Formatter, Options, and Warehouse tools.</p>
+          </header>
+          <div className="options__list">
+            <label>
+              <input
+                type="checkbox"
+                checked={spellcheckEnabled}
+                onChange={(event) => handleSpellcheckPreferenceToggle(event.target.checked)}
+                disabled={formatterSettingsQuery.isLoading || saveFormatterSpellcheckMutation.isPending}
+              />
+              Enable spellcheck in editors
+            </label>
+          </div>
+          {formatterSettingsQuery.isError && (
+            <p className="options__error">Failed to load formatter preferences.</p>
+          )}
+          {sectionMessage("formatter")}
         </section>
 
         <section className="options__card">
@@ -1471,24 +1569,49 @@ const JumpchainOptions: React.FC = () => {
           </header>
           <div className="options__categories">
             <div className="options__category-column">
-              <h3>Perk Categories</h3>
-              <div className="options__chips">
-                {categoryPresets.perkCategories.length === 0 && (
-                  <span className="options__chip options__chip--empty">No perk categories yet.</span>
+              <h3 id={perkListLabelId}>Perk Categories</h3>
+              <ul className="options__category-list" aria-labelledby={perkListLabelId}>
+                {categoryPresets.perkCategories.length === 0 ? (
+                  <li className="options__category-empty">No perk categories yet.</li>
+                ) : (
+                  categoryPresets.perkCategories.map((category, index) => (
+                    <li key={category} className="options__category-row">
+                      <span className="options__category-label">{category}</span>
+                      <div className="options__category-actions">
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move perk category ${category} up`}
+                          title="Move up"
+                          onClick={() => handleMoveCategory("perk", index, index - 1)}
+                          disabled={index === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move perk category ${category} down`}
+                          title="Move down"
+                          onClick={() => handleMoveCategory("perk", index, index + 1)}
+                          disabled={index === categoryPresets.perkCategories.length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button options__category-button--remove"
+                          aria-label={`Remove perk category ${category}`}
+                          title="Remove"
+                          onClick={() => handleRemoveCategory("perk", category)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </li>
+                  ))
                 )}
-                {categoryPresets.perkCategories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className="options__chip"
-                    onClick={() => handleRemoveCategory("perk", category)}
-                    title="Remove category"
-                  >
-                    {category}
-                    <span aria-hidden="true">×</span>
-                  </button>
-                ))}
-              </div>
+              </ul>
               <div className="options__add-row">
                 <input
                   type="text"
@@ -1502,30 +1625,57 @@ const JumpchainOptions: React.FC = () => {
                     }
                   }}
                 />
-                <button type="button" onClick={() => handleAddCategory("perk")}>Add</button>
+                <button type="button" onClick={() => handleAddCategory("perk")} aria-label="Add perk category">
+                  Add
+                </button>
               </div>
               {categoryErrors.perk && <p className="options__error">{categoryErrors.perk}</p>}
             </div>
 
             <div className="options__category-column">
-              <h3>Item Categories</h3>
-              <div className="options__chips">
-                {categoryPresets.itemCategories.length === 0 && (
-                  <span className="options__chip options__chip--empty">No item categories yet.</span>
+              <h3 id={itemListLabelId}>Item Categories</h3>
+              <ul className="options__category-list" aria-labelledby={itemListLabelId}>
+                {categoryPresets.itemCategories.length === 0 ? (
+                  <li className="options__category-empty">No item categories yet.</li>
+                ) : (
+                  categoryPresets.itemCategories.map((category, index) => (
+                    <li key={category} className="options__category-row">
+                      <span className="options__category-label">{category}</span>
+                      <div className="options__category-actions">
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move item category ${category} up`}
+                          title="Move up"
+                          onClick={() => handleMoveCategory("item", index, index - 1)}
+                          disabled={index === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button"
+                          aria-label={`Move item category ${category} down`}
+                          title="Move down"
+                          onClick={() => handleMoveCategory("item", index, index + 1)}
+                          disabled={index === categoryPresets.itemCategories.length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="options__category-button options__category-button--remove"
+                          aria-label={`Remove item category ${category}`}
+                          title="Remove"
+                          onClick={() => handleRemoveCategory("item", category)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </li>
+                  ))
                 )}
-                {categoryPresets.itemCategories.map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    className="options__chip"
-                    onClick={() => handleRemoveCategory("item", category)}
-                    title="Remove category"
-                  >
-                    {category}
-                    <span aria-hidden="true">×</span>
-                  </button>
-                ))}
-              </div>
+              </ul>
               <div className="options__add-row">
                 <input
                   type="text"
@@ -1539,7 +1689,9 @@ const JumpchainOptions: React.FC = () => {
                     }
                   }}
                 />
-                <button type="button" onClick={() => handleAddCategory("item")}>Add</button>
+                <button type="button" onClick={() => handleAddCategory("item")} aria-label="Add item category">
+                  Add
+                </button>
               </div>
               {categoryErrors.item && <p className="options__error">{categoryErrors.item}</p>}
             </div>

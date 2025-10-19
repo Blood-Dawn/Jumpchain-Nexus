@@ -337,6 +337,39 @@ export interface ExportSectionContent {
   text: string;
 }
 
+export interface ExportSectionPreview extends ExportSectionContent {
+  html: string;
+  htmlPreview: string;
+  bbcode: string;
+  preference: SectionPreference;
+}
+
+export function createPreviewSections(
+  sections: ExportSectionContent[],
+  preferences: SectionPreferences
+): ExportSectionPreview[] {
+  if (!sections.length) {
+    return [];
+  }
+
+  return sections.map((section) => {
+    const preference = preferences[section.key] ?? SECTION_PREFERENCE_FALLBACK;
+    const html = markdownToSanitizedHtml(section.markdown);
+
+    return {
+      ...section,
+      html,
+      htmlPreview: wrapHtmlWithSpoiler(section.title, html, preference.spoiler),
+      bbcode: wrapBbcodeWithSpoiler(
+        section.title,
+        convertHtmlToBbcode(html),
+        preference.spoiler
+      ),
+      preference,
+    };
+  });
+}
+
 export function generateSections(
   snapshot: ExportSnapshot,
   options: ExportPresetOptions
@@ -928,33 +961,10 @@ const ExportCenter: React.FC = () => {
     return generateSections(snapshotQuery.data, formState.options);
   }, [formState?.options, snapshotQuery.data]);
 
-  const previewSections = useMemo(() => {
-    if (!sections.length) {
-      return [] as Array<
-        ExportSectionContent & {
-          html: string;
-          htmlPreview: string;
-          bbcode: string;
-          preference: SectionPreference;
-        }
-      >;
-    }
-    return sections.map((section) => {
-      const preference = sectionPreferences[section.key] ?? SECTION_PREFERENCE_FALLBACK;
-      const html = markdownToSanitizedHtml(section.markdown);
-      return {
-        ...section,
-        html,
-        htmlPreview: wrapHtmlWithSpoiler(section.title, html, preference.spoiler),
-        bbcode: wrapBbcodeWithSpoiler(
-          section.title,
-          convertHtmlToBbcode(html),
-          preference.spoiler
-        ),
-        preference,
-      };
-    });
-  }, [sections, sectionPreferences]);
+  const previewSections = useMemo(
+    () => createPreviewSections(sections, sectionPreferences),
+    [sections, sectionPreferences]
+  );
 
   const previewContent = useMemo(() => {
     if (!formState || !sections.length) {
@@ -1274,14 +1284,6 @@ const ExportCenter: React.FC = () => {
                           : "Previews honor format and spoiler preferences."}
                     </p>
                   </div>
-                  <div className="exports__preview-actions">
-                    <button type="button" onClick={handleCopyPreview} disabled={!previewContent}>
-                      Copy
-                    </button>
-                    <button type="button" onClick={handleDownloadPreview} disabled={!previewContent}>
-                      Download
-                    </button>
-                  </div>
                 </header>
                 <div className="exports__preview-grid">
                   {previewSections.length ? (
@@ -1341,6 +1343,14 @@ const ExportCenter: React.FC = () => {
                   ) : (
                     <p className="exports__empty">No preview available. Adjust export options to enable sections.</p>
                   )}
+                </div>
+                <div className="exports__preview-actions">
+                  <button type="button" onClick={handleCopyPreview} disabled={!previewContent}>
+                    Copy
+                  </button>
+                  <button type="button" onClick={handleDownloadPreview} disabled={!previewContent}>
+                    Download
+                  </button>
                 </div>
               </section>
             </>

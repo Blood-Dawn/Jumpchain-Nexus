@@ -27,17 +27,21 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import JumpchainOptions from "./index";
+import InputFormatter from "../formatter";
 import {
+  CATEGORY_PRESETS_SETTING_KEY,
   DEFAULT_SUPPLEMENT_SETTINGS,
   DEFAULT_WAREHOUSE_MODE,
+  getAppSetting,
   loadSupplementSettings,
   loadWarehouseModeSetting,
-  listExportPresets,
+  loadFormatterSettings,
   setAppSetting,
   SUPPLEMENT_SETTING_KEY,
   EXPORT_PREFERENCES_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
 } from "../../db/dao";
+import { FORMATTER_PREFERENCES_QUERY_KEY } from "../../hooks/useFormatterPreferences";
 import type {
   AppSettingRecord,
   EssentialBodyModEssenceRecord,
@@ -48,6 +52,13 @@ vi.mock("../../db/dao", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../db/dao")>();
 
   const memory = new Map<string, AppSettingRecord>();
+  const defaultFormatterSettings: actual.FormatterSettings = {
+    removeAllLineBreaks: false,
+    leaveDoubleLineBreaks: false,
+    thousandsSeparator: "none",
+    spellcheckEnabled: true,
+  };
+  let formatterSettings: actual.FormatterSettings = { ...defaultFormatterSettings };
   const toSerialized = (value: unknown) =>
     value === null || value === undefined
       ? null
@@ -72,6 +83,7 @@ vi.mock("../../db/dao", async (importOriginal) => {
     setRecord(actual.WAREHOUSE_MODE_SETTING_KEY, actual.DEFAULT_WAREHOUSE_MODE);
     setRecord(actual.CATEGORY_PRESETS_SETTING_KEY, actual.DEFAULT_CATEGORY_PRESETS);
     setRecord(actual.EXPORT_PREFERENCES_SETTING_KEY, actual.DEFAULT_EXPORT_PREFERENCES);
+    formatterSettings = { ...defaultFormatterSettings };
   };
 
   reset();
@@ -81,7 +93,15 @@ vi.mock("../../db/dao", async (importOriginal) => {
     ...actual,
     listAppSettings: vi.fn(async () => Array.from(memory.values()).sort((a, b) => a.key.localeCompare(b.key))),
     getAppSetting: vi.fn(async (key: string) => memory.get(key) ?? null),
-    setAppSetting: vi.fn(async (key: string, value: unknown) => setRecord(key, value)),
+    setAppSetting: vi.fn(async (key: string, value: unknown) => {
+      if (key === "formatter.spellcheck") {
+        formatterSettings = {
+          ...formatterSettings,
+          spellcheckEnabled: Boolean(value),
+        };
+      }
+      return setRecord(key, value);
+    }),
     listExportPresets: vi.fn(async () => []),
     listEssentialBodyModEssences: vi.fn(async () => []),
     loadEssentialBodyModSettings: vi.fn(async () => actual.DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS),
@@ -92,6 +112,15 @@ vi.mock("../../db/dao", async (importOriginal) => {
     loadWarehouseModeSetting: vi.fn(async () =>
       actual.parseWarehouseMode(memory.get(actual.WAREHOUSE_MODE_SETTING_KEY) ?? null)
     ),
+    loadFormatterSettings: vi.fn(async () => ({ ...formatterSettings })),
+    updateFormatterSettings: vi.fn(async (overrides: Partial<actual.FormatterSettings>) => {
+      formatterSettings = { ...formatterSettings, ...overrides };
+      return { ...formatterSettings };
+    }),
+    saveFormatterSpellcheck: vi.fn(async (spellcheckEnabled: boolean) => {
+      formatterSettings = { ...formatterSettings, spellcheckEnabled };
+      return { ...formatterSettings };
+    }),
     saveEssentialBodyModSettings: vi.fn(async (overrides) => ({
       ...actual.DEFAULT_ESSENTIAL_BODY_MOD_SETTINGS,
       ...overrides,
@@ -138,7 +167,7 @@ describe("JumpchainOptions", () => {
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["app-settings"], []);
     queryClient.setQueryData(["export-presets"], []);
-    queryClient.setQueryData(["app-settings", "formatter"], {
+    queryClient.setQueryData(FORMATTER_PREFERENCES_QUERY_KEY, {
       removeAllLineBreaks: false,
       leaveDoubleLineBreaks: false,
       thousandsSeparator: "none",
@@ -220,6 +249,7 @@ describe("JumpchainOptions", () => {
     });
 
     initial.unmount();
+    queryClient.clear();
 
     const secondClient = createTestQueryClient();
     const second = render(
@@ -230,6 +260,116 @@ describe("JumpchainOptions", () => {
 
     expect(await screen.findByLabelText(/personal reality focus/i)).toBeChecked();
     second.unmount();
+    secondClient.clear();
+  });
+
+  it("persists formatter spellcheck preferences for other modules", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const initial = render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const spellcheckToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    expect(spellcheckToggle).toBeChecked();
+
+    await user.click(spellcheckToggle);
+    expect(spellcheckToggle).not.toBeChecked();
+
+    await waitFor(async () => {
+      const formatterSettings = await loadFormatterSettings();
+      expect(formatterSettings.spellcheckEnabled).toBe(false);
+    });
+
+    initial.unmount();
+
+    const secondClient = createTestQueryClient();
+    const second = render(
+      <QueryClientProvider client={secondClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const persistedToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    await waitFor(() => expect(persistedToggle).not.toBeChecked());
+    second.unmount();
+
+    const formatterClient = createTestQueryClient();
+    const formatterRender = render(
+      <QueryClientProvider client={formatterClient}>
+        <InputFormatter />
+      </QueryClientProvider>
+    );
+
+    const formatterToggle = await screen.findByLabelText(/enable spellcheck in editors/i);
+    await waitFor(() => expect(formatterToggle).not.toBeChecked());
+    formatterRender.unmount();
+    formatterClient.clear();
+  });
+
+  it("allows reordering categories and keeps the order after reload", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+
+    const first = render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const perkList = await screen.findByRole("list", { name: /perk categories/i });
+    const perkColumn = perkList.parentElement as HTMLElement;
+    const perkInput = within(perkColumn).getByPlaceholderText("Add perk category");
+    const addPerkButton = within(perkColumn).getByRole("button", { name: "Add perk category" });
+
+    for (const category of ["Alpha", "Beta", "Gamma"]) {
+      await user.type(perkInput, category);
+      await user.click(addPerkButton);
+    }
+
+    const readOrder = (list: HTMLElement) =>
+      within(list)
+        .queryAllByRole("listitem")
+        .map((item) => item.querySelector(".options__category-label")?.textContent?.trim())
+        .filter((value): value is string => Boolean(value));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Alpha", "Beta", "Gamma"]);
+    });
+
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+    await user.click(within(perkList).getByRole("button", { name: "Move perk category Alpha down" }));
+
+    await waitFor(() => {
+      expect(readOrder(perkList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    await waitFor(async () => {
+      const record = await getAppSetting(CATEGORY_PRESETS_SETTING_KEY);
+      const parsed = parseCategoryPresets(record ?? null);
+      expect(parsed.perkCategories).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    first.unmount();
+    queryClient.clear();
+
+    const secondClient = createTestQueryClient();
+    const second = render(
+      <QueryClientProvider client={secondClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const restoredList = await screen.findByRole("list", { name: /perk categories/i });
+    await waitFor(() => {
+      expect(readOrder(restoredList)).toEqual(["Beta", "Gamma", "Alpha"]);
+    });
+
+    second.unmount();
+    secondClient.clear();
   });
 
   it("shows the export preset summary and updates when the selection changes", async () => {
