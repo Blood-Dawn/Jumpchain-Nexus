@@ -111,6 +111,24 @@ function formatDate(value: string): string {
   }
 }
 
+const FilterIcon = () => (
+  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path
+      fill="currentColor"
+      d="M2 3.25C2 2.56 2.56 2 3.25 2h9.5c.69 0 1.25.56 1.25 1.25 0 .29-.1.57-.29.79l-3.71 4.29a1.25 1.25 0 0 0-.3.81v2.61c0 .32-.13.63-.35.86l-1.12 1.12A.75.75 0 0 1 7.5 14v-5.11a1.25 1.25 0 0 0-.3-.81L3.5 4.04A1.25 1.25 0 0 1 3.25 3.25Z"
+    />
+  </svg>
+);
+
+const TagIcon = () => (
+  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path
+      fill="currentColor"
+      d="M8.63 2H3.75C2.78 2 2 2.78 2 3.75v4.88c0 .33.13.65.36.88l4.88 4.88c.49.49 1.28.49 1.77 0l4.88-4.88a1.25 1.25 0 0 0 0-1.77L9.51 2.36A1.25 1.25 0 0 0 8.63 2Zm-3.88 3a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z"
+    />
+  </svg>
+);
+
 const KnowledgeBase = () => {
   const queryClient = useQueryClient();
   const location = useLocation();
@@ -695,7 +713,10 @@ const KnowledgeBase = () => {
                   }
                   onClick={() => setTagFilter((prev) => (prev === tag ? null : tag))}
                 >
-                  #{tag}
+                  <span className="knowledge-base__tag-icon" aria-hidden="true">
+                    <TagIcon />
+                  </span>
+                  <span>#{tag}</span>
                 </button>
               </li>
             ))}
@@ -757,7 +778,10 @@ const KnowledgeBase = () => {
                     className={categoryFilter === category ? "active" : undefined}
                     onClick={() => setCategoryFilter((prev) => (prev === category ? null : category))}
                   >
-                    {category}
+                    <span className="knowledge-base__filter-icon" aria-hidden="true">
+                      <FilterIcon />
+                    </span>
+                    <span className="knowledge-base__filter-label">{category}</span>
                     <span className="knowledge-base__badge">{total}</span>
                   </button>
                 </li>
@@ -782,7 +806,10 @@ const KnowledgeBase = () => {
                     className={tagFilter === tag ? "active" : undefined}
                     onClick={() => setTagFilter((prev) => (prev === tag ? null : tag))}
                   >
-                    #{tag}
+                    <span className="knowledge-base__filter-icon" aria-hidden="true">
+                      <TagIcon />
+                    </span>
+                    <span className="knowledge-base__filter-label">#{tag}</span>
                     <span className="knowledge-base__badge">{total}</span>
                   </button>
                 </li>
