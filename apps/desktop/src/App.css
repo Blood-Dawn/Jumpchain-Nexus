@@ -919,13 +919,39 @@ a:hover {
   background: rgba(31, 54, 92, 0.65);
 }
 
+.jmh-nav__label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .jmh-nav__label {
   font-weight: 600;
+  color: inherit;
+  flex: 1 1 auto;
 }
 
 .jmh-nav__hint {
   font-size: 0.8rem;
   color: rgba(240, 247, 255, 0.55);
+}
+
+.jmh-nav__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7acbff, #5b73ff);
+  color: #041124;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid rgba(4, 17, 36, 0.35);
+  box-shadow: 0 4px 10px rgba(9, 15, 28, 0.35);
 }
 
 .timeline {
