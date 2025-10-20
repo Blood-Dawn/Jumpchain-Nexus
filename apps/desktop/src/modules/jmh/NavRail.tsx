@@ -27,6 +27,8 @@ import { NavLink } from "react-router-dom";
 import { modules, resolveModulePath, sectionLabels, sectionOrder } from "../registry";
 import Icon from "../../components/Icon";
 
+type NavLinkStyle = React.CSSProperties & { "--module-accent"?: string };
+
 export const NavRail: React.FC = () => {
   const sections = sectionOrder
     .map((section) => ({
@@ -51,7 +53,11 @@ export const NavRail: React.FC = () => {
                     className={({ isActive }: { isActive: boolean }) =>
                       `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
                     }
-                    aria-label={`${module.title} — ${module.description}`}
+                    style={
+                      module.accent
+                        ? ({ "--module-accent": module.accent } as NavLinkStyle)
+                        : undefined
+                    }
                   >
                     <span className="jmh-nav__label-row">
                       <span className="jmh-nav__label">{module.title}</span>
