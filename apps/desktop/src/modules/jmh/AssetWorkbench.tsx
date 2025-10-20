@@ -233,8 +233,8 @@ export const AssetWorkbench: React.FC = () => {
   const selectedAssetId = useJmhStore((state) => state.selectedAssetId);
   const setSelectedAssetId = useJmhStore((state) => state.setSelectedAssetId);
 
-  const [activeType, setActiveType] = useState<JumpAssetType>("origin");
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  // local state for activeType and selectedAssetId are intentionally backed by the central store
+  // (we use useJmhStore selectors above), so do not redeclare them here.
   const [orderedIds, setOrderedIds] = useState<Record<JumpAssetType, string[]>>({});
   const [formState, setFormState] = useState<AssetFormState | null>(null);
   const [tagDraft, setTagDraft] = useState("");
