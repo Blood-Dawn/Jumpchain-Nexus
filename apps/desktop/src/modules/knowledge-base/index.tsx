@@ -51,10 +51,19 @@ import {
   importKnowledgeBaseArticles,
   promptKnowledgeBaseImport,
   type KnowledgeBaseImportProgress,
+  type KnowledgeBaseImportSelection,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
 import { getPlatform } from "../../services/platform";
 import { useJmhStore } from "../jmh/store";
+import {
+  curatedKnowledgeBaseSources,
+  harvestCuratedKnowledgeBaseSources,
+  type KnowledgeBaseCuratedSource,
+  type KnowledgeBaseWebHarvestError,
+  type KnowledgeBaseWebHarvestProgress,
+  type KnowledgeBaseWebHarvestResult,
+} from "../../services/knowledgeBaseWebScraper";
 
 interface EditorState {
   open: boolean;
@@ -79,6 +88,10 @@ interface ImportProgressState {
   saved: number;
   failed: number;
   currentPath: string | null;
+}
+
+interface ImportMutationVariables {
+  selection?: KnowledgeBaseImportSelection | null;
 }
 
 const emptyDraft: UpsertKnowledgeArticleInput = {
@@ -153,10 +166,28 @@ const KnowledgeBase = () => {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgressState | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [harvestOpen, setHarvestOpen] = useState(false);
+  const [selectedHarvestSources, setSelectedHarvestSources] = useState<Set<string>>(
+    () => new Set(curatedKnowledgeBaseSources.map((source) => source.id))
+  );
+  const [harvestDrafts, setHarvestDrafts] = useState<KnowledgeBaseWebHarvestResult[]>([]);
+  const [harvestErrors, setHarvestErrors] = useState<KnowledgeBaseWebHarvestError[]>([]);
+  const [harvestProgress, setHarvestProgress] = useState<KnowledgeBaseWebHarvestProgress | null>(null);
+  const [harvestSelectionError, setHarvestSelectionError] = useState<string | null>(null);
+  const [isHarvesting, setIsHarvesting] = useState(false);
+  const [isHarvestSaving, setIsHarvestSaving] = useState(false);
   const stageElementRef = useRef<HTMLElement | null>(null);
   const pausedRef = useRef(false);
   const pauseResolverRef = useRef<(() => void) | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const harvestAbortControllerRef = useRef<AbortController | null>(null);
+  const curatedSourceMap = useMemo(
+    () =>
+      new Map<string, KnowledgeBaseCuratedSource>(
+        curatedKnowledgeBaseSources.map((source) => [source.id, source])
+      ),
+    [curatedKnowledgeBaseSources]
+  );
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -213,6 +244,136 @@ const KnowledgeBase = () => {
       };
     });
   };
+
+  useEffect(() => {
+    return () => {
+      harvestAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  const getHarvestSourceName = useCallback(
+    (id: string | null) => {
+      if (!id) {
+        return null;
+      }
+      return curatedSourceMap.get(id)?.name ?? id;
+    },
+    [curatedSourceMap]
+  );
+
+  const toggleHarvestSource = useCallback((id: string) => {
+    setSelectedHarvestSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectAllHarvestSources = useCallback(() => {
+    setSelectedHarvestSources(new Set(curatedKnowledgeBaseSources.map((source) => source.id)));
+  }, []);
+
+  const clearHarvestSelection = useCallback(() => {
+    setSelectedHarvestSources(new Set());
+  }, []);
+
+  const openHarvestOverlay = useCallback(() => {
+    setFeedback(null);
+    setHarvestDrafts([]);
+    setHarvestErrors([]);
+    setHarvestProgress(null);
+    setHarvestSelectionError(null);
+    setHarvestOpen(true);
+  }, []);
+
+  const resetHarvestWorkflow = useCallback(() => {
+    setHarvestProgress(null);
+    setIsHarvesting(false);
+    setIsHarvestSaving(false);
+    harvestAbortControllerRef.current = null;
+  }, []);
+
+  const closeHarvestOverlay = useCallback(() => {
+    if (isHarvesting) {
+      harvestAbortControllerRef.current?.abort();
+    }
+    resetHarvestWorkflow();
+    setHarvestOpen(false);
+  }, [isHarvesting, resetHarvestWorkflow]);
+
+  const runHarvest = useCallback(async () => {
+    if (isHarvesting) {
+      harvestAbortControllerRef.current?.abort();
+      return;
+    }
+
+    const ids = Array.from(selectedHarvestSources);
+    if (ids.length === 0) {
+      setHarvestSelectionError("Select at least one source to harvest.");
+      return;
+    }
+
+    const controller = new AbortController();
+    harvestAbortControllerRef.current = controller;
+    setHarvestSelectionError(null);
+    setIsHarvesting(true);
+    setHarvestDrafts([]);
+    setHarvestErrors([]);
+    setHarvestProgress({ currentId: null, processed: 0, total: ids.length, succeeded: 0, failed: 0 });
+
+    try {
+      const result = await harvestCuratedKnowledgeBaseSources(ids, {
+        signal: controller.signal,
+        onProgress: (progress) => {
+          setHarvestProgress(progress);
+        },
+      });
+
+      if (result.cancelled) {
+        setHarvestSelectionError("Harvest cancelled.");
+      }
+      setHarvestDrafts(result.results);
+      setHarvestErrors(result.errors);
+    } catch (error) {
+      console.error("Knowledge base web harvest failed", error);
+      setHarvestSelectionError(error instanceof Error ? error.message : "Failed to harvest sources.");
+    } finally {
+      setIsHarvesting(false);
+      harvestAbortControllerRef.current = null;
+    }
+  }, [isHarvesting, selectedHarvestSources]);
+
+  const importHarvestedDrafts = useCallback(async () => {
+    if (!harvestDrafts.length) {
+      setHarvestSelectionError("No drafts available to import.");
+      return;
+    }
+
+    setIsHarvestSaving(true);
+    try {
+      const selection = {
+        drafts: harvestDrafts.map((entry) => entry.draft),
+        errors: harvestErrors.map(({ path, reason }) => ({ path, reason })),
+      } satisfies KnowledgeBaseImportSelection;
+
+      const result = await importArticles.mutateAsync({ selection });
+      if (!result.cancelled) {
+        resetHarvestWorkflow();
+        setHarvestOpen(false);
+        setHarvestDrafts([]);
+        setHarvestErrors([]);
+      }
+    } catch (error) {
+      console.error("Failed to import harvested drafts", error);
+      setHarvestSelectionError(error instanceof Error ? error.message : "Failed to import harvested drafts.");
+    } finally {
+      setIsHarvestSaving(false);
+    }
+  }, [harvestDrafts, harvestErrors, importArticles, resetHarvestWorkflow]);
 
   const handlePauseImport = () => {
     if (!importProgress || importProgress.status !== "running") {
@@ -316,11 +477,16 @@ const KnowledgeBase = () => {
     [queryClient]
   );
 
-  const importArticles = useMutation<ImportMutationResult>({
-    mutationFn: async () => {
-      const selection = await promptKnowledgeBaseImport();
+  const importArticles = useMutation<ImportMutationResult, unknown, ImportMutationVariables>({
+    mutationFn: async (variables) => {
+      const providedSelection = variables?.selection ?? null;
+      const selection = providedSelection ?? (await promptKnowledgeBaseImport());
       if (!selection) {
         return { cancelled: true, saved: [], errors: [] };
+      }
+
+      if (selection.drafts.length === 0) {
+        return { cancelled: false, saved: [], errors: selection.errors };
       }
 
       const controller = new AbortController();
@@ -879,6 +1045,9 @@ const KnowledgeBase = () => {
           <button type="button" onClick={openCreate}>
             Add article
           </button>
+          <button type="button" onClick={openHarvestOverlay} disabled={isHarvestSaving}>
+            Harvest curated web sources
+          </button>
           <button type="button" onClick={handleImport} disabled={importArticles.isPending}>
             {importArticles.isPending ? "Importing…" : "Import from file"}
           </button>
@@ -993,6 +1162,226 @@ const KnowledgeBase = () => {
         {!articleQuery.isLoading &&
           renderArticle(activeArticle, relatedAssets, relatedAssetsQuery.isLoading, relatedAssetError)}
       </section>
+
+      {harvestOpen && (
+        <div
+          className="knowledge-base__harvest-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="knowledge-base-harvest-title"
+        >
+          <div className="knowledge-base__harvest-panel">
+            <header>
+              <div>
+                <h3 id="knowledge-base-harvest-title">Harvest curated sources</h3>
+                <p>Select community threads or wiki references, review the drafts, then import them into the knowledge base.</p>
+              </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={closeHarvestOverlay}
+                disabled={isHarvestSaving}
+                aria-label="Close harvest panel"
+              >
+                Close
+              </button>
+            </header>
+
+            <div className="knowledge-base__harvest-body">
+              <section
+                className="knowledge-base__harvest-sources"
+                aria-labelledby="knowledge-base-harvest-sources-title"
+              >
+                <header>
+                  <h4 id="knowledge-base-harvest-sources-title">Curated sources</h4>
+                  <p>
+                    Selected {selectedHarvestSources.size} of {curatedKnowledgeBaseSources.length} sources.
+                  </p>
+                </header>
+                <ul>
+                  {curatedKnowledgeBaseSources.map((source) => {
+                    const checked = selectedHarvestSources.has(source.id);
+                    return (
+                      <li key={source.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleHarvestSource(source.id)}
+                            disabled={isHarvesting || isHarvestSaving}
+                          />
+                          <div className="knowledge-base__harvest-source">
+                            <div className="knowledge-base__harvest-source-header">
+                              <strong>{source.name}</strong>
+                              <span>{source.type === "reddit-thread" ? "Reddit thread" : "Fandom wiki"}</span>
+                            </div>
+                            <p>{source.description}</p>
+                            <div className="knowledge-base__harvest-source-tags">
+                              <span className="knowledge-base__harvest-chip">{source.category}</span>
+                              {source.tags.map((tag) => (
+                                <span key={tag} className="knowledge-base__harvest-chip">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            Visit
+                          </a>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              <section
+                className="knowledge-base__harvest-results"
+                aria-labelledby="knowledge-base-harvest-results-title"
+              >
+                <header>
+                  <h4 id="knowledge-base-harvest-results-title">Harvest status</h4>
+                  {harvestProgress ? (
+                    <p>
+                      Processed {harvestProgress.processed} of {harvestProgress.total} · {harvestProgress.succeeded} ready · {harvestProgress.failed} failed
+                    </p>
+                  ) : (
+                    <p>Select sources and fetch their content to build reviewable drafts.</p>
+                  )}
+                </header>
+
+                {harvestSelectionError && <p className="error">{harvestSelectionError}</p>}
+
+                {harvestProgress && (
+                  <div className="knowledge-base__harvest-progress">
+                    <div
+                      className="knowledge-base__progress-bar"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={harvestProgress.total}
+                      aria-valuenow={harvestProgress.processed}
+                    >
+                      <div
+                        className="knowledge-base__progress-bar-fill"
+                        style={{
+                          width:
+                            harvestProgress.total === 0
+                              ? "0%"
+                              : `${Math.min(100, Math.round((harvestProgress.processed / harvestProgress.total) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                    {harvestProgress.currentId && (
+                      <p>
+                        Fetching {getHarvestSourceName(harvestProgress.currentId)}…
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {harvestDrafts.length > 0 ? (
+                  <ul className="knowledge-base__harvest-drafts">
+                    {harvestDrafts.map((entry) => {
+                      const previewSource = entry.draft.payload.summary ?? entry.draft.payload.content;
+                      const preview =
+                        entry.draft.payload.summary || previewSource.length <= 200
+                          ? previewSource
+                          : `${previewSource.slice(0, 200)}…`;
+                      return (
+                        <li key={entry.source.id}>
+                          <header>
+                            <div>
+                              <h5>{entry.draft.payload.title}</h5>
+                              <p>
+                                {entry.source.type === "reddit-thread" ? "Reddit" : "Fandom wiki"} · {entry.source.category}
+                              </p>
+                            </div>
+                            <span>{formatDate(entry.metadata.fetchedAt)}</span>
+                          </header>
+                          <p>{preview}</p>
+                          <footer>
+                            <span>{entry.draft.meta.wordCount} words</span>
+                            <div className="knowledge-base__harvest-draft-tags">
+                              {entry.draft.payload.tags?.map((tag) => (
+                                <span key={tag}>#{tag}</span>
+                              ))}
+                            </div>
+                          </footer>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="knowledge-base__harvest-empty">
+                    {isHarvesting ? "Fetching selected sources…" : "No drafts collected yet."}
+                  </p>
+                )}
+
+                {harvestErrors.length > 0 && (
+                  <div className="knowledge-base__harvest-errors">
+                    <h5>Failed sources</h5>
+                    <ul>
+                      {harvestErrors.map((error) => (
+                        <li key={error.source.id}>
+                          <strong>{error.source.name}</strong>
+                          <span>{error.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <footer className="knowledge-base__harvest-footer">
+              <div className="knowledge-base__harvest-footer-left">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={clearHarvestSelection}
+                  disabled={isHarvesting || selectedHarvestSources.size === 0}
+                >
+                  Clear selection
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={selectAllHarvestSources}
+                  disabled={isHarvesting}
+                >
+                  Select all
+                </button>
+              </div>
+              <div className="knowledge-base__harvest-footer-actions">
+                <button type="button" className="ghost" onClick={closeHarvestOverlay} disabled={isHarvestSaving}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={runHarvest}
+                  disabled={isHarvestSaving || (!isHarvesting && selectedHarvestSources.size === 0)}
+                >
+                  {isHarvesting ? "Cancel fetch" : "Fetch selected"}
+                </button>
+                <button
+                  type="button"
+                  onClick={importHarvestedDrafts}
+                  disabled={isHarvesting || isHarvestSaving || harvestDrafts.length === 0}
+                >
+                  {isHarvestSaving
+                    ? "Importing…"
+                    : `Import ${harvestDrafts.length} draft${harvestDrafts.length === 1 ? "" : "s"}`}
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {importProgress && importArticles.isPending && (
         <div className="knowledge-base__progress-backdrop" role="presentation">
