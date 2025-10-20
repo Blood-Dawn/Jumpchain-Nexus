@@ -36,9 +36,12 @@ import {
   loadWarehouseModeSetting,
   loadCategoryPresets,
   loadWarehousePersonalRealitySummary,
+  updateWarehousePersonalRealitySummary,
 } from "../../db/dao";
+import { derivePersonalRealitySummary } from "../../db/personalReality";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
+import { formatChipLabel, getChipStyle, getChipVisual } from "../chipAppearance";
 
 interface WarehouseFormState {
   id: string;
@@ -54,6 +57,11 @@ interface WarehouseFormState {
 interface UpdatePayload {
   id: string;
   updates: Parameters<typeof updateInventoryItem>[1];
+}
+
+interface SearchableItem {
+  record: InventoryItemRecord;
+  searchText: string;
 }
 
 const scopeKey = ["warehouse-items"] as const;
@@ -76,6 +84,27 @@ const formatNumber = (value: number): string => {
     return "0";
   }
   return numberFormatter.format(value);
+};
+
+const compareInventoryItems = (a: InventoryItemRecord, b: InventoryItemRecord): number => {
+  const orderA = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
+  const orderB = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  const createdA = a.created_at ?? "";
+  const createdB = b.created_at ?? "";
+  if (createdA && createdB) {
+    const comparison = createdA.localeCompare(createdB);
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+  return a.id.localeCompare(b.id);
+};
+
+const sortInventoryItems = (items: InventoryItemRecord[]): InventoryItemRecord[] => {
+  return [...items].sort(compareInventoryItems);
 };
 
 const parseTags = (raw: string | null): string[] => {
@@ -112,6 +141,7 @@ interface WarehouseRowData {
 interface CachedInventoryItem {
   record: InventoryItemRecord;
   searchValues: string[];
+  tags: string[];
 }
 
 const ListInnerElement = React.forwardRef<HTMLUListElement, React.HTMLAttributes<HTMLUListElement>>(
@@ -234,6 +264,9 @@ const CosmicWarehouse: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  const listRef = useRef<any>(null);
 
   const hasActiveFilters = Boolean(activeCategory) || activeTags.length > 0 || search.length > 0;
 
@@ -276,6 +309,24 @@ const CosmicWarehouse: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (payload: UpdatePayload) => updateInventoryItem(payload.id, payload.updates),
     onSuccess: (item) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        if (!current) {
+          return current;
+        }
+        const replaced = current.map((existing) => (existing.id === item.id ? item : existing));
+        const sorted = sortInventoryItems(replaced);
+        updatedItems = sorted;
+        return sorted;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      } else {
+        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+        if (isPersonalReality) {
+          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        }
+      }
       setSelectedId(item.id);
       setFocusId(item.id);
       setPendingFocusId(item.id);
@@ -424,27 +475,42 @@ const CosmicWarehouse: React.FC = () => {
       const searchValues = [item.name, item.category, item.slot, item.notes]
         .filter((value): value is string => Boolean(value))
         .map((value) => value.toLowerCase());
+      const tagValues = parseTags(item.tags).map((value) => value.toLowerCase());
 
       return {
         record: item,
         searchValues,
+        tags: tagValues,
       };
     });
   }, [itemsQuery.data]);
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+    const normalizedTags = activeTags
+      .map((tag) => tag.trim().toLowerCase())
+      .filter((tag, index, array) => tag.length > 0 && array.indexOf(tag) === index);
 
     return searchableItems
-      .filter(({ record, searchValues }) => {
+      .filter(({ record, searchValues, tags }) => {
         const matchesCategory = !activeCategory || record.category === activeCategory;
+        if (!matchesCategory) {
+          return false;
+        }
+
+        if (normalizedTags.length > 0) {
+          const matchesAllTags = normalizedTags.every((tag) => tags.includes(tag));
+          if (!matchesAllTags) {
+            return false;
+          }
+        }
 
         if (!normalizedSearch) {
-          return matchesCategory;
+          return true;
         }
 
         const matchesSearch = searchValues.some((value) => value.includes(normalizedSearch));
-        return matchesCategory && matchesSearch;
+        return matchesSearch;
       })
       .map(({ record }) => record);
   }, [searchableItems, activeCategory, activeTags, search]);
@@ -758,8 +824,8 @@ const CosmicWarehouse: React.FC = () => {
   };
 
   const listViewportRef = useRef<HTMLDivElement | null>(null);
-  const [listHeight, setListHeight] = useState<number>(360);
-  const [listWidth, setListWidth] = useState<number>(320);
+  const [virtualListHeight, setVirtualListHeight] = useState<number>(360);
+  const [virtualListWidth, setVirtualListWidth] = useState<number>(320);
 
   useEffect(() => {
     const element = listViewportRef.current;
@@ -769,22 +835,22 @@ const CosmicWarehouse: React.FC = () => {
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      setListHeight(entry.contentRect.height || ITEM_ROW_HEIGHT * 5);
-      setListWidth(entry.contentRect.width || element.clientWidth || 320);
+      setVirtualListHeight(entry.contentRect.height || ITEM_ROW_HEIGHT * 5);
+      setVirtualListWidth(entry.contentRect.width || element.clientWidth || 320);
     });
     observer.observe(element);
-    setListHeight(element.clientHeight || ITEM_ROW_HEIGHT * 5);
-    setListWidth(element.clientWidth || 320);
+    setVirtualListHeight(element.clientHeight || ITEM_ROW_HEIGHT * 5);
+    setVirtualListWidth(element.clientWidth || 320);
     return () => observer.disconnect();
   }, []);
 
-  type ItemData = {
+  type VirtualListData = {
     items: InventoryItemRecord[];
     selectedId: string | null;
     onSelect: (id: string) => void;
   };
 
-  const itemData = useMemo<ItemData>(
+  const virtualItemData = useMemo<VirtualListData>(
     () => ({
       items: filteredItems,
       selectedId,
@@ -794,7 +860,7 @@ const CosmicWarehouse: React.FC = () => {
   );
 
   const renderRow = useCallback(
-    ({ index, style, data }: ListChildComponentProps<ItemData>) => {
+    ({ index, style, data }: ListChildComponentProps<VirtualListData>) => {
       const item = data.items[index];
       if (!item) {
         return null;
@@ -1002,23 +1068,42 @@ const CosmicWarehouse: React.FC = () => {
           onChange={(event) => setSearch(event.target.value)}
         />
         <div className="warehouse__categories">
-          <button
-            type="button"
-            className={!activeCategory ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
-            onClick={() => setActiveCategory(null)}
-          >
-            All Categories
-          </button>
-          {categories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              className={activeCategory === category ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
-              onClick={() => setActiveCategory(category)}
-            >
-            {category}
-          </button>
-          ))}
+          {(() => {
+            const visual = getChipVisual("All Categories");
+            return (
+              <button
+                type="button"
+                className={!activeCategory ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
+                style={getChipStyle(visual)}
+                aria-pressed={!activeCategory}
+                onClick={() => setActiveCategory(null)}
+              >
+                <span aria-hidden="true" className="warehouse__chip-icon">
+                  {visual.icon}
+                </span>
+                <span className="warehouse__chip-label">{formatChipLabel("All Categories")}</span>
+              </button>
+            );
+          })()}
+          {categories.map((category) => {
+            const visual = getChipVisual(category);
+            const isActive = activeCategory === category;
+            return (
+              <button
+                key={category}
+                type="button"
+                className={isActive ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"}
+                style={getChipStyle(visual)}
+                aria-pressed={isActive}
+                onClick={() => setActiveCategory(category)}
+              >
+                <span aria-hidden="true" className="warehouse__chip-icon">
+                  {visual.icon}
+                </span>
+                <span className="warehouse__chip-label">{formatChipLabel(category)}</span>
+              </button>
+            );
+          })}
         </div>
         {tags.length > 0 && (
           <div className="warehouse__tags">
@@ -1026,6 +1111,7 @@ const CosmicWarehouse: React.FC = () => {
             <div className="warehouse__tags-chips">
               {tags.map((tag) => {
                 const isActive = activeTags.includes(tag);
+                const visual = getChipVisual(tag);
                 return (
                   <button
                     key={tag}
@@ -1033,6 +1119,7 @@ const CosmicWarehouse: React.FC = () => {
                     className={
                       isActive ? "warehouse__chip warehouse__chip--active" : "warehouse__chip"
                     }
+                    style={getChipStyle(visual)}
                     aria-pressed={isActive}
                     onClick={() =>
                       setActiveTags((prev) =>
@@ -1042,7 +1129,10 @@ const CosmicWarehouse: React.FC = () => {
                       )
                     }
                   >
-                    {tag}
+                    <span aria-hidden="true" className="warehouse__chip-icon">
+                      {visual.icon}
+                    </span>
+                    <span className="warehouse__chip-label">{formatChipLabel(tag)}</span>
                   </button>
                 );
               })}
@@ -1061,11 +1151,11 @@ const CosmicWarehouse: React.FC = () => {
           <div className="warehouse__list-viewport" ref={listViewportRef}>
             {filteredItems.length > 0 ? (
               <FixedSizeList
-                height={listHeight}
-                width={listWidth}
+                height={virtualListHeight}
+                width={virtualListWidth}
                 itemCount={filteredItems.length}
                 itemSize={ITEM_ROW_HEIGHT}
-                itemData={itemData}
+                itemData={virtualItemData}
                 innerElementType="ul"
                 itemKey={(index, data) => data.items[index]?.id ?? `${index}`}
               >

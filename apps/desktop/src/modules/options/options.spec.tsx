@@ -29,6 +29,8 @@ import userEvent from "@testing-library/user-event";
 import JumpchainOptions from "./index";
 import InputFormatter from "../formatter";
 import {
+  APPEARANCE_SETTING_KEY,
+  DEFAULT_APPEARANCE_SETTINGS,
   CATEGORY_PRESETS_SETTING_KEY,
   DEFAULT_SUPPLEMENT_SETTINGS,
   DEFAULT_WAREHOUSE_MODE,
@@ -36,6 +38,8 @@ import {
   loadSupplementSettings,
   loadWarehouseModeSetting,
   loadFormatterSettings,
+  listExportPresets,
+  parseCategoryPresets,
   setAppSetting,
   SUPPLEMENT_SETTING_KEY,
   EXPORT_PREFERENCES_SETTING_KEY,
@@ -83,6 +87,7 @@ vi.mock("../../db/dao", async (importOriginal) => {
     setRecord(actual.WAREHOUSE_MODE_SETTING_KEY, actual.DEFAULT_WAREHOUSE_MODE);
     setRecord(actual.CATEGORY_PRESETS_SETTING_KEY, actual.DEFAULT_CATEGORY_PRESETS);
     setRecord(actual.EXPORT_PREFERENCES_SETTING_KEY, actual.DEFAULT_EXPORT_PREFERENCES);
+    setRecord(actual.APPEARANCE_SETTING_KEY, actual.DEFAULT_APPEARANCE_SETTINGS);
     formatterSettings = { ...defaultFormatterSettings };
   };
 
@@ -111,6 +116,9 @@ vi.mock("../../db/dao", async (importOriginal) => {
     ),
     loadWarehouseModeSetting: vi.fn(async () =>
       actual.parseWarehouseMode(memory.get(actual.WAREHOUSE_MODE_SETTING_KEY) ?? null)
+    ),
+    loadAppearanceSettings: vi.fn(async () =>
+      actual.parseAppearanceSettings(memory.get(actual.APPEARANCE_SETTING_KEY) ?? null)
     ),
     loadFormatterSettings: vi.fn(async () => ({ ...formatterSettings })),
     updateFormatterSettings: vi.fn(async (overrides: Partial<actual.FormatterSettings>) => {
@@ -158,6 +166,7 @@ describe("JumpchainOptions", () => {
     (globalThis as { __resetAppSettings?: () => void }).__resetAppSettings?.();
     await setAppSetting(SUPPLEMENT_SETTING_KEY, DEFAULT_SUPPLEMENT_SETTINGS);
     await setAppSetting(WAREHOUSE_MODE_SETTING_KEY, DEFAULT_WAREHOUSE_MODE);
+    await setAppSetting(APPEARANCE_SETTING_KEY, DEFAULT_APPEARANCE_SETTINGS);
     const exportPresetsMock = vi.mocked(listExportPresets);
     exportPresetsMock.mockReset();
     exportPresetsMock.mockResolvedValue([]);
@@ -224,6 +233,43 @@ describe("JumpchainOptions", () => {
     expect(await screen.findByLabelText(/include essential body mod upgrades/i)).not.toBeChecked();
 
     firstRender.unmount();
+    queryClient.clear();
+  });
+
+  it("allows choosing a background theme and persists the selection", async () => {
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+    const setAppSettingMock = vi.mocked(setAppSetting);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <JumpchainOptions />
+      </QueryClientProvider>
+    );
+
+    const starfieldRadio = await screen.findByLabelText(/starfield/i);
+    expect(starfieldRadio).toBeChecked();
+
+    const nebulaRadio = await screen.findByLabelText(/nebula/i);
+    setAppSettingMock.mockClear();
+    await user.click(nebulaRadio);
+
+    await waitFor(() => {
+      expect(setAppSettingMock).toHaveBeenCalledWith(APPEARANCE_SETTING_KEY, {
+        backgroundTheme: "nebula",
+      });
+    });
+
+    const minimalRadio = await screen.findByLabelText(/minimal/i);
+    setAppSettingMock.mockClear();
+    await user.click(minimalRadio);
+
+    await waitFor(() => {
+      expect(setAppSettingMock).toHaveBeenCalledWith(APPEARANCE_SETTING_KEY, {
+        backgroundTheme: "minimal",
+      });
+    });
+
     queryClient.clear();
   });
 
