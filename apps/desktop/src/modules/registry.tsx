@@ -20,6 +20,7 @@ export interface ModuleDef {
   icon?: string;
   badge?: string;
   requiredPermissions?: string[];
+  accent?: string;
 }
 
 const lazyModule = <T extends ComponentType<any>>(id: string, loader: () => Promise<{ default: T }>) =>
@@ -34,6 +35,13 @@ const lazyModule = <T extends ComponentType<any>>(id: string, loader: () => Prom
     Wrapped.displayName = `${Component.displayName ?? Component.name ?? id}WithProfiler`;
     return { default: Wrapped } as { default: ComponentType };
   });
+
+const sectionAccents: Record<ModuleSection, string> = {
+  build: "210 100% 74%",
+  supplements: "174 73% 64%",
+  tools: "266 84% 76%",
+  story: "350 100% 78%",
+};
 
 const moduleList: ModuleDef[] = [
   {
