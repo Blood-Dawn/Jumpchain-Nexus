@@ -157,6 +157,7 @@ const KnowledgeBase = () => {
   const stageElementRef = useRef<HTMLElement | null>(null);
   const articleModalRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editorWasOpenRef = useRef(false);
   const articleTriggerRef = useRef<HTMLElement | null>(null);
   const lastSelectedIdRef = useRef<string | null>(null);
 
@@ -662,6 +663,23 @@ const KnowledgeBase = () => {
       cancelAnimationFrame(raf);
     };
   }, [selectedId, closeArticle]);
+
+  useEffect(() => {
+    const wasOpen = editorWasOpenRef.current;
+    editorWasOpenRef.current = editorState.open;
+
+    if (!selectedId) {
+      return;
+    }
+
+    if (wasOpen && !editorState.open) {
+      const focusTarget = closeButtonRef.current ?? articleModalRef.current;
+      const raf = requestAnimationFrame(() => {
+        focusTarget?.focus();
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [editorState.open, selectedId]);
 
   const relatedAssetIds = activeArticle?.related_asset_ids ?? [];
 
