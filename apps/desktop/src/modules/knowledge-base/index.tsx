@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEventHandler } from "react";
+import type { FormEventHandler, MouseEvent as ReactMouseEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./knowledgeBase.css";
@@ -177,6 +177,33 @@ const KnowledgeBase = () => {
   const [isHarvesting, setIsHarvesting] = useState(false);
   const [isHarvestSaving, setIsHarvestSaving] = useState(false);
   const stageElementRef = useRef<HTMLElement | null>(null);
+  const articleModalRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editorWasOpenRef = useRef(false);
+  const articleTriggerRef = useRef<HTMLElement | null>(null);
+  const lastSelectedIdRef = useRef<string | null>(null);
+
+  const openArticle = useCallback(
+    (articleId: string, trigger?: HTMLElement | null) => {
+      if (trigger) {
+        articleTriggerRef.current = trigger;
+      }
+      setHasDismissedArticle(false);
+      lastSelectedIdRef.current = articleId;
+      setSelectedId(articleId);
+    },
+    []
+  );
+
+  const closeArticle = useCallback((dismiss = false) => {
+    if (dismiss) {
+      setHasDismissedArticle(true);
+    }
+    setSelectedId((previous) => {
+      lastSelectedIdRef.current = previous;
+      return null;
+    });
+  }, []);
   const pausedRef = useRef(false);
   const pauseResolverRef = useRef<(() => void) | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -215,10 +242,10 @@ const KnowledgeBase = () => {
   useEffect(() => {
     const state = location.state as KnowledgeBaseLocationState | null;
     if (state?.articleId) {
-      setSelectedId(state.articleId);
+      openArticle(state.articleId);
       navigate(location.pathname, { replace: true, state: null });
     }
-  }, [location.pathname, location.state, navigate]);
+  }, [location.pathname, location.state, navigate, openArticle]);
 
   const articleQuery = useQuery({
     queryKey: ["knowledge-base", filters],
@@ -415,7 +442,7 @@ const KnowledgeBase = () => {
       setFeedback(`Saved “${article.title}”`);
       setEditorState({ open: false, draft: { ...emptyDraft } });
       queryClient.invalidateQueries({ queryKey: ["knowledge-base"] });
-      setSelectedId(article.id);
+      openArticle(article.id);
     },
     onError: (error) => {
       console.error("Failed to save article", error);
@@ -428,7 +455,7 @@ const KnowledgeBase = () => {
     onSuccess: () => {
       setFeedback("Article removed");
       queryClient.invalidateQueries({ queryKey: ["knowledge-base"] });
-      setSelectedId(null);
+      closeArticle();
     },
     onError: (error) => {
       console.error("Failed to delete article", error);
@@ -471,10 +498,13 @@ const KnowledgeBase = () => {
 
       setFeedback(parts.join(" · "));
       if (importedCount > 0) {
-        setSelectedId(result.saved[0]?.id ?? null);
+        const firstImportedId = result.saved[0]?.id;
+        if (firstImportedId) {
+          openArticle(firstImportedId);
+        }
       }
     },
-    [queryClient]
+    [openArticle, queryClient]
   );
 
   const importArticles = useMutation<ImportMutationResult, unknown, ImportMutationVariables>({
@@ -554,7 +584,7 @@ const KnowledgeBase = () => {
         queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
         queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] }),
       ]);
-      setSelectedId(article.id);
+      openArticle(article.id);
     },
     onError: async (error, issue) => {
       const reason = error instanceof Error ? error.message : "Failed to import file";
@@ -643,35 +673,178 @@ const KnowledgeBase = () => {
       setDropActive(false);
       cleanup?.();
     };
-  }, [handleDroppedPaths]);
+  }, [handleDroppedPaths, selectedId]);
 
   const handleImport = () => {
     setFeedback(null);
     importArticles.mutate();
   };
 
+  const handleArticleBackdropClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      closeArticle(true);
+    }
+  };
+
   const articles = articleQuery.data ?? [];
 
   useEffect(() => {
     if (!articles.length) {
-      setSelectedId(null);
+      closeArticle();
       return;
     }
-    if (selectedId && articles.some((article) => article.id === selectedId)) {
+
+    if (selectedId) {
+      const exists = articles.some((article) => article.id === selectedId);
+      if (exists) {
+        return;
+      }
+
+      const fallbackId = articles[0]?.id;
+      if (fallbackId && !hasDismissedArticle) {
+        openArticle(fallbackId);
+      } else {
+        closeArticle();
+      }
       return;
     }
-    setSelectedId(articles[0]?.id ?? null);
-  }, [articles, selectedId]);
+
+    if (!hasDismissedArticle) {
+      const firstArticleId = articles[0]?.id;
+      if (firstArticleId) {
+        openArticle(firstArticleId);
+      }
+    }
+  }, [articles, selectedId, hasDismissedArticle, openArticle, closeArticle]);
 
   const activeArticle = useMemo<KnowledgeArticleRecord | null>(() => {
-    if (!articles.length) {
+    if (!selectedId) {
       return null;
     }
-    if (!selectedId) {
-      return articles[0];
-    }
-    return articles.find((article) => article.id === selectedId) ?? articles[0];
+    return articles.find((article) => article.id === selectedId) ?? null;
   }, [articles, selectedId]);
+
+  useEffect(() => {
+    if (selectedId !== null) {
+      return;
+    }
+
+    const trigger = articleTriggerRef.current;
+    if (trigger) {
+      if (document.contains(trigger)) {
+        trigger.focus();
+        articleTriggerRef.current = null;
+        return;
+      }
+      articleTriggerRef.current = null;
+    }
+
+    const fallbackId = lastSelectedIdRef.current;
+    const fallbackButton =
+      (fallbackId
+        ? document.querySelector<HTMLElement>(
+            `[data-knowledge-base-article-id="${fallbackId}"]`
+          )
+        : null) ?? document.querySelector<HTMLElement>(".knowledge-base__list button");
+
+    fallbackButton?.focus();
+  }, [selectedId]);
+
+  useEffect(() => {
+    const modalNode = articleModalRef.current;
+    if (!selectedId || !modalNode) {
+      return;
+    }
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const getFocusableElements = () =>
+      Array.from(modalNode.querySelectorAll<HTMLElement>(focusableSelector)).filter((element) => {
+        if (element.hasAttribute("disabled")) {
+          return false;
+        }
+        if (element.getAttribute("aria-hidden") === "true") {
+          return false;
+        }
+        if (element.tabIndex < 0) {
+          return false;
+        }
+        if (element.offsetParent === null && element.getClientRects().length === 0) {
+          return element === closeButtonRef.current;
+        }
+        return true;
+      });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeArticle(true);
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = getFocusableElements();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        modalNode.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement as HTMLElement | null;
+
+      if (event.shiftKey) {
+        if (activeElement === first || !modalNode.contains(activeElement)) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+
+      if (activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    modalNode.addEventListener("keydown", handleKeyDown);
+
+    const focusable = getFocusableElements();
+    const initialFocusTarget =
+      closeButtonRef.current ?? focusable.find((element) => element !== modalNode) ?? modalNode;
+
+    const raf = requestAnimationFrame(() => {
+      initialFocusTarget.focus();
+    });
+
+    return () => {
+      modalNode.removeEventListener("keydown", handleKeyDown);
+      cancelAnimationFrame(raf);
+    };
+  }, [selectedId, closeArticle]);
+
+  useEffect(() => {
+    const wasOpen = editorWasOpenRef.current;
+    editorWasOpenRef.current = editorState.open;
+
+    if (!selectedId) {
+      return;
+    }
+
+    if (wasOpen && !editorState.open) {
+      const focusTarget = closeButtonRef.current ?? articleModalRef.current;
+      const raf = requestAnimationFrame(() => {
+        focusTarget?.focus();
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [editorState.open, selectedId]);
 
   const relatedAssetIds = activeArticle?.related_asset_ids ?? [];
 
@@ -842,7 +1015,8 @@ const KnowledgeBase = () => {
     article: KnowledgeArticleRecord | null,
     references: AssetReferenceSummary[],
     referencesLoading: boolean,
-    referencesError: Error | null
+    referencesError: Error | null,
+    titleId?: string
   ) => {
     if (!article) {
       return (
@@ -862,7 +1036,7 @@ const KnowledgeBase = () => {
       <article className="knowledge-base__article">
         <header className="knowledge-base__article-header">
           <div>
-            <h1>{article.title}</h1>
+            <h1 id={titleId}>{article.title}</h1>
             <div className="knowledge-base__pill-group">
               {(article.category ?? "") && <span className="knowledge-base__pill">{article.category}</span>}
               {(article.source ?? "") && (
@@ -961,8 +1135,18 @@ const KnowledgeBase = () => {
     );
   };
 
+  const articleModalOpen = Boolean(selectedId);
+  const articleTitleId = activeArticle ? `knowledge-base-article-title-${activeArticle.id}` : undefined;
+  const articleModalLabel = activeArticle?.title ?? "Knowledge base article";
+  const knowledgeBaseClassName = articleModalOpen
+    ? "knowledge-base knowledge-base--modal-open"
+    : "knowledge-base";
+  const articleModalClassName = isDropActive
+    ? "knowledge-base__article-modal knowledge-base__article-modal--drop"
+    : "knowledge-base__article-modal";
+
   return (
-    <div className="knowledge-base">
+    <div className={knowledgeBaseClassName}>
       <aside className="knowledge-base__sidebar">
         <div className="knowledge-base__sidebar-header">
           <h2>Knowledge Base</h2>
@@ -1067,7 +1251,8 @@ const KnowledgeBase = () => {
                 <button
                   type="button"
                   className={selectedId === article.id ? "active" : undefined}
-                  onClick={() => setSelectedId(article.id)}
+                  data-knowledge-base-article-id={article.id}
+                  onClick={(event) => openArticle(article.id, event.currentTarget)}
                 >
                   <h4>{article.title}</h4>
                   <div className="knowledge-base__list-meta">
@@ -1081,87 +1266,117 @@ const KnowledgeBase = () => {
         </div>
       </aside>
 
-      <section
-        ref={stageElementRef}
-        className={
-          isDropActive ? "knowledge-base__stage knowledge-base__stage--drop" : "knowledge-base__stage"
-        }
-      >
-        {isDropActive && (
-          <div className="knowledge-base__drop-indicator" role="status" aria-live="polite">
-            <strong>Drop PDFs or text files to import articles</strong>
-          </div>
-        )}
-        {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
-        {hasImportErrors && (
-          <>
-            {!importDrawerOpen && (
-              <button
-                type="button"
-                className="knowledge-base__import-toggle"
-                onClick={() => setImportDrawerOpen(true)}
-              >
-                Show failed imports ({importErrors.length})
-              </button>
-            )}
-            <aside
-              className="knowledge-base__import-drawer"
-              data-open={importDrawerOpen ? "true" : "false"}
-              role="complementary"
-              aria-label="Failed knowledge base imports"
-              aria-live="polite"
+      {articleModalOpen && (
+        <div
+          className="knowledge-base__article-backdrop"
+          role="presentation"
+          onClick={handleArticleBackdropClick}
+        >
+          <div
+            ref={(node) => {
+              articleModalRef.current = node;
+              stageElementRef.current = node;
+            }}
+            className={articleModalClassName}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={articleTitleId}
+            aria-label={articleTitleId ? undefined : articleModalLabel}
+            tabIndex={-1}
+          >
+            <button
+              type="button"
+              className="knowledge-base__article-close"
+              onClick={() => closeArticle(true)}
+              ref={closeButtonRef}
             >
-              <header>
-                <div>
-                  <h3>Failed imports</h3>
-                  <p>We couldn't import these files. Resolve each issue and retry.</p>
+              Close article
+            </button>
+            <div className="knowledge-base__article-scroll">
+              {isDropActive && (
+                <div className="knowledge-base__drop-indicator" role="status" aria-live="polite">
+                  <strong>Drop PDFs or text files to import articles</strong>
                 </div>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => setImportDrawerOpen(false)}
-                  aria-label="Hide failed imports"
-                >
-                  Hide
-                </button>
-              </header>
-              <ul>
-                {importErrors.map((issue) => {
-                  const isRetrying = retryImport.isPending && retryingId === issue.id;
-                  return (
-                    <li key={issue.id}>
-                      <div className="knowledge-base__import-details">
-                        <code title={issue.path}>{issue.path}</code>
-                        <span>{issue.reason}</span>
+              )}
+              {feedback && <div className="knowledge-base__feedback">{feedback}</div>}
+              {hasImportErrors && (
+                <>
+                  {!importDrawerOpen && (
+                    <button
+                      type="button"
+                      className="knowledge-base__import-toggle"
+                      onClick={() => setImportDrawerOpen(true)}
+                    >
+                      Show failed imports ({importErrors.length})
+                    </button>
+                  )}
+                  <aside
+                    className="knowledge-base__import-drawer"
+                    data-open={importDrawerOpen ? "true" : "false"}
+                    role="complementary"
+                    aria-label="Failed knowledge base imports"
+                    aria-live="polite"
+                  >
+                    <header>
+                      <div>
+                        <h3>Failed imports</h3>
+                        <p>We couldn't import these files. Resolve each issue and retry.</p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleRetry(issue)}
-                        disabled={retryImport.isPending}
+                        className="ghost"
+                        onClick={() => setImportDrawerOpen(false)}
+                        aria-label="Hide failed imports"
                       >
-                        {isRetrying ? "Retrying…" : "Retry"}
+                        Hide
                       </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              <footer>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={handleDismissAll}
-                  disabled={clearImportErrorsMutation.isPending}
-                >
-                  Dismiss all
-                </button>
-              </footer>
-            </aside>
-          </>
-        )}
-        {articleQuery.isLoading && <p>Loading knowledge base…</p>}
-        {!articleQuery.isLoading &&
-          renderArticle(activeArticle, relatedAssets, relatedAssetsQuery.isLoading, relatedAssetError)}
-      </section>
+                    </header>
+                    <ul>
+                      {importErrors.map((issue) => {
+                        const isRetrying = retryImport.isPending && retryingId === issue.id;
+                        return (
+                          <li key={issue.id}>
+                            <div className="knowledge-base__import-details">
+                              <code title={issue.path}>{issue.path}</code>
+                              <span>{issue.reason}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRetry(issue)}
+                              disabled={retryImport.isPending}
+                            >
+                              {isRetrying ? "Retrying…" : "Retry"}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <footer>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={handleDismissAll}
+                        disabled={clearImportErrorsMutation.isPending}
+                      >
+                        Dismiss all
+                      </button>
+                    </footer>
+                  </aside>
+                </>
+              )}
+              {articleQuery.isLoading && <p>Loading knowledge base…</p>}
+              {!articleQuery.isLoading &&
+                renderArticle(
+                  activeArticle,
+                  relatedAssets,
+                  relatedAssetsQuery.isLoading,
+                  relatedAssetError,
+                  articleTitleId
+                )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {harvestOpen && (
         <div

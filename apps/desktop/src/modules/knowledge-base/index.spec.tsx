@@ -221,15 +221,13 @@ describe("KnowledgeBase drop integration", () => {
 
     await screen.findByText(/Knowledge Base/i);
 
-    const stage = document.querySelector(".knowledge-base__stage") as HTMLElement;
-    expect(stage).toBeTruthy();
+    const articleDialog = await screen.findByRole("dialog", { name: "Reference Article" });
+    const stage = articleDialog as HTMLElement;
 
     const platform = await getPlatform();
-    await act(async () => {
-      platform.drop.emitTestEvent?.(stage, { type: "drop", paths: ["/draft.md"] });
-    });
 
     await waitFor(() => {
+      platform.drop.emitTestEvent?.(stage, { type: "drop", paths: ["/draft.md"] });
       expect(collectKnowledgeBaseDraftsFromPaths).toHaveBeenCalledWith(["/draft.md"]);
       expect(importKnowledgeBaseArticles).toHaveBeenCalled();
     });

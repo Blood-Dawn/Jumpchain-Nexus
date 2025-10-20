@@ -188,6 +188,54 @@ const renderWithClient = () => {
   );
 };
 
+describe("KnowledgeBase article modal", () => {
+  beforeEach(() => {
+    importerControl = null;
+    promptKnowledgeBaseImportMock.mockClear();
+    importKnowledgeBaseArticlesMock.mockClear();
+    jmhStore.setSelectedJump.mockReset();
+    jmhStore.setActiveAssetType.mockReset();
+    jmhStore.setSelectedAssetId.mockReset();
+  });
+
+  it("restores focus to the article list when the modal closes", async () => {
+    const user = userEvent.setup();
+
+    renderWithClient();
+
+    const articleButton = await screen.findByRole("button", { name: /Existing Article/i });
+    const articleDialog = await screen.findByRole("dialog", { name: "Existing Article" });
+    expect(articleDialog).toBeInTheDocument();
+
+    const closeButton = screen.getByRole("button", { name: "Close article" });
+    await waitFor(() => {
+      expect(closeButton).toHaveFocus();
+    });
+
+    await user.click(closeButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Existing Article" })).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(articleButton).toHaveFocus();
+    });
+
+    await user.click(articleButton);
+    const reopenedDialog = await screen.findByRole("dialog", { name: "Existing Article" });
+    expect(reopenedDialog).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Existing Article" })).not.toBeInTheDocument();
+    });
+
+    expect(articleButton).toHaveFocus();
+  });
+});
+
 describe("KnowledgeBase import progress", () => {
   beforeEach(() => {
     importerControl = null;
