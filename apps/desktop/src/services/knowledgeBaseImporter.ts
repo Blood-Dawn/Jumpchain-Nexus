@@ -27,6 +27,7 @@ import type {
   KnowledgeBaseImportError,
   UpsertKnowledgeArticleInput,
 } from "../db/dao";
+import { getKnowledgeArticleStableKey } from "../db/dao";
 import {
   buildArticleDraft,
   extractFileName,
@@ -137,10 +138,12 @@ export async function importKnowledgeBaseArticles(
   const saved: KnowledgeArticleRecord[] = [];
   const errors: KnowledgeBaseImportError[] = [];
   const total = drafts.length;
+  let handled = 0;
+  const processedKeys = new Set<string>();
 
   const emitProgress = (currentPath: string | null = null) => {
     options.onProgress?.({
-      processed: saved.length + errors.length,
+      processed: handled,
       total,
       saved: saved.length,
       failed: errors.length,
@@ -170,9 +173,23 @@ export async function importKnowledgeBaseArticles(
       return finish(true);
     }
 
+    const stableKey = getKnowledgeArticleStableKey(
+      draft.payload.title,
+      draft.payload.source ?? null
+    );
+
+    if (stableKey && processedKeys.has(stableKey)) {
+      handled += 1;
+      emitProgress(null);
+      continue;
+    }
+
     try {
       const record = await save(draft.payload);
       saved.push(record);
+      if (stableKey) {
+        processedKeys.add(stableKey);
+      }
     } catch (error) {
       errors.push({
         path: draft.path,
@@ -180,6 +197,7 @@ export async function importKnowledgeBaseArticles(
       });
     }
 
+    handled += 1;
     emitProgress(null);
   }
 
