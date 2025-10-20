@@ -23,7 +23,7 @@ SOFTWARE.
 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -161,15 +161,13 @@ describe("KnowledgeBase drop integration", () => {
 
     await screen.findByText(/Knowledge Base/i);
 
-    const stage = document.querySelector(".knowledge-base__stage") as HTMLElement;
-    expect(stage).toBeTruthy();
+    const articleDialog = await screen.findByRole("dialog", { name: "Reference Article" });
+    const stage = articleDialog as HTMLElement;
 
     const platform = await getPlatform();
-    await act(async () => {
-      platform.drop.emitTestEvent?.(stage, { type: "drop", paths: ["/draft.md"] });
-    });
 
     await waitFor(() => {
+      platform.drop.emitTestEvent?.(stage, { type: "drop", paths: ["/draft.md"] });
       expect(collectKnowledgeBaseDraftsFromPaths).toHaveBeenCalledWith(["/draft.md"]);
       expect(importKnowledgeBaseArticles).toHaveBeenCalled();
     });
