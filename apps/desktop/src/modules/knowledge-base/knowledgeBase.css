@@ -14,7 +14,6 @@
   gap: 1.5rem;
   height: 100%;
   padding: 1.5rem;
-  overflow: hidden;
 }
 
 .knowledge-base__sidebar {
@@ -203,12 +202,13 @@
   border: 1px solid var(--kb-border-muted);
   background: color-mix(in srgb, var(--kb-surface) 94%, var(--kb-surface-raised));
   scrollbar-color: color-mix(in srgb, var(--kb-accent) 70%, transparent) transparent;
+  padding-bottom: 0.25rem;
 }
 
 .knowledge-base__list ul {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 1.25rem;
 }
 
 .knowledge-base__list li + li {
