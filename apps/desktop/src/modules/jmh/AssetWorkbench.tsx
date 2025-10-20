@@ -40,7 +40,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createJumpAsset,
@@ -71,6 +71,14 @@ import {
 import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
+
+const assetTypeIcons: Record<JumpAssetType, string> = {
+  origin: "🪐",
+  perk: "✨",
+  item: "🎒",
+  companion: "🤝",
+  drawback: "⚠️",
+};
 
 interface AssetFormState {
   id: string;
@@ -117,19 +125,12 @@ const shouldPersistStipend = (form: AssetFormState): boolean => {
   );
 };
 
-interface AssetContextFlags {
-  discounted: boolean;
-  imported: boolean;
-  stipend: boolean;
-}
-
 interface AssetListRowProps {
   asset: JumpAssetRecord;
   isSelected: boolean;
   onSelect: (id: string) => void;
   formatValue: (value: number) => string;
   reorderDisabled: boolean;
-  flags: AssetContextFlags;
 }
 
 const AssetListRow: React.FC<AssetListRowProps> = ({
@@ -138,7 +139,6 @@ const AssetListRow: React.FC<AssetListRowProps> = ({
   onSelect,
   formatValue,
   reorderDisabled,
-  flags,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: asset.id });
   const style: React.CSSProperties = {
@@ -151,39 +151,6 @@ const AssetListRow: React.FC<AssetListRowProps> = ({
     .filter(Boolean)
     .join(" ")
     .trim();
-
-  const badges: Array<{ key: string; label: string; className: string; description: string }> = [];
-
-  if (flags.discounted) {
-    badges.push({
-      key: "discounted",
-      label: "Discounted",
-      className: "asset-board__badge--discounted",
-      description: "Discount applied — costs half the listed CP.",
-    });
-  }
-
-  if (flags.imported) {
-    badges.push({
-      key: "imported",
-      label: "Import",
-      className: "asset-board__badge--import",
-      description: "Active companion import slot with an applied cost.",
-    });
-  }
-
-  if (flags.stipend) {
-    badges.push({
-      key: "stipend",
-      label: "Stipend",
-      className: "asset-board__badge--stipend",
-      description: "Grants a stipend or recurring credit.",
-    });
-  }
-
-  const badgeAriaLabel = badges.length
-    ? `Status badges for ${displayName}: ${badges.map((badge) => badge.description).join("; ")}`
-    : undefined;
 
   return (
     <li ref={setNodeRef} style={style} className={className || undefined}>
@@ -198,25 +165,12 @@ const AssetListRow: React.FC<AssetListRowProps> = ({
       >
         <span aria-hidden="true">⋮⋮</span>
       </button>
+      <span className="asset-board__icon" aria-hidden="true">
+        {assetTypeIcons[asset.asset_type] ?? "📦"}
+      </span>
       <button type="button" className="asset-board__select" onClick={() => onSelect(asset.id)}>
-        <span className="asset-board__title">{displayName}</span>
-        <div className="asset-board__meta">
-          <small>{formatValue((asset.cost ?? 0) * Math.max(asset.quantity ?? 1, 1))}</small>
-          {badges.length > 0 && (
-            <div className="asset-board__badges" aria-label={badgeAriaLabel} role="list">
-              {badges.map((badge) => (
-                <span
-                  key={badge.key}
-                  role="listitem"
-                  className={`asset-board__badge ${badge.className}`}
-                  title={badge.description}
-                >
-                  {badge.label}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        <span>{displayName}</span>
+        <small>{formatValue((asset.cost ?? 0) * Math.max(asset.quantity ?? 1, 1))}</small>
       </button>
     </li>
   );
@@ -238,7 +192,6 @@ export const AssetWorkbench: React.FC = () => {
   const [orderedIds, setOrderedIds] = useState<Record<JumpAssetType, string[]>>({});
   const [formState, setFormState] = useState<AssetFormState | null>(null);
   const [tagDraft, setTagDraft] = useState("");
-  const badgeLegendId = useId();
   const navigate = useNavigate();
 
   const selectedJump = useMemo(
@@ -298,25 +251,6 @@ export const AssetWorkbench: React.FC = () => {
     () => displayAssets.find((asset) => asset.id === selectedAssetId) ?? null,
     [displayAssets, selectedAssetId],
   );
-
-  const assetMetadataMap = useMemo(() => {
-    const map = new Map<string, AssetMetadata>();
-    for (const asset of displayAssets) {
-      map.set(asset.id, parseAssetMetadata(asset));
-    }
-    return map;
-  }, [displayAssets]);
-
-  const importedAssetIds = useMemo(() => {
-    const set = new Set<string>();
-    const selections = budgetQuery.data?.companionImportSelections ?? [];
-    for (const entry of selections) {
-      if (entry.selected) {
-        set.add(entry.assetId);
-      }
-    }
-    return set;
-  }, [budgetQuery.data?.companionImportSelections]);
 
   const knowledgeReferencesQuery = useQuery({
     queryKey: [
@@ -718,56 +652,21 @@ export const AssetWorkbench: React.FC = () => {
                       aria-roledescription="Sortable list"
                       role="list"
                     >
-                      {displayAssets.map((asset) => {
-                        const metadata = assetMetadataMap.get(asset.id);
-                        const flags: AssetContextFlags = {
-                          discounted: asset.discounted === 1,
-                          imported: asset.asset_type === "companion" && importedAssetIds.has(asset.id),
-                          stipend: Boolean(metadata?.stipend),
-                        };
-                        return (
-                          <AssetListRow
-                            key={asset.id}
-                            asset={asset}
-                            formatValue={formatValue}
-                            isSelected={asset.id === selectedAssetId}
-                            onSelect={setSelectedAssetId}
-                            reorderDisabled={reorderMutation.isPending}
-                            flags={flags}
-                          />
-                        );
-                      })}
+                      {displayAssets.map((asset) => (
+                        <AssetListRow
+                          key={asset.id}
+                          asset={asset}
+                          formatValue={formatValue}
+                          isSelected={asset.id === selectedAssetId}
+                          onSelect={setSelectedAssetId}
+                          reorderDisabled={reorderMutation.isPending}
+                        />
+                      ))}
                     </ul>
                   </SortableContext>
                 </DndContext>
               )}
             </div>
-
-            {displayAssets.length > 0 && (
-              <div className="asset-board__legend" role="group" aria-labelledby={badgeLegendId}>
-                <p id={badgeLegendId}>Badge legend</p>
-                <ul>
-                  <li>
-                    <span className="asset-board__badge asset-board__badge--discounted" aria-hidden="true">
-                      Discounted
-                    </span>
-                    <small>Half-cost purchases using a qualifying discount.</small>
-                  </li>
-                  <li>
-                    <span className="asset-board__badge asset-board__badge--import" aria-hidden="true">
-                      Import
-                    </span>
-                    <small>Indicates a companion import slot with an applied fee.</small>
-                  </li>
-                  <li>
-                    <span className="asset-board__badge asset-board__badge--stipend" aria-hidden="true">
-                      Stipend
-                    </span>
-                    <small>Highlights assets that grant recurring credit.</small>
-                  </li>
-                </ul>
-              </div>
-            )}
 
             <div className="asset-board__details">
               {!formState ? (
