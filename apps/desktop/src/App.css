@@ -897,14 +897,15 @@ a:hover {
 .jmh-nav__button {
   width: 100%;
   text-align: left;
-  border: 1px solid transparent;
-  border-radius: 0.9rem;
-  padding: 0.85rem 1rem;
-  background: rgba(13, 21, 32, 0.8);
+  border: 1px solid rgba(122, 203, 255, 0.08);
+  border-radius: 1rem;
+  padding: 0.9rem 1.2rem;
+  background: rgba(13, 21, 32, 0.82);
   color: rgba(240, 247, 255, 0.78);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.6rem;
+  align-items: flex-start;
   text-decoration: none;
   transition: background 0.15s ease, border 0.15s ease;
   --module-accent: 210 100% 74%;
@@ -913,7 +914,9 @@ a:hover {
 }
 
 .jmh-nav__button:hover {
-  background: rgba(20, 31, 48, 0.9);
+  background: rgba(20, 31, 48, 0.92);
+  border-color: rgba(122, 203, 255, 0.2);
+  transform: translateX(2px);
 }
 
 .jmh-nav__button--active {
@@ -939,6 +942,7 @@ a:hover {
 .jmh-nav__hint {
   font-size: 0.8rem;
   color: rgba(240, 247, 255, 0.55);
+  line-height: 1.35;
 }
 
 .jmh-nav__badge {

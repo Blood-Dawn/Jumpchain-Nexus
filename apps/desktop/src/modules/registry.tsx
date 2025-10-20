@@ -2,6 +2,7 @@ import { lazy } from "react";
 import type { ComponentProps, ComponentType, LazyExoticComponent } from "react";
 
 import { RouteProfiler } from "../components/perf/RouteProfiler";
+import type { IconName } from "../components/Icon";
 
 export type ModuleSection = "build" | "supplements" | "tools" | "story";
 

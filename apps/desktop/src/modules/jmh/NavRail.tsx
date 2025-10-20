@@ -25,6 +25,7 @@ SOFTWARE.
 import React from "react";
 import { NavLink } from "react-router-dom";
 import { modules, resolveModulePath, sectionLabels, sectionOrder } from "../registry";
+import Icon from "../../components/Icon";
 
 type NavLinkStyle = React.CSSProperties & { "--module-accent"?: string };
 
