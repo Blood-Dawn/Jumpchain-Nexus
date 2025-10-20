@@ -673,6 +673,19 @@ const KnowledgeBase = () => {
     removeArticle.mutate(article.id);
   };
 
+  const handleNavigateToAsset = useCallback(
+    (reference: AssetReferenceSummary) => {
+      if (!reference) {
+        return;
+      }
+      setSelectedJump(reference.jump_id);
+      setActiveAssetType(reference.asset_type);
+      setSelectedAssetId(reference.asset_id);
+      navigate("/hub");
+    },
+    [navigate, setActiveAssetType, setSelectedAssetId, setSelectedJump],
+  );
+
   const renderArticle = (
     article: KnowledgeArticleRecord | null,
     references: AssetReferenceSummary[],
