@@ -1367,13 +1367,56 @@ a:hover {
 .jmh-search__overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 9, 16, 0.72);
-  backdrop-filter: blur(6px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 4rem 1.5rem 2rem;
   z-index: 30;
+  background: radial-gradient(circle at 20% 15%, rgba(98, 167, 255, 0.25), transparent 55%),
+    radial-gradient(circle at 80% 25%, rgba(211, 119, 255, 0.18), transparent 60%),
+    radial-gradient(circle at 30% 75%, rgba(113, 255, 214, 0.16), transparent 62%),
+    rgba(5, 9, 16, 0.78);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+.jmh-search__overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.18) 0, rgba(255, 255, 255, 0.18) 1px, transparent 1px, transparent 6px),
+    radial-gradient(circle at 70% 40%, rgba(255, 255, 255, 0.14) 0, rgba(255, 255, 255, 0.14) 1px, transparent 1px, transparent 5px);
+  background-size: 240px 240px, 320px 320px;
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  filter: blur(0.5px);
+  animation: jmhNebulaDrift 48s linear infinite;
+  transform: translateZ(0);
+}
+
+@keyframes jmhNebulaDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+  50% {
+    transform: translate3d(2%, -1%, 0) scale(1.05);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jmh-search__overlay {
+    backdrop-filter: blur(6px);
+  }
+
+  .jmh-search__overlay::before {
+    animation: none;
+    filter: none;
+    opacity: 0.45;
+  }
 }
 
 .jmh-search__dialog {
