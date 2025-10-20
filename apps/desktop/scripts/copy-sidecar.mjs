@@ -37,6 +37,7 @@ const targetDir = process.env.CARGO_TARGET_DIR
 const releaseDir = join(targetDir, "release");
 const extension = process.platform === "win32" ? ".exe" : "";
 const baseBinaryName = `languagetool-proxy${extension}`;
+const windowsBinaryName = "languagetool-proxy.exe";
 const sourcePath = join(releaseDir, baseBinaryName);
 
 if (!existsSync(sourcePath)) {
@@ -73,6 +74,12 @@ function safeCopy(src, dst, attempts = 5, delay = 200) {
 const destinationPath = join(binDir, baseBinaryName);
 safeCopy(sourcePath, destinationPath);
 
+if (extension === "") {
+  // Ensure Windows-style filenames exist for bundle configuration compatibility.
+  const windowsDestination = join(binDir, windowsBinaryName);
+  safeCopy(sourcePath, windowsDestination);
+}
+
 const archTriple =
   process.env.TAURI_ENV_TARGET_TRIPLE ||
   process.env.RUST_TARGET ||
@@ -84,4 +91,11 @@ if (archTriple) {
   const suffixedPath = join(binDir, suffixedName);
   cpSync(sourcePath, suffixedPath);
   console.log(`Copied ${sourcePath} -> ${suffixedPath}`);
+
+  if (extension === "") {
+    const windowsSuffixed = `${windowsBinaryName}-${archTriple}`;
+    const windowsSuffixedPath = join(binDir, windowsSuffixed);
+    cpSync(sourcePath, windowsSuffixedPath);
+    console.log(`Copied ${sourcePath} -> ${windowsSuffixedPath}`);
+  }
 }

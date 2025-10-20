@@ -380,3 +380,9 @@ apps/desktop/app.db-shm
 apps/desktop/app.db-wal
 apps/desktop/**/*.sqlite
 
+
+# Allow documentation inside the releases/ directory
+!releases/
+releases/**
+!releases/**/
+!releases/**/*.md
