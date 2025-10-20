@@ -92,6 +92,31 @@ export interface KnowledgeArticleRecord {
   related_asset_ids: string[];
 }
 
+function normalizeKnowledgeArticleLookupValue(
+  value: string | null | undefined
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  return trimmed.toLowerCase();
+}
+
+export function getKnowledgeArticleStableKey(
+  title: string,
+  source?: string | null
+): string | null {
+  const normalizedSource = normalizeKnowledgeArticleLookupValue(source);
+  if (normalizedSource) {
+    return `source:${normalizedSource}`;
+  }
+  const normalizedTitle = normalizeKnowledgeArticleLookupValue(title);
+  return normalizedTitle ? `title:${normalizedTitle}` : null;
+}
+
 export interface UpsertKnowledgeArticleInput {
   id?: string;
   title: string;
@@ -1456,15 +1481,42 @@ export async function upsertKnowledgeArticle(
     const source = toNullableText(input.source ?? null);
     const tags = serializeTags(input.tags ?? null);
     const relatedAssetIds = normalizeIdList(input.relatedAssetIds ?? []);
+    const normalizedTitle = normalizeKnowledgeArticleLookupValue(input.title);
+    const normalizedSource = normalizeKnowledgeArticleLookupValue(input.source ?? null);
 
-    if (input.id) {
+    let targetId = input.id;
+
+    if (!targetId) {
+      let existing: KnowledgeArticleRow | undefined;
+      if (normalizedSource) {
+        const rows = await db.select<KnowledgeArticleRow[]>(
+          `SELECT * FROM knowledge_articles WHERE TRIM(LOWER(source)) = $1 LIMIT 1`,
+          [normalizedSource]
+        );
+        existing = rows[0];
+      }
+
+      if (!existing && normalizedTitle) {
+        const rows = await db.select<KnowledgeArticleRow[]>(
+          `SELECT * FROM knowledge_articles WHERE TRIM(LOWER(title)) = $1 LIMIT 1`,
+          [normalizedTitle]
+        );
+        existing = rows[0];
+      }
+
+      if (existing) {
+        targetId = existing.id;
+      }
+    }
+
+    if (targetId) {
       const existingRows = await db.select<KnowledgeArticleRow[]>(
         `SELECT * FROM knowledge_articles WHERE id = $1`,
-        [input.id]
+        [targetId]
       );
       const existing = existingRows[0];
       if (!existing) {
-        throw new Error(`Knowledge article ${input.id} not found`);
+        throw new Error(`Knowledge article ${targetId} not found`);
       }
       await db.execute(
         `UPDATE knowledge_articles
@@ -1476,12 +1528,12 @@ export async function upsertKnowledgeArticle(
                 source = $6,
                 updated_at = $7
           WHERE id = $8`,
-        [input.title, category, summary, input.content, tags, source, now, input.id]
+        [input.title, category, summary, input.content, tags, source, now, targetId]
       );
-      await replaceArticleAssetLinks(db, input.id, relatedAssetIds);
+      await replaceArticleAssetLinks(db, targetId, relatedAssetIds);
       const refreshed = await db.select<KnowledgeArticleRow[]>(
         `SELECT * FROM knowledge_articles WHERE id = $1`,
-        [input.id]
+        [targetId]
       );
       const row = refreshed[0] as KnowledgeArticleRow;
       return mapKnowledgeRow(row, relatedAssetIds);
