@@ -218,7 +218,7 @@ All export modes generate plain text artifacts into `Exports/` subfolders. Secti
 - Modular plugin surface for custom supplement schemas.
 
 ## License
-MIT License applies to derivative and original portions unless a subcomponent specifies otherwise.
+Bloodawn applies to derivative and original portions unless a subcomponent specifies otherwise.
 
 ## Previous Name
 
