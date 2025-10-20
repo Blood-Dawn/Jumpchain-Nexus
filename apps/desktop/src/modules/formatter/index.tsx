@@ -36,6 +36,67 @@ import "./formatter.css";
 
 const SAMPLE_BUDGETS = [1000, 12500, 250000, -4250];
 
+type IconProps = React.SVGProps<SVGSVGElement>;
+
+const IconBase: React.FC<IconProps> = ({ children, ...props }) => (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    viewBox="0 0 24 24"
+    fill="none"
+    strokeWidth={1.6}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    {children}
+  </svg>
+);
+
+const SpellcheckIcon: React.FC = () => (
+  <IconBase>
+    <path d="M4 6h9" stroke="currentColor" />
+    <path d="M4 10h7" stroke="currentColor" />
+    <path d="M4 14h6" stroke="currentColor" />
+    <path d="M14 14l3 3 4-5" stroke="currentColor" />
+  </IconBase>
+);
+
+const RemoveBreaksIcon: React.FC = () => (
+  <IconBase>
+    <path d="M5 6h14" stroke="currentColor" />
+    <path d="M5 10h14" stroke="currentColor" />
+    <path d="M5 14h9" stroke="currentColor" />
+    <path d="M16.5 16.5l3 3m0-3l-3 3" stroke="currentColor" />
+  </IconBase>
+);
+
+const KeepParagraphsIcon: React.FC = () => (
+  <IconBase>
+    <path d="M5 6h14" stroke="currentColor" />
+    <path d="M5 10h14" stroke="currentColor" />
+    <path d="M9 14v6" stroke="currentColor" />
+    <path d="M15 14v6" stroke="currentColor" />
+  </IconBase>
+);
+
+const SeparatorIcon: React.FC = () => (
+  <IconBase>
+    <path d="M5 8h14" stroke="currentColor" />
+    <path d="M5 16h14" stroke="currentColor" />
+    <circle cx="9" cy="12" r="1.2" stroke="currentColor" />
+    <circle cx="15" cy="12" r="1.2" stroke="currentColor" />
+  </IconBase>
+);
+
+const BudgetIcon: React.FC = () => (
+  <IconBase>
+    <circle cx="9.5" cy="12" r="4" stroke="currentColor" />
+    <path d="M13.5 8h6v8h-6" stroke="currentColor" />
+    <path d="M8 12h3" stroke="currentColor" />
+  </IconBase>
+);
+
 const InputFormatter: React.FC = () => {
   const queryClient = useQueryClient();
   const [inputText, setInputText] = useState("");
@@ -179,6 +240,30 @@ const InputFormatter: React.FC = () => {
     }
   };
 
+  const preferenceToggles = [
+    {
+      key: "spellcheck",
+      label: "Enable spellcheck in editors",
+      checked: spellcheckEnabled,
+      onChange: handleToggleSpellcheck,
+      icon: <SpellcheckIcon />,
+    },
+    {
+      key: "remove-all",
+      label: "Delete every line break",
+      checked: removeAllLineBreaks,
+      onChange: handleToggleRemoveAll,
+      icon: <RemoveBreaksIcon />,
+    },
+    {
+      key: "keep-double",
+      label: "Keep paragraph breaks (double line breaks)",
+      checked: leaveDoubleLineBreaks,
+      onChange: handleToggleLeaveDouble,
+      icon: <KeepParagraphsIcon />,
+    },
+  ];
+
   return (
     <section className="formatter">
       <header className="formatter__header">
@@ -190,46 +275,38 @@ const InputFormatter: React.FC = () => {
       </header>
 
       <div className="formatter__preferences">
-        <label>
-          <input
-            type="checkbox"
-            checked={spellcheckEnabled}
-            onChange={handleToggleSpellcheck}
-            disabled={preferencesMutation.isPending}
-          />
-          Enable spellcheck in editors
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={removeAllLineBreaks}
-            onChange={handleToggleRemoveAll}
-            disabled={preferencesMutation.isPending}
-          />
-          Delete every line break
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={leaveDoubleLineBreaks}
-            onChange={handleToggleLeaveDouble}
-            disabled={preferencesMutation.isPending}
-          />
-          Keep paragraph breaks (double line breaks)
-        </label>
-        <label className="formatter__separator">
-          Thousands separator
-          <select
-            value={separator}
-            onChange={handleSeparatorChange}
-            disabled={preferencesMutation.isPending}
-          >
-            {THOUSANDS_SEPARATOR_CHOICES.map((choice) => (
-              <option key={choice.value} value={choice.value}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
+        {preferenceToggles.map((preference) => (
+          <label key={preference.key} className="formatter__preference">
+            <input
+              type="checkbox"
+              checked={preference.checked}
+              onChange={preference.onChange}
+              disabled={preferencesMutation.isPending}
+            />
+            <span className="formatter__preference-icon" aria-hidden="true">
+              {preference.icon}
+            </span>
+            <span className="formatter__preference-text">{preference.label}</span>
+          </label>
+        ))}
+        <label className="formatter__preference formatter__preference--select">
+          <span className="formatter__preference-icon" aria-hidden="true">
+            <SeparatorIcon />
+          </span>
+          <span className="formatter__preference-text">
+            Thousands separator
+            <select
+              value={separator}
+              onChange={handleSeparatorChange}
+              disabled={preferencesMutation.isPending}
+            >
+              {THOUSANDS_SEPARATOR_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </span>
         </label>
       </div>
 
@@ -295,7 +372,12 @@ const InputFormatter: React.FC = () => {
         <ul>
           {SAMPLE_BUDGETS.map((value) => (
             <li key={value}>
-              <code>{value}</code>
+              <div className="formatter__preview-leading">
+                <span className="formatter__preview-icon" aria-hidden="true">
+                  <BudgetIcon />
+                </span>
+                <code>{value}</code>
+              </div>
               <span>{formatBudget(value, separator)}</span>
             </li>
           ))}
