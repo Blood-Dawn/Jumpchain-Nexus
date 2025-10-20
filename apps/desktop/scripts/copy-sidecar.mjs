@@ -46,9 +46,32 @@ if (!existsSync(sourcePath)) {
 
 const binDir = join(tauriDir, "bin");
 mkdirSync(binDir, { recursive: true });
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeCopy(src, dst, attempts = 5, delay = 200) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      cpSync(src, dst);
+      console.log(`Copied ${src} -> ${dst}`);
+      return;
+    } catch (err) {
+      if (err && err.code === "EBUSY" && i < attempts - 1) {
+        console.warn(`File busy, retrying copy (${i + 1}/${attempts})...`);
+        // eslint-disable-next-line no-await-in-loop
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+        continue;
+      }
+      // Re-throw for unexpected errors or if out of retries
+      throw err;
+    }
+  }
+}
+
 const destinationPath = join(binDir, baseBinaryName);
-cpSync(sourcePath, destinationPath);
-console.log(`Copied ${sourcePath} -> ${destinationPath}`);
+safeCopy(sourcePath, destinationPath);
 
 const archTriple =
   process.env.TAURI_ENV_TARGET_TRIPLE ||

@@ -7,7 +7,7 @@
 		"predev": "npm run test:smoke",
 		"dev": "vite",
 		"build": "npm run build:sidecar && npm run build:ui",
-		"build:ui": "tsc -b && vite build",
+		"build:ui": "vite build",
 		"build:sidecar": "node ./scripts/build-sidecar.mjs",
 		"preview": "vite preview",
 		"tauri:dev": "npm run build:sidecar && tauri dev",

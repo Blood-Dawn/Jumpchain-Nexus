@@ -34,7 +34,6 @@ import baseSchema from "./migrations/001_init.sql?raw";
 import supplementsSchema from "./migrations/004_supplements.sql?raw";
 import knowledgeImportErrorsSchema from "./migrations/005_knowledge_import_errors.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
-import { aggregatePersonalReality } from "./personalReality";
 
 export type EntityKind =
   | "perk"
@@ -122,6 +121,11 @@ interface KnowledgeArticleRow {
   is_system: number;
   created_at: string;
   updated_at: string;
+}
+
+interface KnowledgeArticleAssetRow {
+  article_id: string;
+  asset_id: string;
 }
 
 export interface KnowledgeBaseImportError {
@@ -3388,6 +3392,75 @@ export async function listCharacterProfiles(): Promise<CharacterProfileRecord[]>
     );
     return rows as CharacterProfileRecord[];
   });
+}
+
+export async function upsertCharacterProfile(
+  input: UpsertCharacterProfileInput
+): Promise<CharacterProfileRecord> {
+  return withInit(async (db) => {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const rows = await db.select<CharacterProfileRecord[]>(`SELECT * FROM character_profiles WHERE id = $1`, [input.id]);
+      const existing = rows[0] as CharacterProfileRecord | undefined;
+      if (!existing) {
+        throw new Error(`Character profile ${input.id} not found`);
+      }
+      await db.execute(
+        `UPDATE character_profiles
+           SET name = $1,
+               alias = $2,
+               species = $3,
+               homeland = $4,
+               biography = $5,
+               attributes_json = $6,
+               traits_json = $7,
+               alt_forms_json = $8,
+               notes = $9,
+               updated_at = $10
+         WHERE id = $11`,
+        [
+          input.name,
+          input.alias ?? null,
+          input.species ?? null,
+          input.homeland ?? null,
+          input.biography ?? null,
+          toJsonString(input.attributes ?? null),
+          toJsonString(input.traits ?? null),
+          toJsonString(input.alt_forms ?? null),
+          input.notes ?? null,
+          now,
+          input.id,
+        ]
+      );
+      const refreshed = await db.select<CharacterProfileRecord[]>(`SELECT * FROM character_profiles WHERE id = $1`, [input.id]);
+      return refreshed[0] as CharacterProfileRecord;
+    }
+
+    const id = uuid();
+    await db.execute(
+      `INSERT INTO character_profiles (id, name, alias, species, homeland, biography, attributes_json, traits_json, alt_forms_json, notes, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
+      [
+        id,
+        input.name,
+        input.alias ?? null,
+        input.species ?? null,
+        input.homeland ?? null,
+        input.biography ?? null,
+        toJsonString(input.attributes ?? null),
+        toJsonString(input.traits ?? null),
+        toJsonString(input.alt_forms ?? null),
+        input.notes ?? null,
+        now,
+      ]
+    );
+    const rows = await db.select<CharacterProfileRecord[]>(`SELECT * FROM character_profiles WHERE id = $1`, [id]);
+    return rows[0] as CharacterProfileRecord;
+  });
+}
+
+export async function deleteCharacterProfile(id: string): Promise<void> {
+  await withInit((db) => db.execute(`DELETE FROM character_profiles WHERE id = $1`, [id]));
 }
 
 export async function getAppSetting(key: string): Promise<AppSettingRecord | null> {

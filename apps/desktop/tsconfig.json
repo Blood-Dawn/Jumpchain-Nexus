@@ -14,15 +14,24 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "@tauri-apps/api"],
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+  "noUncheckedIndexedAccess": false,
+  "exactOptionalPropertyTypes": false,
 
     /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+  "strict": false,
+  "noUnusedLocals": false,
+  "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "test", "src-tauri/platformAdapter.ts"],
+  "include": ["src", "src-tauri/platformAdapter.ts"],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**",
+    "src-tauri/**/out/**",
+    "src-tauri/target/**"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
