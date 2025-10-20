@@ -1480,7 +1480,11 @@ export async function upsertKnowledgeArticle(
     const summary = toNullableText(input.summary ?? null);
     const source = toNullableText(input.source ?? null);
     const tags = serializeTags(input.tags ?? null);
-    const relatedAssetIds = normalizeIdList(input.relatedAssetIds ?? []);
+    const hasRelatedAssetIds = Object.prototype.hasOwnProperty.call(
+      input,
+      "relatedAssetIds"
+    );
+    const inputRelatedAssetIds = normalizeIdList(input.relatedAssetIds ?? []);
     const normalizedTitle = normalizeKnowledgeArticleLookupValue(input.title);
     const normalizedSource = normalizeKnowledgeArticleLookupValue(input.source ?? null);
 
@@ -1530,7 +1534,14 @@ export async function upsertKnowledgeArticle(
           WHERE id = $8`,
         [input.title, category, summary, input.content, tags, source, now, targetId]
       );
-      await replaceArticleAssetLinks(db, targetId, relatedAssetIds);
+      let relatedAssetIds: string[];
+      if (hasRelatedAssetIds) {
+        relatedAssetIds = inputRelatedAssetIds;
+        await replaceArticleAssetLinks(db, targetId, relatedAssetIds);
+      } else {
+        const assetMap = await loadKnowledgeArticleAssetMap(db, [targetId]);
+        relatedAssetIds = assetMap.get(targetId) ?? [];
+      }
       const refreshed = await db.select<KnowledgeArticleRow[]>(
         `SELECT * FROM knowledge_articles WHERE id = $1`,
         [targetId]
@@ -1546,12 +1557,12 @@ export async function upsertKnowledgeArticle(
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)`,
       [id, input.title, category, summary, input.content, tags, source, now]
     );
-    await replaceArticleAssetLinks(db, id, relatedAssetIds);
+    await replaceArticleAssetLinks(db, id, inputRelatedAssetIds);
     const rows = await db.select<KnowledgeArticleRow[]>(
       `SELECT * FROM knowledge_articles WHERE id = $1`,
       [id]
     );
-    return mapKnowledgeRow(rows[0] as KnowledgeArticleRow, relatedAssetIds);
+    return mapKnowledgeRow(rows[0] as KnowledgeArticleRow, inputRelatedAssetIds);
   });
 }
 
