@@ -34,6 +34,7 @@ import baseSchema from "./migrations/001_init.sql?raw";
 import supplementsSchema from "./migrations/004_supplements.sql?raw";
 import knowledgeImportErrorsSchema from "./migrations/005_knowledge_import_errors.sql?raw";
 import { knowledgeSeed } from "./knowledgeSeed";
+import { aggregatePersonalReality } from "./personalReality";
 
 export type EntityKind =
   | "perk"
@@ -417,6 +418,12 @@ export interface AppSettingRecord {
   key: string;
   value: string | null;
   updated_at: string;
+}
+
+export type AppearanceTheme = "andromeda" | "solstice";
+
+export interface AppearanceSettings {
+  theme: AppearanceTheme;
 }
 
 export interface FormatterSettings {
@@ -3299,7 +3306,9 @@ export const SUPPLEMENT_SETTING_KEY = "options.supplements";
 export const WAREHOUSE_MODE_SETTING_KEY = "options.warehouseMode";
 export const CATEGORY_PRESETS_SETTING_KEY = "options.categoryPresets";
 export const EXPORT_PREFERENCES_SETTING_KEY = "options.exportPreferences";
+export const APPEARANCE_SETTING_KEY = "options.appearance";
 export const WAREHOUSE_PERSONAL_REALITY_SETTING_KEY = "warehouse.personalReality";
+export const APPEARANCE_SETTINGS_KEY = "options.appearance";
 
 export const DEFAULT_JUMP_DEFAULTS: JumpDefaultsSettings = {
   standardBudget: 1000,
@@ -3313,6 +3322,22 @@ export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
   enableEssentialBodyMod: true,
   allowCompanionBodyMod: true,
 };
+
+export type AppearanceThemeOption = "starfield" | "nebula" | "minimal";
+
+export interface AppearanceSettings {
+  backgroundTheme: AppearanceThemeOption;
+}
+
+export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  backgroundTheme: "starfield",
+};
+
+const APPEARANCE_THEME_VALUES: readonly AppearanceThemeOption[] = [
+  "starfield",
+  "nebula",
+  "minimal",
+];
 
 export const ESSENTIAL_BODY_MOD_SETTING_ID = "essential-default";
 export const UNIVERSAL_DRAWBACK_SETTING_ID = "universal-default";
@@ -3366,6 +3391,47 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   thousandsSeparator: "none",
   spellcheckEnabled: true,
 };
+
+const APPEARANCE_THEMES: AppearanceTheme[] = ["andromeda", "solstice"];
+
+function parseAppearanceTheme(value: unknown): AppearanceTheme {
+  if (typeof value === "string" && APPEARANCE_THEMES.includes(value as AppearanceTheme)) {
+    return value as AppearanceTheme;
+  }
+  return DEFAULT_APPEARANCE_SETTINGS.theme;
+}
+
+export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
+  if (!record || record.value === null) {
+    return DEFAULT_APPEARANCE_SETTINGS;
+  }
+
+  try {
+    const parsed = JSON.parse(record.value) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const theme = parseAppearanceTheme((parsed as Record<string, unknown>).theme);
+      return { theme } satisfies AppearanceSettings;
+    }
+  } catch (error) {
+    console.warn("Failed to parse appearance settings", error);
+  }
+
+  if (typeof record.value === "string") {
+    return { theme: parseAppearanceTheme(record.value) } satisfies AppearanceSettings;
+  }
+
+  return DEFAULT_APPEARANCE_SETTINGS;
+}
+
+export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
+  const record = await getAppSetting(APPEARANCE_SETTINGS_KEY);
+  return parseAppearanceSettings(record);
+}
+
+export async function saveAppearanceSettings(settings: AppearanceSettings): Promise<AppearanceSettings> {
+  const record = await setAppSetting(APPEARANCE_SETTINGS_KEY, settings);
+  return parseAppearanceSettings(record);
+}
 
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
   if (!record || record.value === null) {
@@ -3525,6 +3591,40 @@ export function parseSupplementSettings(record: AppSettingRecord | null): Supple
       DEFAULT_SUPPLEMENT_SETTINGS.allowCompanionBodyMod
     ),
   };
+}
+
+function normalizeAppearanceTheme(
+  value: unknown,
+  fallback: AppearanceThemeOption
+): AppearanceThemeOption {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase() as AppearanceThemeOption;
+    if (APPEARANCE_THEME_VALUES.includes(normalized)) {
+      return normalized;
+    }
+  }
+  return fallback;
+}
+
+export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
+  const raw = parseJsonValue(record);
+  if (typeof raw === "string") {
+    return {
+      backgroundTheme: normalizeAppearanceTheme(raw, DEFAULT_APPEARANCE_SETTINGS.backgroundTheme),
+    };
+  }
+
+  if (raw && typeof raw === "object") {
+    const { backgroundTheme } = raw as { backgroundTheme?: unknown };
+    return {
+      backgroundTheme: normalizeAppearanceTheme(
+        backgroundTheme,
+        DEFAULT_APPEARANCE_SETTINGS.backgroundTheme
+      ),
+    };
+  }
+
+  return { ...DEFAULT_APPEARANCE_SETTINGS };
 }
 
 const ESSENTIAL_STARTING_MODE_VALUES: readonly EssentialStartingMode[] = ["hardcore", "standard", "heroic"];
@@ -3777,6 +3877,11 @@ export async function loadJumpDefaults(): Promise<JumpDefaultsSettings> {
 export async function loadSupplementSettings(): Promise<SupplementToggleSettings> {
   const record = await getAppSetting(SUPPLEMENT_SETTING_KEY);
   return parseSupplementSettings(record);
+}
+
+export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
+  const record = await getAppSetting(APPEARANCE_SETTING_KEY);
+  return parseAppearanceSettings(record);
 }
 
 export async function loadEssentialBodyModSettings(): Promise<EssentialBodyModSettings> {
