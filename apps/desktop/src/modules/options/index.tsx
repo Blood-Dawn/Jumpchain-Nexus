@@ -26,6 +26,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CATEGORY_PRESETS_SETTING_KEY,
+  DEFAULT_APPEARANCE_SETTINGS,
   DEFAULT_CATEGORY_PRESETS,
   DEFAULT_EXPORT_PREFERENCES,
   DEFAULT_JUMP_DEFAULTS,
@@ -35,6 +36,7 @@ import {
   DEFAULT_WAREHOUSE_MODE,
   EXPORT_PREFERENCES_SETTING_KEY,
   JUMP_DEFAULTS_SETTING_KEY,
+  APPEARANCE_SETTING_KEY,
   SUPPLEMENT_SETTING_KEY,
   WAREHOUSE_MODE_SETTING_KEY,
   listAppSettings,
@@ -45,6 +47,7 @@ import {
   loadEssentialBodyModSettings,
   loadUniversalDrawbackSettings,
   parseCategoryPresets,
+  parseAppearanceSettings,
   parseExportPreferences,
   parseJumpDefaults,
   parseSupplementSettings,
@@ -57,6 +60,7 @@ import {
   deleteEssentialBodyModEssence,
   type AppSettingRecord,
   type CategoryPresetSettings,
+  type AppearanceSettings,
   type EssentialBodyModEssenceRecord,
   type EssentialBodyModSettings,
   type EssentialAdvancementMode,
@@ -74,6 +78,7 @@ import {
   type WarehouseModeOption,
   type FormatterSettings,
 } from "../../db/dao";
+import { APPEARANCE_SETTINGS_QUERY_KEY } from "../../hooks/useAppearanceSettings";
 import { FORMATTER_PREFERENCES_QUERY_KEY, useFormatterPreferences } from "../../hooks/useFormatterPreferences";
 
 const EXPORT_PRESET_FORMAT_LABELS = {
@@ -180,6 +185,7 @@ interface SettingPayload {
 }
 
 type SectionKey =
+  | "appearance"
   | "jump-defaults"
   | "supplements"
   | "essential-body-mod"
@@ -194,6 +200,7 @@ type JumpDefaultField = keyof JumpDefaultsSettings;
 type SectionStatusMap = Partial<Record<SectionKey, string | null>>;
 
 const sectionLabels: Record<SectionKey, string> = {
+  appearance: "Appearance preferences saved.",
   "jump-defaults": "Jump defaults saved.",
   supplements: "Supplement toggles updated.",
   "essential-body-mod": "Essential Body Mod settings saved.",
@@ -273,6 +280,34 @@ const WAREHOUSE_MODE_OPTIONS: Array<{ value: WarehouseModeOption; label: string 
   { value: "personal-reality", label: "Personal Reality Focus" },
 ];
 
+const BACKGROUND_THEME_OPTIONS: Array<{
+  value: AppearanceSettings["backgroundTheme"];
+  label: string;
+  description: string;
+  preview: string;
+}> = [
+  {
+    value: "starfield",
+    label: "Starfield",
+    description: "Classic deep-space gradient with subtle starlight.",
+    preview:
+      "radial-gradient(circle at top, rgba(40, 64, 120, 0.45), transparent 60%), #05080f",
+  },
+  {
+    value: "nebula",
+    label: "Nebula",
+    description: "Vibrant cosmic clouds and cool blues for high contrast.",
+    preview:
+      "radial-gradient(circle at 20% 20%, rgba(122, 203, 255, 0.35), transparent 45%), radial-gradient(circle at 80% 10%, rgba(255, 149, 122, 0.25), transparent 55%), #080c16",
+  },
+  {
+    value: "minimal",
+    label: "Minimal",
+    description: "Low-contrast studio lighting with a calm neutral base.",
+    preview: "linear-gradient(180deg, rgba(18, 24, 36, 0.92), rgba(12, 16, 24, 0.96))",
+  },
+];
+
 const JumpchainOptions: React.FC = () => {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: ["app-settings"], queryFn: listAppSettings });
@@ -291,6 +326,9 @@ const JumpchainOptions: React.FC = () => {
   });
   const formatterSettingsQuery = useFormatterPreferences();
 
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(
+    DEFAULT_APPEARANCE_SETTINGS
+  );
   const [jumpDefaults, setJumpDefaults] = useState<JumpDefaultsSettings>(DEFAULT_JUMP_DEFAULTS);
   const [jumpDefaultInputs, setJumpDefaultInputs] = useState<Record<JumpDefaultField, string>>({
     standardBudget: String(DEFAULT_JUMP_DEFAULTS.standardBudget),
@@ -378,6 +416,8 @@ const JumpchainOptions: React.FC = () => {
       return;
     }
     const defaults = parseJumpDefaults(settingsMap.get(JUMP_DEFAULTS_SETTING_KEY) ?? null);
+    const appearance = parseAppearanceSettings(settingsMap.get(APPEARANCE_SETTING_KEY) ?? null);
+    setAppearanceSettings(appearance);
     setJumpDefaults(defaults);
     setJumpDefaultInputs({
       standardBudget: String(defaults.standardBudget),
@@ -513,6 +553,10 @@ const JumpchainOptions: React.FC = () => {
       }
 
       switch (variables.key) {
+        case APPEARANCE_SETTING_KEY: {
+          await queryClient.invalidateQueries({ queryKey: APPEARANCE_SETTINGS_QUERY_KEY }).catch(() => undefined);
+          break;
+        }
         case JUMP_DEFAULTS_SETTING_KEY: {
           await queryClient.invalidateQueries({ queryKey: ["jump-defaults"] }).catch(() => undefined);
           break;
@@ -799,6 +843,20 @@ const JumpchainOptions: React.FC = () => {
     });
   };
 
+  const handleAppearanceThemeChange = (theme: AppearanceSettings["backgroundTheme"]) => {
+    if (appearanceSettings.backgroundTheme === theme) {
+      return;
+    }
+    const next: AppearanceSettings = { backgroundTheme: theme };
+    setAppearanceSettings(next);
+    persistSetting({
+      key: APPEARANCE_SETTING_KEY,
+      value: next,
+      section: "appearance",
+      successMessage: sectionLabels.appearance,
+    });
+  };
+
   const handleDefaultPresetChange = (value: string) => {
     const nextId = value.trim() ? value : null;
     setDefaultPresetId(nextId);
@@ -992,6 +1050,45 @@ const JumpchainOptions: React.FC = () => {
             ))}
           </div>
           {sectionMessage("supplements")}
+        </section>
+
+        <section className="options__card">
+          <header className="options__card-header">
+            <h2>Appearance</h2>
+            <p>Choose the background mood applied across the Jumpchain desktop hub.</p>
+          </header>
+          <div className="options__list options__list--radio options__list--theme">
+            {BACKGROUND_THEME_OPTIONS.map((theme) => {
+              const active = appearanceSettings.backgroundTheme === theme.value;
+              return (
+                <label
+                  key={theme.value}
+                  className="options__theme-option"
+                  data-active={active ? "true" : "false"}
+                >
+                  <span className="options__theme-details">
+                    <input
+                      type="radio"
+                      name="background-theme"
+                      value={theme.value}
+                      checked={active}
+                      onChange={() => handleAppearanceThemeChange(theme.value)}
+                    />
+                    <span className="options__theme-text">
+                      <strong>{theme.label}</strong>
+                      <span>{theme.description}</span>
+                    </span>
+                  </span>
+                  <span
+                    className="options__theme-preview"
+                    aria-hidden="true"
+                    style={{ background: theme.preview }}
+                  />
+                </label>
+              );
+            })}
+          </div>
+          {sectionMessage("appearance")}
         </section>
 
         <section className="options__card">

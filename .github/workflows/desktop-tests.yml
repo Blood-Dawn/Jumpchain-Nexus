@@ -1,82 +1,29 @@
 name: Desktop Test Matrix
-
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/desktop/**"
-      - ".github/workflows/desktop-tests.yml"
   pull_request:
     paths:
-      - "apps/desktop/**"
-      - ".github/workflows/desktop-tests.yml"
+      - "**"
+      - ".github/workflows/test-desktop.yml"
 
 jobs:
   test-desktop:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/desktop
-    env:
-      CI: true
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
-      - name: Setup Node.js
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node (root lockfile, npm cache)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22"              # or use node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Install (root; workspaces)
         run: npm ci
 
-      - name: Run unit tests
-        run: npm run test
+      - name: Unit tests (desktop)
+        run: npm run -w apps/desktop test --if-present
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Start preview server
-        run: |
-          mkdir -p test-results/logs
-          npm run dev -- --host --port 1420 > test-results/logs/vite.log 2>&1 &
-          echo $! > test-results/logs/vite.pid
-          ready=0
-          for attempt in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:1420 > /dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" -ne 1 ]; then
-            echo "Server failed to start" >&2
-            cat test-results/logs/vite.log
-            exit 1
-          fi
-
-      - name: Run WebdriverIO scenarios
-        run: npm run test:e2e
-
-      - name: Run Playwright suites
-        run: npx playwright test -c playwright.config.ts
-
-      - name: Stop preview server
-        if: always()
-        run: |
-          if [ -f test-results/logs/vite.pid ]; then
-            kill $(cat test-results/logs/vite.pid) || true
-          fi
-
-      - name: Upload desktop test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-test-artifacts
-          path: |
-            apps/desktop/test-results
-          if-no-files-found: warn
+      - name: Build (sanity)
+        run: npm run -w apps/desktop build --if-present

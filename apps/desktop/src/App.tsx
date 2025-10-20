@@ -25,6 +25,7 @@ import React, { Suspense } from "react";
 import { Navigate, RouterProvider, createHashRouter } from "react-router-dom";
 import "./App.css";
 import PageLayout from "./components/PageLayout";
+import { AppearanceProvider } from "./contexts/AppearanceContext";
 import { defaultModule, modules } from "./modules/registry";
 
 const enableBackgroundEffects = import.meta.env.VITE_ENABLE_STARFIELD === "true";
@@ -57,7 +58,11 @@ const router = createHashRouter([
 ]);
 
 const App: React.FC = () => {
-  return <RouterProvider router={router} />;
+  return (
+    <AppearanceProvider>
+      <RouterProvider router={router} />
+    </AppearanceProvider>
+  );
 };
 
 export default App;
