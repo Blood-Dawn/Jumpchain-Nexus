@@ -22,70 +22,126 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { modules, resolveModulePath, sectionLabels, sectionOrder } from "../registry";
 
-const NAV_MODE_STORAGE_KEY = "jmh-nav-mode";
-
-type NavMode = "expanded" | "collapsed";
-
 export const NavRail: React.FC = () => {
-  const [mode, setMode] = useState<NavMode>(() => {
-    if (typeof window === "undefined") {
-      return "expanded";
-    }
-
-    const stored = window.localStorage.getItem(NAV_MODE_STORAGE_KEY) as NavMode | null;
-    return stored === "collapsed" ? "collapsed" : "expanded";
-  });
+  const [searchValue, setSearchValue] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      document.body.dataset.jmhNavMode = mode;
-    }
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(NAV_MODE_STORAGE_KEY, mode);
-    }
+    const handle = window.setTimeout(() => {
+      setDebouncedQuery(searchValue.trim());
+    }, 250);
 
     return () => {
-      if (typeof document !== "undefined" && document.body.dataset.jmhNavMode === mode) {
-        delete document.body.dataset.jmhNavMode;
+      window.clearTimeout(handle);
+    };
+  }, [searchValue]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "/" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      ) {
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (activeElement) {
+          const tagName = activeElement.tagName.toLowerCase();
+          if (tagName === "input" || tagName === "textarea" || activeElement.isContentEditable) {
+            return;
+          }
+        }
+
+        event.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
       }
     };
-  }, [mode]);
 
-  const toggleMode = () => {
-    setMode((current) => (current === "collapsed" ? "expanded" : "collapsed"));
-  };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
-  const sections = sectionOrder
-    .map((section) => ({
-      section,
-      label: sectionLabels[section],
-      entries: modules.filter((module) => module.section === section),
-    }))
-    .filter((group) => group.entries.length > 0);
+  const normalizedQuery = debouncedQuery.toLowerCase();
 
-  const navClassName = useMemo(() => `jmh-nav${mode === "collapsed" ? " jmh-nav--collapsed" : ""}`, [mode]);
+  const matchesQuery = useCallback(
+    (value: string) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return value.toLowerCase().includes(normalizedQuery);
+    },
+    [normalizedQuery],
+  );
+
+  const sections = useMemo(
+    () =>
+      sectionOrder
+        .map((section) => ({
+          section,
+          label: sectionLabels[section],
+          entries: modules.filter(
+            (module) =>
+              module.section === section &&
+              (matchesQuery(module.title) || matchesQuery(module.description)),
+          ),
+        }))
+        .filter((group) => group.entries.length > 0),
+    [matchesQuery],
+  );
+
+  const highlightMatch = useCallback(
+    (text: string) => {
+      if (!debouncedQuery) {
+        return text;
+      }
+
+      const escapedQuery = debouncedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(${escapedQuery})`, "ig");
+      const segments = text.split(regex);
+
+      return segments.map((segment, index) =>
+        index % 2 === 1 ? (
+          <mark className="jmh-nav__highlight" key={`${text}-${index}`}>
+            {segment}
+          </mark>
+        ) : (
+          segment
+        ),
+      );
+    },
+    [debouncedQuery],
+  );
 
   return (
-    <nav className={navClassName} aria-label="Primary navigation">
-      <div className="jmh-nav__header">
-        <h1 className="jmh-nav__title">Jumpchain Nexus</h1>
-        <button
-          type="button"
-          className="jmh-nav__mode-toggle"
-          aria-pressed={mode === "collapsed"}
-          aria-label={mode === "collapsed" ? "Expand navigation" : "Collapse navigation"}
-          title={mode === "collapsed" ? "Expand navigation" : "Collapse navigation"}
-          onClick={toggleMode}
-        >
-          <span aria-hidden="true" className="jmh-nav__mode-toggle-icon">
-            {mode === "collapsed" ? "⮜" : "⮞"}
-          </span>
-        </button>
+    <nav className="jmh-nav">
+      <h1 className="jmh-nav__title">Jumpchain Nexus</h1>
+      <div className="jmh-nav__filter">
+        <label className="jmh-nav__filter-label" htmlFor="jmh-nav-filter">
+          Filter modules
+        </label>
+        <input
+          ref={inputRef}
+          id="jmh-nav-filter"
+          className="jmh-nav__filter-input"
+          type="search"
+          placeholder="Search modules (press /)"
+          value={searchValue}
+          aria-describedby="jmh-nav-filter-hint"
+          onChange={(event) => setSearchValue(event.target.value)}
+        />
+        <p className="jmh-nav__filter-hint" id="jmh-nav-filter-hint">
+          Press <kbd>/</kbd> to focus the filter input.
+        </p>
       </div>
       <div className="jmh-nav__sections">
         {sections.map((group) => (
@@ -99,22 +155,20 @@ export const NavRail: React.FC = () => {
                     className={({ isActive }: { isActive: boolean }) =>
                       `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
                     }
-                    title={module.title}
-                    aria-label={module.title}
                   >
-                    <span className="jmh-nav__icon" aria-hidden="true">
-                      {(module.icon ?? module.title.charAt(0)).toUpperCase()}
-                    </span>
-                    <span className="jmh-nav__text">
-                      <span className="jmh-nav__label">{module.title}</span>
-                      <span className="jmh-nav__hint">{module.description}</span>
-                    </span>
+                    <span className="jmh-nav__label">{highlightMatch(module.title)}</span>
+                    <span className="jmh-nav__hint">{highlightMatch(module.description)}</span>
                   </NavLink>
                 </li>
               ))}
             </ul>
           </section>
         ))}
+        {sections.length === 0 && (
+          <p className="jmh-nav__empty" role="status">
+            No modules match your search.
+          </p>
+        )}
       </div>
     </nav>
   );
