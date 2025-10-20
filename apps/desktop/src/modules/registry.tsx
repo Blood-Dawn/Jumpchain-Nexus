@@ -41,6 +41,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Jump Hub", () => import("./jmh")),
     icon: "compass",
     requiredPermissions: ["jump-hub-sql"],
+    badge: "Alpha",
   },
   {
     id: "cosmic-passport",
@@ -51,6 +52,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Cosmic Passport", () => import("./passport")),
     icon: "passport",
     requiredPermissions: ["cosmic-passport-sql"],
+    badge: "Preview",
   },
   {
     id: "cosmic-warehouse",
@@ -61,6 +63,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
     icon: "warehouse",
     requiredPermissions: ["cosmic-warehouse-sql"],
+    badge: "Alpha",
   },
   {
     id: "cosmic-locker",
@@ -71,6 +74,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Cosmic Locker", () => import("./locker")),
     icon: "locker",
     requiredPermissions: ["cosmic-locker-sql"],
+    badge: "Alpha",
   },
   {
     id: "drawback-supplement",
@@ -81,6 +85,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
     icon: "balance",
     requiredPermissions: ["drawback-supplement-sql"],
+    badge: "Preview",
   },
   {
     id: "exporter",
@@ -91,6 +96,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Exports", () => import("./export")),
     icon: "share",
     requiredPermissions: ["export-tools"],
+    badge: "Beta",
   },
   {
     id: "statistics",
@@ -101,6 +107,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Statistics", () => import("./stats")),
     icon: "chart",
     requiredPermissions: ["statistics-sql"],
+    badge: "Prototype",
   },
   {
     id: "jump-options",
@@ -111,6 +118,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Jump Options", () => import("./options")),
     icon: "sliders",
     requiredPermissions: ["jump-options-sql"],
+    badge: "Prototype",
   },
   {
     id: "knowledge-base",
@@ -121,6 +129,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
     icon: "book",
     requiredPermissions: ["knowledge-base-sql"],
+    badge: "Preview",
   },
   {
     id: "input-formatter",
@@ -131,6 +140,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Input Formatter", () => import("./formatter")),
     icon: "wand",
     requiredPermissions: ["input-formatter-tools"],
+    badge: "Beta",
   },
   {
     id: "story-studio",
@@ -141,6 +151,7 @@ const moduleList: ModuleDef[] = [
     element: lazyModule("Story Studio", () => import("./studio")),
     icon: "feather",
     requiredPermissions: ["story-studio-sql"],
+    badge: "Beta",
   },
 ];
 
@@ -156,6 +167,7 @@ if (devToolsEnabled) {
     element: lazyModule("Developer Tools", () => import("./devtools")),
     icon: "terminal",
     requiredPermissions: ["devtools-shell"],
+    badge: "Internal",
   });
 }
 

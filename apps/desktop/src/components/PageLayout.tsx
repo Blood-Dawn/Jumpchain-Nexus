@@ -24,7 +24,10 @@ SOFTWARE.
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
+import { DEFAULT_APPEARANCE_SETTINGS } from "../db/dao";
+import { useAppearanceSettings } from "../hooks/useAppearanceSettings";
 import NavRail from "../modules/jmh/NavRail";
+import { useAppearance } from "../contexts/AppearanceContext";
 
 interface PageLayoutContextValue {
   setRightPane: (node: React.ReactNode | null) => void;
@@ -54,7 +57,18 @@ export const PageLayoutRightPane: React.FC<{ children: React.ReactNode | null }>
 };
 
 export const PageLayout: React.FC = () => {
+  const { theme } = useAppearance();
   const [rightPane, setRightPane] = useState<React.ReactNode | null>(null);
+  const appearanceQuery = useAppearanceSettings();
+  const backgroundTheme =
+    appearanceQuery.data?.backgroundTheme ?? DEFAULT_APPEARANCE_SETTINGS.backgroundTheme;
+
+  useEffect(() => {
+    document.body.dataset.backgroundTheme = backgroundTheme;
+    return () => {
+      delete document.body.dataset.backgroundTheme;
+    };
+  }, [backgroundTheme]);
 
   const contextValue = useMemo<PageLayoutContextValue>(
     () => ({
@@ -63,9 +77,34 @@ export const PageLayout: React.FC = () => {
     [setRightPane]
   );
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const previousBodyTheme = document.body.dataset.theme;
+    const previousRootTheme = document.documentElement.dataset.theme;
+    document.body.dataset.theme = theme;
+    document.documentElement.dataset.theme = theme;
+
+    return () => {
+      if (previousBodyTheme) {
+        document.body.dataset.theme = previousBodyTheme;
+      } else {
+        delete document.body.dataset.theme;
+      }
+
+      if (previousRootTheme) {
+        document.documentElement.dataset.theme = previousRootTheme;
+      } else {
+        delete document.documentElement.dataset.theme;
+      }
+    };
+  }, [theme]);
+
   return (
     <PageLayoutContext.Provider value={contextValue}>
-      <div className="hub-shell">
+      <div className={`hub-shell hub-shell--theme-${theme}`} data-theme={theme}>
         <NavRail />
         <main className="hub-main">
           <Outlet />

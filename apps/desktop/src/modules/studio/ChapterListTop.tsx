@@ -111,6 +111,7 @@ export const ChapterListTop: React.FC<ChapterListTopProps> = ({
               <div className="studio-settings__controls">
                 <button
                   type="button"
+                  className="studio-settings__action"
                   onClick={() => {
                     const next = promptRename(chapter.title);
                     if (next !== chapter.title) {
@@ -122,6 +123,7 @@ export const ChapterListTop: React.FC<ChapterListTopProps> = ({
                 </button>
                 <button
                   type="button"
+                  className="studio-settings__action studio-settings__action--secondary"
                   onClick={() => onMoveChapter(chapter.id, "left")}
                   disabled={index === 0}
                 >
@@ -129,6 +131,7 @@ export const ChapterListTop: React.FC<ChapterListTopProps> = ({
                 </button>
                 <button
                   type="button"
+                  className="studio-settings__action studio-settings__action--secondary"
                   onClick={() => onMoveChapter(chapter.id, "right")}
                   disabled={index === list.length - 1}
                 >
@@ -136,6 +139,7 @@ export const ChapterListTop: React.FC<ChapterListTopProps> = ({
                 </button>
                 <button
                   type="button"
+                  className="studio-settings__action studio-settings__action--danger"
                   onClick={async () => {
                     const confirmed = await confirmDialog({
                       message: `Delete chapter "${chapter.title}"?`,
