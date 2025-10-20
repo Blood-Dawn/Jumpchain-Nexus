@@ -56,7 +56,7 @@ import {
   type JumpAssetType,
   type KnowledgeArticleReferenceSummary,
 } from "../../db/dao";
-import { formatBudget } from "../../services/formatter";
+import { formatBudget, type ThousandsSeparatorOption } from "../../services/formatter";
 import { confirmDialog } from "../../services/dialogService";
 import { useJmhStore } from "./store";
 import {
@@ -248,7 +248,13 @@ type WorkbenchStoreBindings = ReturnType<typeof useWorkbenchStoreBindings>;
 type JumpSummary = WorkbenchStoreBindings["jumps"][number];
 
 const useWorkbenchLocalState = () => {
-  const [orderedIds, setOrderedIds] = useState<Record<JumpAssetType, string[]>>({});
+  const [orderedIds, setOrderedIds] = useState<Record<JumpAssetType, string[]>>(() => {
+    const initial: Record<JumpAssetType, string[]> = {} as Record<JumpAssetType, string[]>;
+    for (const type of assetTypeOrder) {
+      initial[type] = [];
+    }
+    return initial;
+  });
   const [formState, setFormState] = useState<AssetFormState | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const badgeLegendId = useId();
@@ -370,7 +376,7 @@ const useKnowledgeReferences = (selectedAsset: JumpAssetRecord | null) => {
 const useFormatValue = (separator: string | undefined) => {
   return useCallback(
     (value: number) => {
-      const resolved = separator ?? "none";
+      const resolved = (separator ?? "none") as ThousandsSeparatorOption;
       return formatBudget(value, resolved);
     },
     [separator],
@@ -467,7 +473,7 @@ const useSelectedJumpFallback = (
   setSelectedJump: (id: string | null) => void,
 ) => {
   useEffect(() => {
-    if (!selectedJumpId && jumps.length > 0) {
+    if (!selectedJumpId && jumps.length > 0 && jumps[0]) {
       setSelectedJump(jumps[0].id);
     }
   }, [jumps, selectedJumpId, setSelectedJump]);
@@ -486,7 +492,10 @@ const useSelectionAvailability = (
       return;
     }
     if (!selectedAssetId || !displayAssets.some((asset) => asset.id === selectedAssetId)) {
-      setSelectedAssetId(displayAssets[0].id);
+      const firstAsset = displayAssets[0];
+      if (firstAsset) {
+        setSelectedAssetId(firstAsset.id);
+      }
     }
   }, [displayAssets, selectedAssetId, setFormState, setSelectedAssetId]);
 };
@@ -601,9 +610,8 @@ const useAssetMutations = (
     mutationFn: async (payload: { id: string; type: JumpAssetType }) => {
       await deleteJumpAsset(payload.id);
       await deleteEntity(payload.id).catch(() => undefined);
-      return payload;
     },
-    onSuccess: (payload) => {
+    onSuccess: (_, payload) => {
       if (selectedJumpId) {
         invalidateAfterMutation(selectedJumpId, payload.type);
       }
@@ -675,8 +683,6 @@ const useDeleteHandler = (
     const confirmed = await confirmDialog({
       title: "Remove Asset",
       message: "This will delete the selected asset and its stipend metadata. Continue?",
-      confirmLabel: "Delete",
-      variant: "danger",
     });
     if (!confirmed) {
       return;
@@ -703,13 +709,15 @@ const useHandleSave = (
           frequency: formState.stipendFrequency,
           periods,
           total: stipendTotalValue,
-          notes: formState.stipendNotes ? formState.stipendNotes.trim() : undefined,
+          ...(formState.stipendNotes.trim() && { notes: formState.stipendNotes.trim() }),
         }
       : null;
 
     const metadata: AssetMetadata = {
       traitTags: formState.traitTags,
       stipend,
+      attributes: [],
+      altForms: [],
     };
 
     updateMutation.mutate({
