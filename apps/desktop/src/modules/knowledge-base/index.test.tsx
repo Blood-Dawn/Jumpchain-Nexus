@@ -26,6 +26,14 @@ type ImporterControl = {
 
 const now = new Date().toISOString();
 
+const assetOption = {
+  asset_id: "asset-1",
+  asset_name: "Asset One",
+  asset_type: "perk" as const,
+  jump_id: "jump-1",
+  jump_title: "Jump One",
+};
+
 const existingArticle: KnowledgeArticleRecord = {
   id: "article-1",
   title: "Existing Article",
@@ -37,14 +45,7 @@ const existingArticle: KnowledgeArticleRecord = {
   is_system: false,
   created_at: now,
   updated_at: now,
-};
-
-const assetOption = {
-  asset_id: "asset-1",
-  asset_name: "Asset One",
-  asset_type: "perk" as const,
-  jump_id: "jump-1",
-  jump_title: "Jump One",
+  related_asset_ids: [assetOption.asset_id],
 };
 
 const selectionDrafts: KnowledgeBaseArticleDraft[] = [
@@ -82,6 +83,8 @@ const selectionDrafts: KnowledgeBaseArticleDraft[] = [
 
 let importerControl: ImporterControl | null = null;
 
+const navigateMock = vi.fn();
+
 vi.mock("../../db/dao", (): DaoModule => {
   const articles = [existingArticle];
 
@@ -94,7 +97,7 @@ vi.mock("../../db/dao", (): DaoModule => {
     fetchKnowledgeArticles: vi.fn(async () => articles),
     listAssetReferenceSummaries: vi.fn(async () => [assetOption]),
     listKnowledgeBaseImportErrors: vi.fn(async () => []),
-    lookupAssetReferenceSummaries: vi.fn(async () => []),
+    lookupAssetReferenceSummaries: vi.fn(async () => [assetOption]),
     recordKnowledgeBaseImportErrors: vi.fn(async () => undefined),
     upsertKnowledgeArticle: vi.fn(async (payload) => ({
       id: `imported-${payload.title}`,
@@ -120,6 +123,14 @@ const jmhStore = {
 vi.mock("../jmh/store", () => ({
   useJmhStore: (selector: (state: typeof jmhStore) => unknown) => selector(jmhStore),
 }));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 vi.mock("../../services/dialogService", () => ({
   confirmDialog: vi.fn(async () => false),
@@ -196,10 +207,28 @@ describe("KnowledgeBase import progress", () => {
     jmhStore.setSelectedJump.mockReset();
     jmhStore.setActiveAssetType.mockReset();
     jmhStore.setSelectedAssetId.mockReset();
+    navigateMock.mockReset();
   });
 
   afterEach(() => {
     importerControl = null;
+  });
+
+  it("navigates to referenced assets from the article view", async () => {
+    const user = userEvent.setup();
+    navigateMock.mockReset();
+
+    renderWithClient();
+
+    const referenceChip = await screen.findByRole("button", { name: /Asset One/i });
+    await user.click(referenceChip);
+
+    await waitFor(() => {
+      expect(jmhStore.setSelectedJump).toHaveBeenCalledWith(assetOption.jump_id);
+      expect(navigateMock).toHaveBeenCalledWith("/hub");
+    });
+    expect(jmhStore.setActiveAssetType).toHaveBeenCalledWith(assetOption.asset_type);
+    expect(jmhStore.setSelectedAssetId).toHaveBeenCalledWith(assetOption.asset_id);
   });
 
   it("shows a progress modal and responds to pause, resume, and cancel actions", async () => {
