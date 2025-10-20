@@ -229,9 +229,15 @@ async fn run_full_test_suite(
     let app = window.app_handle();
     let workspace_dir = locate_workspace_dir(&app)?;
 
+    let npm_executable = if cfg!(target_os = "windows") {
+        "npm.cmd"
+    } else {
+        "npm"
+    };
+
     let command = app
         .shell()
-        .command("npm")
+        .command(npm_executable)
         .args(["run", "test:full"])
         .current_dir(&workspace_dir)
         .env("FORCE_COLOR", "0")
