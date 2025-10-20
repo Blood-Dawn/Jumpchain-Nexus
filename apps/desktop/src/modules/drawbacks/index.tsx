@@ -236,16 +236,6 @@ const DrawbackSupplement: React.FC = () => {
 
   const filteredDrawbackIds = useMemo(() => new Set(filteredDrawbacks.map((asset) => asset.id)), [filteredDrawbacks]);
 
-  const visibleDrawbacks = useMemo(() => {
-    if (!orderedDrawbacks.length) {
-      return [] as JumpAssetRecord[];
-    }
-    if (filteredDrawbackIds.size === 0) {
-      return [] as JumpAssetRecord[];
-    }
-    return orderedDrawbacks.filter((asset) => filteredDrawbackIds.has(asset.id));
-  }, [filteredDrawbackIds, orderedDrawbacks]);
-
   useEffect(() => {
     if (!filteredDrawbacks.length) {
       if (selectedDrawbackId !== null) {
@@ -402,27 +392,13 @@ const DrawbackSupplement: React.FC = () => {
 
   const moveDrawback = (fromIndex: number, toIndex: number) => {
     setOrderedDrawbacks((prev) => {
-      const visible = prev.filter((asset) => filteredDrawbackIds.has(asset.id));
-      if (!visible.length) {
+      if (toIndex < 0 || toIndex >= prev.length) {
         return prev;
       }
-
-      if (
-        fromIndex < 0 ||
-        fromIndex >= visible.length ||
-        toIndex < 0 ||
-        toIndex >= visible.length ||
-        fromIndex === toIndex
-      ) {
-        return prev;
-      }
-
-      const reorderedVisible = [...visible];
-      const [moved] = reorderedVisible.splice(fromIndex, 1);
-      reorderedVisible.splice(toIndex, 0, moved);
-
-      const queue = [...reorderedVisible];
-      return prev.map((asset) => (filteredDrawbackIds.has(asset.id) ? queue.shift() ?? asset : asset));
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
     });
   };
 
@@ -692,22 +668,39 @@ const DrawbackSupplement: React.FC = () => {
           {!drawbacksQuery.isLoading && totalCount === 0 && (
             <p className="drawbacks__empty">No drawbacks recorded for this jump.</p>
           )}
-          <ul aria-label="Drawback order">
-            {visibleDrawbacks.map((asset, index) => {
-              const metadata = parseMetadata(asset.metadata);
-              return (
-                <li key={asset.id}>
-                  <button
-                    type="button"
-                    className={asset.id === selectedDrawbackId ? "drawbacks__item drawbacks__item--active" : "drawbacks__item"}
-                    onClick={() => setSelectedDrawbackId(asset.id)}
-                  >
-                    <div className="drawbacks__item-title">
-                      <strong>{asset.name}</strong>
-                      <span className={`drawbacks__badge drawbacks__badge--${metadata.severity ?? "moderate"}`}>
-                        {metadata.severity ?? "moderate"}
-                      </span>
-                    </div>
+            <ul aria-label="Drawback order">
+              {orderedDrawbacks.map((asset, index) => {
+                if (!filteredDrawbackIds.has(asset.id)) {
+                  return null;
+                }
+                const metadata = parseMetadata(asset.metadata);
+                const severity =
+                  metadata.severity === "minor" || metadata.severity === "moderate" || metadata.severity === "severe"
+                    ? metadata.severity
+                    : "moderate";
+                const severityLabel = `${severity.charAt(0).toUpperCase()}${severity.slice(1)}`;
+                const itemClassName = [
+                  "drawbacks__item",
+                  `drawbacks__item--${severity}`,
+                  asset.id === selectedDrawbackId ? "drawbacks__item--active" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                const badgeClassName = `drawbacks__badge drawbacks__badge--${severity}`;
+                return (
+                  <li key={asset.id}>
+                    <button
+                      type="button"
+                      className={itemClassName}
+                      onClick={() => setSelectedDrawbackId(asset.id)}
+                    >
+                      <div className="drawbacks__item-title">
+                        <strong>{asset.name}</strong>
+                        <span className={badgeClassName}>
+                          <span className="drawbacks__badge-icon" aria-hidden="true" />
+                          <span className="drawbacks__badge-label">{severityLabel}</span>
+                        </span>
+                      </div>
                     <div className="drawbacks__item-meta">
                       <span>{asset.category ?? "Uncategorized"}</span>
                       <span>
@@ -730,7 +723,7 @@ const DrawbackSupplement: React.FC = () => {
                       type="button"
                       aria-label={`Move ${asset.name} later`}
                       onClick={() => moveDrawback(index, index + 1)}
-                      disabled={index === visibleDrawbacks.length - 1 || reorderMutation.isPending}
+                      disabled={index === orderedDrawbacks.length - 1 || reorderMutation.isPending}
                     >
                       ↓
                     </button>
