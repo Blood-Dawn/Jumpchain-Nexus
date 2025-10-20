@@ -152,8 +152,11 @@ export const NavRail: React.FC = () => {
                 <li key={module.id}>
                   <NavLink
                     to={resolveModulePath(module)}
+                    data-module={module.id}
                     className={({ isActive }: { isActive: boolean }) =>
-                      `jmh-nav__button${isActive ? " jmh-nav__button--active" : ""}`
+                      `jmh-nav__button jmh-nav__button--${module.id}${
+                        isActive ? " jmh-nav__button--active" : ""
+                      }`
                     }
                   >
                     <span className="jmh-nav__label">{highlightMatch(module.title)}</span>
