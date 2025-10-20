@@ -12,6 +12,11 @@ export interface ModuleDef {
   path: string;
   section: ModuleSection;
   element: LazyExoticComponent<ComponentType>;
+  /**
+   * Icons reference the SVG asset key in `apps/desktop/src/assets/icons` without the `.svg` suffix.
+   * New assets should follow the shared guidelines: 24x24 viewBox and a stroke width of 1.75px so
+   * they align with the Jumpchain Lucide-inspired set.
+   */
   icon?: string;
   badge?: string;
   requiredPermissions?: string[];
@@ -38,6 +43,7 @@ const moduleList: ModuleDef[] = [
     path: "hub",
     section: "build",
     element: lazyModule("Jump Hub", () => import("./jmh")),
+    icon: "jump-hub",
     requiredPermissions: ["jump-hub-sql"],
     badge: "Alpha",
   },
@@ -48,6 +54,7 @@ const moduleList: ModuleDef[] = [
     path: "passport",
     section: "supplements",
     element: lazyModule("Cosmic Passport", () => import("./passport")),
+    icon: "cosmic-passport",
     requiredPermissions: ["cosmic-passport-sql"],
     badge: "Preview",
   },
@@ -58,6 +65,7 @@ const moduleList: ModuleDef[] = [
     path: "warehouse",
     section: "supplements",
     element: lazyModule("Cosmic Warehouse", () => import("./warehouse")),
+    icon: "cosmic-warehouse",
     requiredPermissions: ["cosmic-warehouse-sql"],
     badge: "Alpha",
   },
@@ -68,6 +76,7 @@ const moduleList: ModuleDef[] = [
     path: "locker",
     section: "supplements",
     element: lazyModule("Cosmic Locker", () => import("./locker")),
+    icon: "cosmic-locker",
     requiredPermissions: ["cosmic-locker-sql"],
     badge: "Alpha",
   },
@@ -78,6 +87,7 @@ const moduleList: ModuleDef[] = [
     path: "drawbacks",
     section: "supplements",
     element: lazyModule("Drawback Supplement", () => import("./drawbacks")),
+    icon: "drawback-supplement",
     requiredPermissions: ["drawback-supplement-sql"],
     badge: "Preview",
   },
@@ -88,6 +98,7 @@ const moduleList: ModuleDef[] = [
     path: "export",
     section: "tools",
     element: lazyModule("Exports", () => import("./export")),
+    icon: "exporter",
     requiredPermissions: ["export-tools"],
     badge: "Beta",
   },
@@ -98,6 +109,7 @@ const moduleList: ModuleDef[] = [
     path: "stats",
     section: "tools",
     element: lazyModule("Statistics", () => import("./stats")),
+    icon: "statistics",
     requiredPermissions: ["statistics-sql"],
     badge: "Prototype",
   },
@@ -108,6 +120,7 @@ const moduleList: ModuleDef[] = [
     path: "options",
     section: "tools",
     element: lazyModule("Jump Options", () => import("./options")),
+    icon: "jump-options",
     requiredPermissions: ["jump-options-sql"],
     badge: "Prototype",
   },
@@ -118,6 +131,7 @@ const moduleList: ModuleDef[] = [
     path: "knowledge",
     section: "tools",
     element: lazyModule("Knowledge Base", () => import("./knowledge-base")),
+    icon: "knowledge-base",
     requiredPermissions: ["knowledge-base-sql"],
     badge: "Preview",
   },
@@ -128,6 +142,7 @@ const moduleList: ModuleDef[] = [
     path: "formatter",
     section: "tools",
     element: lazyModule("Input Formatter", () => import("./formatter")),
+    icon: "input-formatter",
     requiredPermissions: ["input-formatter-tools"],
     badge: "Beta",
   },
@@ -138,6 +153,7 @@ const moduleList: ModuleDef[] = [
     path: "studio",
     section: "story",
     element: lazyModule("Story Studio", () => import("./studio")),
+    icon: "story-studio",
     requiredPermissions: ["story-studio-sql"],
     badge: "Beta",
   },
@@ -153,6 +169,7 @@ if (devToolsEnabled) {
     path: "devtools",
     section: "tools",
     element: lazyModule("Developer Tools", () => import("./devtools")),
+    icon: "devtools",
     requiredPermissions: ["devtools-shell"],
     badge: "Internal",
   });
