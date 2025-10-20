@@ -50,7 +50,6 @@ import {
   collectKnowledgeBaseDraftsFromPaths,
   importKnowledgeBaseArticles,
   promptKnowledgeBaseImport,
-  type KnowledgeBaseImportError,
   type KnowledgeBaseImportProgress,
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
