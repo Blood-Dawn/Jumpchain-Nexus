@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -256,6 +256,7 @@ describe("JumpchainOptions", () => {
 
     await waitFor(() => {
       expect(setAppSettingMock).toHaveBeenCalledWith(APPEARANCE_SETTING_KEY, {
+        ...DEFAULT_APPEARANCE_SETTINGS,
         backgroundTheme: "nebula",
       });
     });
@@ -266,6 +267,7 @@ describe("JumpchainOptions", () => {
 
     await waitFor(() => {
       expect(setAppSettingMock).toHaveBeenCalledWith(APPEARANCE_SETTING_KEY, {
+        ...DEFAULT_APPEARANCE_SETTINGS,
         backgroundTheme: "minimal",
       });
     });

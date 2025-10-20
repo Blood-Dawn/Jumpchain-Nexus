@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -109,7 +109,7 @@ const DrawbackSupplement: React.FC = () => {
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
   const [orderedDrawbacks, setOrderedDrawbacks] = useState<JumpAssetRecord[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
+  const [severityFilter, setSeverityFilter] = useState<string>("all");
 
   useEffect(() => {
     if (!drawbacksQuery.data?.length) {
@@ -119,11 +119,6 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbacksQuery.data]);
 
-  const selectedJump = useMemo(
-    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
-    [jumpsQuery.data, selectedJumpId]
-  );
-
   useEffect(() => {
     if (!drawbacksQuery.data) {
       setOrderedDrawbacks([]);
@@ -131,6 +126,11 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
+
+  const selectedJump = useMemo(
+    () => (selectedJumpId ? jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null : null),
+    [jumpsQuery.data, selectedJumpId],
+  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {

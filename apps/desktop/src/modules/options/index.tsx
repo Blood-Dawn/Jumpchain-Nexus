@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -847,7 +847,7 @@ const JumpchainOptions: React.FC = () => {
     if (appearanceSettings.backgroundTheme === theme) {
       return;
     }
-    const next: AppearanceSettings = { backgroundTheme: theme };
+    const next: AppearanceSettings = { ...appearanceSettings, backgroundTheme: theme };
     setAppearanceSettings(next);
     persistSetting({
       key: APPEARANCE_SETTING_KEY,

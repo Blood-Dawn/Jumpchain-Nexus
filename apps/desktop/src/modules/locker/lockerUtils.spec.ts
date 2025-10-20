@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -111,7 +111,7 @@ describe("lockerUtils filtering", () => {
     const values = tags.map((option) => option.value);
     expect(values).toContain("booster:core");
     expect(values).toContain("medical");
-    expect(tags.find((option) => option.value === "booster:core")?.label).toBe("booster:core");
+    expect(tags.find((option) => option.value === "booster:core")?.label).toBe("Booster: Core");
   });
 });
 

@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -28,7 +28,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { Plugin, PluginKey } from "prosemirror-state";
 import type {
@@ -58,6 +58,8 @@ import {
   restoreSnapshotContent,
   type DraftState,
 } from "./snapshotUtils";
+import { useFormatterPreferences } from "../../hooks/useFormatterPreferences";
+import GrammarMatchesSidebar from "./GrammarMatchesSidebar";
 
 interface StudioEditorProps {
   story: StoryWithChapters | null;
@@ -197,6 +199,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
   const [draftBackup, setDraftBackup] = useState<DraftState | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<StoryExportFormat>("markdown");
   const [exportScope, setExportScope] = useState<"chapter" | "story">("chapter");
   const [exporting, setExporting] = useState(false);
@@ -255,6 +258,7 @@ export const StudioEditor: React.FC<StudioEditorProps> = ({
     !previewLoading;
 
   const debouncedGrammarRef = useRef<(value: string) => void | undefined>(undefined);
+  const shellContentRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (selectedSnapshotId === SNAPSHOT_PREVIOUS_DRAFT && !draftBackup) {

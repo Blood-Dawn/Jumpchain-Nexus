@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import React, { useCallback, useId, useMemo } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FixedSizeList as List, type ListChildComponentProps } from "react-window";
 import { loadStatisticsSnapshot, type JumpAssetType, type StatisticsSnapshot } from "../../db/dao";
@@ -46,6 +46,8 @@ const BOOSTER_ROW_HEIGHT = 56;
 
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const percentFormatter = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
+
+const assetTypeOrder: JumpAssetType[] = ["origin", "perk", "item", "companion", "drawback"];
 
 const assetLabels: Record<JumpAssetType, string> = {
   origin: "Origins",
@@ -269,35 +271,79 @@ const StatisticsHub: React.FC = () => {
     [inventoryGradientUid],
   );
 
-  const totalJumps = cpRows.length;
-  const { totalPurchases, totalSpend, totalCredit } = useMemo(() => {
-    let purchases = 0;
+  const [assetFilter, setAssetFilter] = useState<JumpAssetType | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | string>("all");
+
+  const filteredAssetBreakdown = useMemo(
+    () => (assetFilter === "all" ? assetBreakdown : assetBreakdown.filter((asset) => asset.assetType === assetFilter)),
+    [assetBreakdown, assetFilter]
+  );
+
+  const { filteredTotalSpend, filteredTotalCredit } = useMemo(() => {
     let spend = 0;
     let credit = 0;
-
-    for (const entry of assetBreakdown) {
-      if (entry.assetType === "drawback") {
-        credit += entry.credit;
-        continue;
+    for (const asset of filteredAssetBreakdown) {
+      if (asset.assetType === "drawback") {
+        credit += asset.credit;
+      } else {
+        spend += asset.netCost;
       }
-
-      purchases += entry.itemCount;
-      spend += entry.netCost;
     }
+    return { filteredTotalSpend: spend, filteredTotalCredit: credit };
+  }, [filteredAssetBreakdown]);
 
-    return { totalPurchases: purchases, totalSpend: spend, totalCredit: credit };
+  const statusOptions = useMemo(() => {
+    const unique = new Set<string>();
+    cpRows.forEach((row) => {
+      unique.add(normalizeStatus(row.status));
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [cpRows]);
+
+  const filteredCpRows = useMemo(() => {
+    if (statusFilter === "all") {
+      return cpRows;
+    }
+    return cpRows.filter((row) => normalizeStatus(row.status) === statusFilter);
+  }, [cpRows, statusFilter]);
+
+  useEffect(() => {
+    if (statusFilter !== "all" && !statusOptions.includes(statusFilter)) {
+      setStatusFilter("all");
+    }
+  }, [statusFilter, statusOptions]);
+
+  const filteredJumpTotals = useMemo(() => {
+    let spent = 0;
+    let earned = 0;
+    for (const row of filteredCpRows) {
+      spent += row.spent;
+      earned += row.earned;
+    }
+    return { spent, earned };
+  }, [filteredCpRows]);
+
+  const totalJumps = cpRows.length;
+  const totalPurchases = useMemo(() => {
+    let purchases = 0;
+    for (const entry of assetBreakdown) {
+      if (entry.assetType !== "drawback") {
+        purchases += entry.itemCount;
+      }
+    }
+    return purchases;
   }, [assetBreakdown]);
 
   const cpChartData = useMemo(
     () =>
-      assetBreakdown
+      filteredAssetBreakdown
         .map((asset) => ({
           name: assetLabels[asset.assetType] ?? asset.assetType,
           value: asset.assetType === "drawback" ? asset.credit : asset.netCost,
           assetType: asset.assetType,
         }))
         .filter((entry) => entry.value > 0),
-    [assetBreakdown]
+    [filteredAssetBreakdown]
   );
 
   const totalChartedCP = useMemo(
@@ -598,7 +644,7 @@ const StatisticsHub: React.FC = () => {
                   </label>
                 </div>
               </header>
-              {assetBreakdown.length ? (
+              {filteredAssetBreakdown.length ? (
                 <div className="stats__panel-stack">
                   {cpChartData.length > 0 && (
                     <figure
@@ -658,15 +704,15 @@ const StatisticsHub: React.FC = () => {
                       })}
                     </ul>
                   )}
-                  <div className="stats__asset-grid">
-                    {assetBreakdown.map((asset) => {
+                  <div className="stats__asset-grid" data-testid="asset-breakdown-grid">
+                    {filteredAssetBreakdown.map((asset) => {
                       const label = assetLabels[asset.assetType] ?? asset.assetType;
                       const share = asset.assetType === "drawback"
-                        ? totalCredit > 0
-                          ? asset.credit / totalCredit
+                        ? filteredTotalCredit > 0
+                          ? asset.credit / filteredTotalCredit
                           : 0
-                        : totalSpend > 0
-                          ? asset.netCost / totalSpend
+                        : filteredTotalSpend > 0
+                          ? asset.netCost / filteredTotalSpend
                           : 0;
                       return (
                         <article key={asset.assetType} className="stats__asset-card">

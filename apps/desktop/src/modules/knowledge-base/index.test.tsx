@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 
 type KnowledgeArticleRecord = import("../../db/dao").KnowledgeArticleRecord;
 type KnowledgeBaseImportOptions = import("../../services/knowledgeBaseImporter").KnowledgeBaseImportOptions;
@@ -36,6 +37,14 @@ const existingArticle: KnowledgeArticleRecord = {
   is_system: false,
   created_at: now,
   updated_at: now,
+};
+
+const assetOption = {
+  asset_id: "asset-1",
+  asset_name: "Asset One",
+  asset_type: "perk" as const,
+  jump_id: "jump-1",
+  jump_title: "Jump One",
 };
 
 const selectionDrafts: KnowledgeBaseArticleDraft[] = [
@@ -77,10 +86,16 @@ vi.mock("../../db/dao", (): DaoModule => {
   const articles = [existingArticle];
 
   return {
+    clearKnowledgeBaseImportErrors: vi.fn(async () => undefined),
     countKnowledgeArticles: vi.fn(async () => articles.length),
     deleteKnowledgeArticle: vi.fn(async () => undefined),
+    deleteKnowledgeBaseImportError: vi.fn(async () => undefined),
     ensureKnowledgeBaseSeeded: vi.fn(async () => undefined),
     fetchKnowledgeArticles: vi.fn(async () => articles),
+    listAssetReferenceSummaries: vi.fn(async () => [assetOption]),
+    listKnowledgeBaseImportErrors: vi.fn(async () => []),
+    lookupAssetReferenceSummaries: vi.fn(async () => []),
+    recordKnowledgeBaseImportErrors: vi.fn(async () => undefined),
     upsertKnowledgeArticle: vi.fn(async (payload) => ({
       id: `imported-${payload.title}`,
       title: payload.title,
@@ -95,6 +110,16 @@ vi.mock("../../db/dao", (): DaoModule => {
     })),
   } satisfies Partial<DaoModule> as DaoModule;
 });
+
+const jmhStore = {
+  setSelectedJump: vi.fn(),
+  setActiveAssetType: vi.fn(),
+  setSelectedAssetId: vi.fn(),
+};
+
+vi.mock("../jmh/store", () => ({
+  useJmhStore: (selector: (state: typeof jmhStore) => unknown) => selector(jmhStore),
+}));
 
 vi.mock("../../services/dialogService", () => ({
   confirmDialog: vi.fn(async () => false),
@@ -151,10 +176,15 @@ const renderWithClient = () => {
     },
   });
 
+  client.setQueryData(["knowledge-base", "asset-options"], [assetOption]);
+  client.setQueryData(["knowledge-base", "import-errors"], []);
+
   return render(
-    <QueryClientProvider client={client}>
-      <KnowledgeBase />
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <KnowledgeBase />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 };
 
@@ -163,6 +193,9 @@ describe("KnowledgeBase import progress", () => {
     importerControl = null;
     promptKnowledgeBaseImportMock.mockClear();
     importKnowledgeBaseArticlesMock.mockClear();
+    jmhStore.setSelectedJump.mockReset();
+    jmhStore.setActiveAssetType.mockReset();
+    jmhStore.setSelectedAssetId.mockReset();
   });
 
   afterEach(() => {

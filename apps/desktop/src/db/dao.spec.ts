@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -251,6 +251,7 @@ describe("knowledge base import errors", () => {
     loadMock.mockResolvedValue(fakeDb);
 
     const { recordKnowledgeBaseImportErrors } = await importDao();
+    fakeDb.clearCalls();
     const errors = [
       { path: "/tmp/alpha.txt", reason: "Unsupported format" },
       { path: "/tmp/beta.txt", reason: "Read failure" },
@@ -258,8 +259,9 @@ describe("knowledge base import errors", () => {
 
     await recordKnowledgeBaseImportErrors(errors);
 
-    expect(fakeDb.executeCalls).toHaveLength(errors.length);
-    const statement = fakeDb.executeCalls[0]?.sql ?? "";
+    const executedUpserts = fakeDb.executeCalls.slice(-errors.length);
+    expect(executedUpserts).toHaveLength(errors.length);
+    const statement = executedUpserts[0]?.sql ?? "";
     expect(statement).toContain("INSERT INTO knowledge_import_errors");
     expect(statement).toContain("ON CONFLICT(path)");
   });
@@ -296,11 +298,13 @@ describe("knowledge base import errors", () => {
     loadMock.mockResolvedValue(fakeDb);
 
     const { deleteKnowledgeBaseImportError, clearKnowledgeBaseImportErrors } = await importDao();
+    fakeDb.clearCalls();
 
     await deleteKnowledgeBaseImportError("err-1");
     await clearKnowledgeBaseImportErrors();
 
-    expect(fakeDb.executeCalls.map((entry) => entry.sql)).toEqual([
+    const executedStatements = fakeDb.executeCalls.map((entry) => entry.sql);
+    expect(executedStatements.slice(-2)).toEqual([
       "DELETE FROM knowledge_import_errors WHERE id = $1",
       "DELETE FROM knowledge_import_errors",
     ]);

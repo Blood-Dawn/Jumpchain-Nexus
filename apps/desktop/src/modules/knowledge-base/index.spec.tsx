@@ -1,5 +1,5 @@
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
@@ -24,6 +24,7 @@ SOFTWARE.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import KnowledgeBase from "./index";
@@ -56,6 +57,15 @@ vi.mock("../../db/dao", async (importOriginal) => {
     ]),
     upsertKnowledgeArticle: vi.fn(),
     deleteKnowledgeArticle: vi.fn(),
+    listAssetReferenceSummaries: vi.fn(async () => [
+      {
+        asset_id: "asset-1",
+        asset_name: "Asset One",
+        asset_type: "perk",
+        jump_id: "jump-1",
+        jump_title: "Jump One",
+      },
+    ]),
   } satisfies Partial<typeof actual>;
 });
 
@@ -100,6 +110,16 @@ vi.mock("../../services/knowledgeBaseImporter", async (importOriginal) => {
   } satisfies Partial<typeof actual>;
 });
 
+const jmhStore = {
+  setSelectedJump: vi.fn(),
+  setActiveAssetType: vi.fn(),
+  setSelectedAssetId: vi.fn(),
+};
+
+vi.mock("../jmh/store", () => ({
+  useJmhStore: (selector: (state: typeof jmhStore) => unknown) => selector(jmhStore),
+}));
+
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -109,6 +129,9 @@ function createTestQueryClient(): QueryClient {
 describe("KnowledgeBase drop integration", () => {
   beforeEach(() => {
     setPlatform(createWebPlatform());
+    jmhStore.setSelectedJump.mockReset();
+    jmhStore.setActiveAssetType.mockReset();
+    jmhStore.setSelectedAssetId.mockReset();
   });
 
   afterEach(() => {
@@ -117,11 +140,23 @@ describe("KnowledgeBase drop integration", () => {
 
   it("imports dropped files via the platform drop adapter", async () => {
     const queryClient = createTestQueryClient();
+    queryClient.setQueryData(["knowledge-base", "asset-options"], [
+      {
+        asset_id: "asset-1",
+        asset_name: "Asset One",
+        asset_type: "perk",
+        jump_id: "jump-1",
+        jump_title: "Jump One",
+      },
+    ]);
+    queryClient.setQueryData(["knowledge-base", "import-errors"], []);
 
     render(
-      <QueryClientProvider client={queryClient}>
-        <KnowledgeBase />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KnowledgeBase />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     await screen.findByText(/Knowledge Base/i);
