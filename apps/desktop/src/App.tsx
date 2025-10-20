@@ -28,12 +28,14 @@ import PageLayout from "./components/PageLayout";
 import { AppearanceProvider } from "./contexts/AppearanceContext";
 import { defaultModule, modules } from "./modules/registry";
 
+const enableBackgroundEffects = import.meta.env.VITE_ENABLE_STARFIELD === "true";
+
 const fallback = <div className="app-loading">Loading module…</div>;
 
 const router = createHashRouter([
   {
     path: "/",
-    element: <PageLayout />,
+    element: <PageLayout enableBackgroundEffects={enableBackgroundEffects} />,
     children: [
       ...modules.map((module) => ({
         path: module.path,
