@@ -3392,47 +3392,6 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   spellcheckEnabled: true,
 };
 
-const APPEARANCE_THEMES: AppearanceTheme[] = ["andromeda", "solstice"];
-
-function parseAppearanceTheme(value: unknown): AppearanceTheme {
-  if (typeof value === "string" && APPEARANCE_THEMES.includes(value as AppearanceTheme)) {
-    return value as AppearanceTheme;
-  }
-  return DEFAULT_APPEARANCE_SETTINGS.theme;
-}
-
-export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
-  if (!record || record.value === null) {
-    return DEFAULT_APPEARANCE_SETTINGS;
-  }
-
-  try {
-    const parsed = JSON.parse(record.value) as unknown;
-    if (parsed && typeof parsed === "object") {
-      const theme = parseAppearanceTheme((parsed as Record<string, unknown>).theme);
-      return { theme } satisfies AppearanceSettings;
-    }
-  } catch (error) {
-    console.warn("Failed to parse appearance settings", error);
-  }
-
-  if (typeof record.value === "string") {
-    return { theme: parseAppearanceTheme(record.value) } satisfies AppearanceSettings;
-  }
-
-  return DEFAULT_APPEARANCE_SETTINGS;
-}
-
-export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
-  const record = await getAppSetting(APPEARANCE_SETTINGS_KEY);
-  return parseAppearanceSettings(record);
-}
-
-export async function saveAppearanceSettings(settings: AppearanceSettings): Promise<AppearanceSettings> {
-  const record = await setAppSetting(APPEARANCE_SETTINGS_KEY, settings);
-  return parseAppearanceSettings(record);
-}
-
 function parseBooleanSetting(record: AppSettingRecord | null, fallback: boolean): boolean {
   if (!record || record.value === null) {
     return fallback;
@@ -3881,6 +3840,11 @@ export async function loadSupplementSettings(): Promise<SupplementToggleSettings
 
 export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
   const record = await getAppSetting(APPEARANCE_SETTING_KEY);
+  return parseAppearanceSettings(record);
+}
+
+export async function saveAppearanceSettings(settings: AppearanceSettings): Promise<AppearanceSettings> {
+  const record = await setAppSetting(APPEARANCE_SETTING_KEY, settings);
   return parseAppearanceSettings(record);
 }
 

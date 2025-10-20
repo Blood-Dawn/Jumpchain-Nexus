@@ -109,6 +109,7 @@ const DrawbackSupplement: React.FC = () => {
   const [formState, setFormState] = useState<DrawbackFormState | null>(null);
   const [orderedDrawbacks, setOrderedDrawbacks] = useState<JumpAssetRecord[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
 
   useEffect(() => {
     if (!drawbacksQuery.data?.length) {
@@ -118,15 +119,9 @@ const DrawbackSupplement: React.FC = () => {
     }
   }, [drawbacksQuery.data]);
 
-  const selectedJump = useMemo(() => {
-    if (!selectedJumpId) {
-      return null;
-    }
-  }, [drawbacksQuery.data]);
-
   const selectedJump = useMemo(
     () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
-    [jumpsQuery.data, selectedJumpId],
+    [jumpsQuery.data, selectedJumpId]
   );
 
   useEffect(() => {
@@ -136,11 +131,6 @@ const DrawbackSupplement: React.FC = () => {
     }
     setOrderedDrawbacks([...drawbacksQuery.data]);
   }, [drawbacksQuery.data]);
-
-  const selectedJump = useMemo(
-    () => jumpsQuery.data?.find((jump) => jump.id === selectedJumpId) ?? null,
-    [jumpsQuery.data, selectedJumpId],
-  );
 
   useEffect(() => {
     if (!orderedDrawbacks.length) {
