@@ -2,7 +2,7 @@ module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: ['./tsconfig.json', './tsconfig.node.json'],
+    project: ['./tsconfig.json', './tsconfig.node.json', './tsconfig.eslint.json'],
     tsconfigRootDir: __dirname,
     ecmaVersion: 'latest',
     sourceType: 'module',
@@ -37,10 +37,14 @@ module.exports = {
     'vitest.config.ts',
     'playwright.config.*',
     'wdio.conf.ts',
+    '.eslintrc.cjs',
     'tools/**/*',
     '**/*.d.ts',
     'src/db/**/*.js',
     'src/modules/jmh/NarrativeSummaryPanel.tsx',
+    // ignore Tauri build output (generated at build time)
+    'src-tauri/target/**',
+    'src-tauri/**/out/**',
   ],
   env: {
     browser: true,
@@ -53,6 +57,15 @@ module.exports = {
     },
   },
   overrides: [
+    // Don't run the typed TypeScript parser against config or generated JS files
+    {
+      files: ['.eslintrc.*', 'vite.config.*', 'vite.config.*', 'wdio.conf.ts', 'playwright.config.*', 'src-tauri/**/out/**', 'src-tauri/target/**'],
+      parser: 'espree',
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
     {
       files: ['**/*.{test,spec}.{ts,tsx}'],
       extends: ['plugin:@vitest/legacy-recommended', 'plugin:testing-library/react'],
@@ -94,6 +107,6 @@ module.exports = {
       { max: 120, skipBlankLines: true, skipComments: true },
     ],
     'no-nested-ternary': 'error',
-    '@typescript-eslint/no-implicit-any-catch': 'error',
+  // removed deprecated rule '@typescript-eslint/no-implicit-any-catch'
   },
 };
