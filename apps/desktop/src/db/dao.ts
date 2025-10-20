@@ -3981,6 +3981,143 @@ export async function loadEssentialBodyModSettings(): Promise<EssentialBodyModSe
   });
 }
 
+function buildEssentialBodyModSettingsUpdate(
+  overrides: Partial<EssentialBodyModSettings>,
+  current: EssentialBodyModSettings
+): EssentialBodyModSettings {
+  return {
+    budget:
+      overrides.budget !== undefined
+        ? normalizeNonNegative(overrides.budget, current.budget)
+        : current.budget,
+    startingMode:
+      overrides.startingMode !== undefined
+        ? normalizeEnumValue(overrides.startingMode, ESSENTIAL_STARTING_MODE_VALUES, current.startingMode)
+        : current.startingMode,
+    essenceMode:
+      overrides.essenceMode !== undefined
+        ? normalizeEnumValue(overrides.essenceMode, ESSENTIAL_ESSENCE_MODE_VALUES, current.essenceMode)
+        : current.essenceMode,
+    advancementMode:
+      overrides.advancementMode !== undefined
+        ? normalizeEnumValue(overrides.advancementMode, ESSENTIAL_ADVANCEMENT_MODE_VALUES, current.advancementMode)
+        : current.advancementMode,
+    epAccessMode:
+      overrides.epAccessMode !== undefined
+        ? normalizeEnumValue(overrides.epAccessMode, ESSENTIAL_EP_ACCESS_MODE_VALUES, current.epAccessMode)
+        : current.epAccessMode,
+    epAccessModifier:
+      overrides.epAccessModifier !== undefined
+        ? normalizeEnumValue(overrides.epAccessModifier, ESSENTIAL_EP_ACCESS_MODIFIER_VALUES, current.epAccessModifier)
+        : current.epAccessModifier,
+    unlockableEssence:
+      overrides.unlockableEssence !== undefined ? overrides.unlockableEssence : current.unlockableEssence,
+    limitInvestment:
+      overrides.limitInvestment !== undefined ? overrides.limitInvestment : current.limitInvestment,
+    investmentAllowed:
+      overrides.investmentAllowed !== undefined ? overrides.investmentAllowed : current.investmentAllowed,
+    investmentRatio:
+      overrides.investmentRatio !== undefined
+        ? normalizeNonNegative(overrides.investmentRatio, current.investmentRatio, 1)
+        : current.investmentRatio,
+    incrementalBudget:
+      overrides.incrementalBudget !== undefined
+        ? normalizeNonNegative(overrides.incrementalBudget, current.incrementalBudget)
+        : current.incrementalBudget,
+    incrementalInterval:
+      overrides.incrementalInterval !== undefined
+        ? normalizeNonNegative(overrides.incrementalInterval, current.incrementalInterval, 1)
+        : current.incrementalInterval,
+    trainingAllowance:
+      overrides.trainingAllowance !== undefined ? overrides.trainingAllowance : current.trainingAllowance,
+    temperedBySuffering:
+      overrides.temperedBySuffering !== undefined ? overrides.temperedBySuffering : current.temperedBySuffering,
+    unbalancedMode:
+      overrides.unbalancedMode !== undefined
+        ? normalizeEnumValue(overrides.unbalancedMode, ESSENTIAL_UNBALANCED_MODE_VALUES, current.unbalancedMode)
+        : current.unbalancedMode,
+    unbalancedDescription: normalizeOptionalTextInput(overrides.unbalancedDescription, current.unbalancedDescription),
+    limiter:
+      overrides.limiter !== undefined
+        ? normalizeEnumValue(overrides.limiter, ESSENTIAL_LIMITER_VALUES, current.limiter)
+        : current.limiter,
+    limiterDescription: normalizeOptionalTextInput(overrides.limiterDescription, current.limiterDescription),
+  };
+}
+
+async function upsertEssentialBodyModSettings(db: Database, next: EssentialBodyModSettings): Promise<void> {
+  const now = new Date().toISOString();
+  await db.execute(
+    `INSERT INTO essential_body_mod_settings (
+       id,
+       budget,
+       starting_mode,
+       essence_mode,
+       advancement_mode,
+       ep_access_mode,
+       ep_access_modifier,
+       unlockable_essence,
+       limit_investment,
+       investment_allowed,
+       investment_ratio,
+       incremental_budget,
+       incremental_interval,
+       training_allowance,
+       tempered_by_suffering,
+       unbalanced_mode,
+       unbalanced_description,
+       limiter,
+       limiter_description,
+       created_at,
+       updated_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
+     )
+     ON CONFLICT(id) DO UPDATE SET
+       budget = excluded.budget,
+       starting_mode = excluded.starting_mode,
+       essence_mode = excluded.essence_mode,
+       advancement_mode = excluded.advancement_mode,
+       ep_access_mode = excluded.ep_access_mode,
+       ep_access_modifier = excluded.ep_access_modifier,
+       unlockable_essence = excluded.unlockable_essence,
+       limit_investment = excluded.limit_investment,
+       investment_allowed = excluded.investment_allowed,
+       investment_ratio = excluded.investment_ratio,
+       incremental_budget = excluded.incremental_budget,
+       incremental_interval = excluded.incremental_interval,
+       training_allowance = excluded.training_allowance,
+       tempered_by_suffering = excluded.tempered_by_suffering,
+       unbalanced_mode = excluded.unbalanced_mode,
+       unbalanced_description = excluded.unbalanced_description,
+       limiter = excluded.limiter,
+       limiter_description = excluded.limiter_description,
+       updated_at = excluded.updated_at`,
+    [
+      ESSENTIAL_BODY_MOD_SETTING_ID,
+      next.budget,
+      next.startingMode,
+      next.essenceMode,
+      next.advancementMode,
+      next.epAccessMode,
+      next.epAccessModifier,
+      boolToInt(next.unlockableEssence),
+      boolToInt(next.limitInvestment),
+      boolToInt(next.investmentAllowed),
+      next.investmentRatio,
+      next.incrementalBudget,
+      next.incrementalInterval,
+      boolToInt(next.trainingAllowance),
+      boolToInt(next.temperedBySuffering),
+      next.unbalancedMode,
+      toNullableText(next.unbalancedDescription ?? null),
+      next.limiter,
+      toNullableText(next.limiterDescription ?? null),
+      now,
+    ]
+  );
+}
+
 export async function saveEssentialBodyModSettings(
   overrides: Partial<EssentialBodyModSettings>
 ): Promise<EssentialBodyModSettings> {
@@ -3990,139 +4127,9 @@ export async function saveEssentialBodyModSettings(
       [ESSENTIAL_BODY_MOD_SETTING_ID]
     );
     const current = mapEssentialSettings(existingRows[0]);
-    const next: EssentialBodyModSettings = {
-      budget:
-        overrides.budget !== undefined
-          ? normalizeNonNegative(overrides.budget, current.budget)
-          : current.budget,
-      startingMode:
-        overrides.startingMode !== undefined
-          ? normalizeEnumValue(overrides.startingMode, ESSENTIAL_STARTING_MODE_VALUES, current.startingMode)
-          : current.startingMode,
-      essenceMode:
-        overrides.essenceMode !== undefined
-          ? normalizeEnumValue(overrides.essenceMode, ESSENTIAL_ESSENCE_MODE_VALUES, current.essenceMode)
-          : current.essenceMode,
-      advancementMode:
-        overrides.advancementMode !== undefined
-          ? normalizeEnumValue(overrides.advancementMode, ESSENTIAL_ADVANCEMENT_MODE_VALUES, current.advancementMode)
-          : current.advancementMode,
-      epAccessMode:
-        overrides.epAccessMode !== undefined
-          ? normalizeEnumValue(overrides.epAccessMode, ESSENTIAL_EP_ACCESS_MODE_VALUES, current.epAccessMode)
-          : current.epAccessMode,
-      epAccessModifier:
-        overrides.epAccessModifier !== undefined
-          ? normalizeEnumValue(
-              overrides.epAccessModifier,
-              ESSENTIAL_EP_ACCESS_MODIFIER_VALUES,
-              current.epAccessModifier
-            )
-          : current.epAccessModifier,
-      unlockableEssence:
-        overrides.unlockableEssence !== undefined ? overrides.unlockableEssence : current.unlockableEssence,
-      limitInvestment:
-        overrides.limitInvestment !== undefined ? overrides.limitInvestment : current.limitInvestment,
-      investmentAllowed:
-        overrides.investmentAllowed !== undefined ? overrides.investmentAllowed : current.investmentAllowed,
-      investmentRatio:
-        overrides.investmentRatio !== undefined
-          ? normalizeNonNegative(overrides.investmentRatio, current.investmentRatio, 1)
-          : current.investmentRatio,
-      incrementalBudget:
-        overrides.incrementalBudget !== undefined
-          ? normalizeNonNegative(overrides.incrementalBudget, current.incrementalBudget)
-          : current.incrementalBudget,
-      incrementalInterval:
-        overrides.incrementalInterval !== undefined
-          ? normalizeNonNegative(overrides.incrementalInterval, current.incrementalInterval, 1)
-          : current.incrementalInterval,
-      trainingAllowance:
-        overrides.trainingAllowance !== undefined ? overrides.trainingAllowance : current.trainingAllowance,
-      temperedBySuffering:
-        overrides.temperedBySuffering !== undefined ? overrides.temperedBySuffering : current.temperedBySuffering,
-      unbalancedMode:
-        overrides.unbalancedMode !== undefined
-          ? normalizeEnumValue(overrides.unbalancedMode, ESSENTIAL_UNBALANCED_MODE_VALUES, current.unbalancedMode)
-          : current.unbalancedMode,
-      unbalancedDescription: normalizeOptionalTextInput(overrides.unbalancedDescription, current.unbalancedDescription),
-      limiter:
-        overrides.limiter !== undefined
-          ? normalizeEnumValue(overrides.limiter, ESSENTIAL_LIMITER_VALUES, current.limiter)
-          : current.limiter,
-      limiterDescription: normalizeOptionalTextInput(overrides.limiterDescription, current.limiterDescription),
-    };
+    const next = buildEssentialBodyModSettingsUpdate(overrides, current);
 
-    const now = new Date().toISOString();
-    await db.execute(
-      `INSERT INTO essential_body_mod_settings (
-         id,
-         budget,
-         starting_mode,
-         essence_mode,
-         advancement_mode,
-         ep_access_mode,
-         ep_access_modifier,
-         unlockable_essence,
-         limit_investment,
-         investment_allowed,
-         investment_ratio,
-         incremental_budget,
-         incremental_interval,
-         training_allowance,
-         tempered_by_suffering,
-         unbalanced_mode,
-         unbalanced_description,
-         limiter,
-         limiter_description,
-         created_at,
-         updated_at
-       ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $20
-       )
-       ON CONFLICT(id) DO UPDATE SET
-         budget = excluded.budget,
-         starting_mode = excluded.starting_mode,
-         essence_mode = excluded.essence_mode,
-         advancement_mode = excluded.advancement_mode,
-         ep_access_mode = excluded.ep_access_mode,
-         ep_access_modifier = excluded.ep_access_modifier,
-         unlockable_essence = excluded.unlockable_essence,
-         limit_investment = excluded.limit_investment,
-         investment_allowed = excluded.investment_allowed,
-         investment_ratio = excluded.investment_ratio,
-         incremental_budget = excluded.incremental_budget,
-         incremental_interval = excluded.incremental_interval,
-         training_allowance = excluded.training_allowance,
-         tempered_by_suffering = excluded.tempered_by_suffering,
-         unbalanced_mode = excluded.unbalanced_mode,
-         unbalanced_description = excluded.unbalanced_description,
-         limiter = excluded.limiter,
-         limiter_description = excluded.limiter_description,
-         updated_at = excluded.updated_at`,
-      [
-        ESSENTIAL_BODY_MOD_SETTING_ID,
-        next.budget,
-        next.startingMode,
-        next.essenceMode,
-        next.advancementMode,
-        next.epAccessMode,
-        next.epAccessModifier,
-        boolToInt(next.unlockableEssence),
-        boolToInt(next.limitInvestment),
-        boolToInt(next.investmentAllowed),
-        next.investmentRatio,
-        next.incrementalBudget,
-        next.incrementalInterval,
-        boolToInt(next.trainingAllowance),
-        boolToInt(next.temperedBySuffering),
-        next.unbalancedMode,
-        toNullableText(next.unbalancedDescription ?? null),
-        next.limiter,
-        toNullableText(next.limiterDescription ?? null),
-        now,
-      ]
-    );
+    await upsertEssentialBodyModSettings(db, next);
 
     const rows = await db.select<EssentialBodyModSettingsRow[]>(
       `SELECT * FROM essential_body_mod_settings WHERE id = $1`,
