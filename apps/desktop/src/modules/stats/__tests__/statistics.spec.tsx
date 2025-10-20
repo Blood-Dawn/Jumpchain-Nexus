@@ -28,6 +28,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import StatisticsHub from "../index";
 
+class ResizeObserverMock {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+}
+
 const daoMocks = vi.hoisted(() => ({
   mockLoadStatisticsSnapshot: vi.fn(),
 }));

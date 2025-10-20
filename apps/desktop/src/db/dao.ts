@@ -421,9 +421,11 @@ export interface AppSettingRecord {
 }
 
 export type AppearanceTheme = "andromeda" | "solstice";
+export type AppearanceThemeOption = "starfield" | "nebula" | "minimal";
 
 export interface AppearanceSettings {
   theme: AppearanceTheme;
+  backgroundTheme: AppearanceThemeOption;
 }
 
 export interface FormatterSettings {
@@ -3250,12 +3252,96 @@ export async function loadWarehousePersonalRealitySummary(): Promise<WarehousePe
   });
 }
 
+interface UpdateWarehousePersonalRealityPayload {
+  wpCap?: number | null | undefined;
+  limitQuotas?: Record<string, number | null | undefined>;
+}
+
+export async function updateWarehousePersonalRealitySummary(
+  payload: UpdateWarehousePersonalRealityPayload
+): Promise<void> {
+  await withInit(async (db) => {
+    const rows = await db.select<AppSettingRecord[]>(
+      `SELECT * FROM app_settings WHERE key = $1`,
+      [WAREHOUSE_PERSONAL_REALITY_SETTING_KEY]
+    );
+    const existingValue = rows[0]?.value ?? null;
+    const parsed = parseWarehousePersonalRealitySettings(existingValue);
+
+    let nextWpCap: number | null | undefined = parsed.hasWpCapOverride
+      ? parsed.wpCap ?? null
+      : undefined;
+    if (Object.prototype.hasOwnProperty.call(payload, "wpCap")) {
+      const value = payload.wpCap;
+      if (value === undefined) {
+        nextWpCap = undefined;
+      } else if (value === null) {
+        nextWpCap = null;
+      } else if (typeof value === "number" && Number.isFinite(value)) {
+        nextWpCap = value;
+      }
+    }
+
+    const nextLimits: Record<string, number | null> = { ...parsed.limits };
+    if (payload.limitQuotas) {
+      Object.entries(payload.limitQuotas).forEach(([key, value]) => {
+        const normalized = key.trim().toLowerCase();
+        if (!normalized.length) {
+          return;
+        }
+        if (value === undefined) {
+          delete nextLimits[normalized];
+          return;
+        }
+        if (value === null) {
+          nextLimits[normalized] = null;
+          return;
+        }
+        if (typeof value === "number" && Number.isFinite(value)) {
+          nextLimits[normalized] = value;
+        }
+      });
+    }
+
+    const settings: Record<string, unknown> = {};
+    if (nextWpCap !== undefined) {
+      settings.wpCap = nextWpCap;
+    }
+    if (Object.keys(nextLimits).length > 0) {
+      settings.limits = nextLimits;
+    }
+
+    if (Object.keys(settings).length === 0) {
+      await db.execute(`DELETE FROM app_settings WHERE key = $1`, [WAREHOUSE_PERSONAL_REALITY_SETTING_KEY]);
+      return;
+    }
+
+    await db.execute(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [WAREHOUSE_PERSONAL_REALITY_SETTING_KEY, JSON.stringify(settings)]
+    );
+  });
+}
+
 export async function listAppSettings(): Promise<AppSettingRecord[]> {
   return withInit(async (db) => {
     const rows = await db.select<AppSettingRecord[]>(
       `SELECT * FROM app_settings ORDER BY key COLLATE NOCASE`
     );
     return rows as AppSettingRecord[];
+  });
+}
+
+export async function listCharacterProfiles(): Promise<CharacterProfileRecord[]> {
+  return withInit(async (db) => {
+    const rows = await db.select<CharacterProfileRecord[]>(
+      `SELECT id, name, alias, species, homeland, biography, attributes_json, traits_json, alt_forms_json, notes, created_at, updated_at
+       FROM character_profiles
+       ORDER BY created_at ASC`
+    );
+    return rows as CharacterProfileRecord[];
   });
 }
 
@@ -3323,17 +3409,13 @@ export const DEFAULT_SUPPLEMENT_SETTINGS: SupplementToggleSettings = {
   allowCompanionBodyMod: true,
 };
 
-export type AppearanceThemeOption = "starfield" | "nebula" | "minimal";
-
-export interface AppearanceSettings {
-  backgroundTheme: AppearanceThemeOption;
-}
-
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
+  theme: "andromeda",
   backgroundTheme: "starfield",
 };
 
-const APPEARANCE_THEME_VALUES: readonly AppearanceThemeOption[] = [
+const APPEARANCE_THEME_VALUES: readonly AppearanceTheme[] = ["andromeda", "solstice"];
+const APPEARANCE_BACKGROUND_VALUES: readonly AppearanceThemeOption[] = [
   "starfield",
   "nebula",
   "minimal",
@@ -3392,35 +3474,79 @@ const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   spellcheckEnabled: true,
 };
 
-const APPEARANCE_THEMES: AppearanceTheme[] = ["andromeda", "solstice"];
-
 function parseAppearanceTheme(value: unknown): AppearanceTheme {
-  if (typeof value === "string" && APPEARANCE_THEMES.includes(value as AppearanceTheme)) {
-    return value as AppearanceTheme;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase() as AppearanceTheme;
+    if (APPEARANCE_THEME_VALUES.includes(normalized)) {
+      return normalized;
+    }
   }
   return DEFAULT_APPEARANCE_SETTINGS.theme;
 }
 
+function parseBackgroundTheme(value: unknown): AppearanceThemeOption {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase() as AppearanceThemeOption;
+    if (APPEARANCE_BACKGROUND_VALUES.includes(normalized)) {
+      return normalized;
+    }
+  }
+  return DEFAULT_APPEARANCE_SETTINGS.backgroundTheme;
+}
+
 export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
   if (!record || record.value === null) {
-    return DEFAULT_APPEARANCE_SETTINGS;
+    return { ...DEFAULT_APPEARANCE_SETTINGS };
   }
 
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(record.value) as unknown;
-    if (parsed && typeof parsed === "object") {
-      const theme = parseAppearanceTheme((parsed as Record<string, unknown>).theme);
-      return { theme } satisfies AppearanceSettings;
-    }
+    parsed = JSON.parse(record.value) as unknown;
   } catch (error) {
     console.warn("Failed to parse appearance settings", error);
   }
 
-  if (typeof record.value === "string") {
-    return { theme: parseAppearanceTheme(record.value) } satisfies AppearanceSettings;
+  if (parsed && typeof parsed === "object") {
+    const data = parsed as Record<string, unknown>;
+    return {
+      theme: parseAppearanceTheme(data.theme),
+      backgroundTheme: parseBackgroundTheme(data.backgroundTheme),
+    } satisfies AppearanceSettings;
   }
 
-  return DEFAULT_APPEARANCE_SETTINGS;
+  if (typeof parsed === "string") {
+    const normalized = parsed.trim().toLowerCase();
+    if (APPEARANCE_BACKGROUND_VALUES.includes(normalized as AppearanceThemeOption)) {
+      return {
+        theme: DEFAULT_APPEARANCE_SETTINGS.theme,
+        backgroundTheme: normalized as AppearanceThemeOption,
+      } satisfies AppearanceSettings;
+    }
+    if (APPEARANCE_THEME_VALUES.includes(normalized as AppearanceTheme)) {
+      return {
+        theme: normalized as AppearanceTheme,
+        backgroundTheme: DEFAULT_APPEARANCE_SETTINGS.backgroundTheme,
+      } satisfies AppearanceSettings;
+    }
+  }
+
+  if (typeof record.value === "string") {
+    const normalized = record.value.trim().toLowerCase();
+    if (APPEARANCE_BACKGROUND_VALUES.includes(normalized as AppearanceThemeOption)) {
+      return {
+        theme: DEFAULT_APPEARANCE_SETTINGS.theme,
+        backgroundTheme: normalized as AppearanceThemeOption,
+      } satisfies AppearanceSettings;
+    }
+    if (APPEARANCE_THEME_VALUES.includes(normalized as AppearanceTheme)) {
+      return {
+        theme: normalized as AppearanceTheme,
+        backgroundTheme: DEFAULT_APPEARANCE_SETTINGS.backgroundTheme,
+      } satisfies AppearanceSettings;
+    }
+  }
+
+  return { ...DEFAULT_APPEARANCE_SETTINGS };
 }
 
 export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
@@ -3591,40 +3717,6 @@ export function parseSupplementSettings(record: AppSettingRecord | null): Supple
       DEFAULT_SUPPLEMENT_SETTINGS.allowCompanionBodyMod
     ),
   };
-}
-
-function normalizeAppearanceTheme(
-  value: unknown,
-  fallback: AppearanceThemeOption
-): AppearanceThemeOption {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase() as AppearanceThemeOption;
-    if (APPEARANCE_THEME_VALUES.includes(normalized)) {
-      return normalized;
-    }
-  }
-  return fallback;
-}
-
-export function parseAppearanceSettings(record: AppSettingRecord | null): AppearanceSettings {
-  const raw = parseJsonValue(record);
-  if (typeof raw === "string") {
-    return {
-      backgroundTheme: normalizeAppearanceTheme(raw, DEFAULT_APPEARANCE_SETTINGS.backgroundTheme),
-    };
-  }
-
-  if (raw && typeof raw === "object") {
-    const { backgroundTheme } = raw as { backgroundTheme?: unknown };
-    return {
-      backgroundTheme: normalizeAppearanceTheme(
-        backgroundTheme,
-        DEFAULT_APPEARANCE_SETTINGS.backgroundTheme
-      ),
-    };
-  }
-
-  return { ...DEFAULT_APPEARANCE_SETTINGS };
 }
 
 const ESSENTIAL_STARTING_MODE_VALUES: readonly EssentialStartingMode[] = ["hardcore", "standard", "heroic"];
@@ -3877,11 +3969,6 @@ export async function loadJumpDefaults(): Promise<JumpDefaultsSettings> {
 export async function loadSupplementSettings(): Promise<SupplementToggleSettings> {
   const record = await getAppSetting(SUPPLEMENT_SETTING_KEY);
   return parseSupplementSettings(record);
-}
-
-export async function loadAppearanceSettings(): Promise<AppearanceSettings> {
-  const record = await getAppSetting(APPEARANCE_SETTING_KEY);
-  return parseAppearanceSettings(record);
 }
 
 export async function loadEssentialBodyModSettings(): Promise<EssentialBodyModSettings> {

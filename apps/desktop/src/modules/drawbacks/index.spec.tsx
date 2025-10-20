@@ -274,7 +274,7 @@ describe("DrawbackSupplement", () => {
           metadata: JSON.stringify({ severity: "minor", houseRule: true }),
         }),
       ],
-      budget: { balance: 625 },
+      budget: { balance: 625, drawbackCredit: 400 },
     });
 
     const user = userEvent.setup();
@@ -288,7 +288,7 @@ describe("DrawbackSupplement", () => {
 
     expect(screen.getByTestId("total-credit")).toHaveTextContent("400");
     expect(screen.getByTestId("manual-credit")).toHaveTextContent("400");
-    expect(screen.getByTestId("balance-with-grants")).toHaveTextContent("400");
+    expect(screen.getByTestId("balance-with-grants")).toHaveTextContent("625");
     const visibleSummary = screen.getByText(/Visible Drawbacks/i).parentElement?.querySelector("span");
     expect(visibleSummary).toHaveTextContent("1 / 3");
   });
