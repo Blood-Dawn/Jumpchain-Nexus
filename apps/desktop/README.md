@@ -60,5 +60,5 @@ The project uses Vitest 3 for unit coverage and a mixture of WebdriverIO/Playwri
 ## Contributing tips
 
 - The repository enforces strict TypeScript settings and uses project references; rely on `npm run build` to surface compiler errors.
-- Keep documentation and MIT license headers in new files.
+- Keep documentation and Bloodawn headers in new files.
 - If you upgrade Node, update the wrapper scripts and refresh this README so contributors know which version ships with the repo.

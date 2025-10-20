@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
-MIT License
+Bloodawn
 
 Copyright (c) 2025 Age-Of-Ages
 
