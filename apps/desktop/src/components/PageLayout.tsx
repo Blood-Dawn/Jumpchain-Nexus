@@ -24,10 +24,11 @@ SOFTWARE.
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
+import { useAppearance } from "../contexts/AppearanceContext";
 import { DEFAULT_APPEARANCE_SETTINGS } from "../db/dao";
 import { useAppearanceSettings } from "../hooks/useAppearanceSettings";
 import NavRail from "../modules/jmh/NavRail";
-import { useAppearance } from "../contexts/AppearanceContext";
+import StarfieldBackground from "./StarfieldBackground";
 
 interface PageLayoutContextValue {
   setRightPane: (node: React.ReactNode | null) => void;
@@ -56,7 +57,11 @@ export const PageLayoutRightPane: React.FC<{ children: React.ReactNode | null }>
   return null;
 };
 
-export const PageLayout: React.FC = () => {
+interface PageLayoutProps {
+  enableBackgroundEffects?: boolean;
+}
+
+export const PageLayout: React.FC<PageLayoutProps> = ({ enableBackgroundEffects }) => {
   const { theme } = useAppearance();
   const [rightPane, setRightPane] = useState<React.ReactNode | null>(null);
   const appearanceQuery = useAppearanceSettings();
@@ -64,6 +69,10 @@ export const PageLayout: React.FC = () => {
     appearanceQuery.data?.backgroundTheme ?? DEFAULT_APPEARANCE_SETTINGS.backgroundTheme;
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
     document.body.dataset.backgroundTheme = backgroundTheme;
     return () => {
       delete document.body.dataset.backgroundTheme;
@@ -104,12 +113,15 @@ export const PageLayout: React.FC = () => {
 
   return (
     <PageLayoutContext.Provider value={contextValue}>
-      <div className={`hub-shell hub-shell--theme-${theme}`} data-theme={theme}>
-        <NavRail />
-        <main className="hub-main">
-          <Outlet />
-        </main>
-        {rightPane}
+      <div className="hub-environment">
+        {enableBackgroundEffects ? <StarfieldBackground /> : null}
+        <div className={`hub-shell hub-shell--theme-${theme}`} data-theme={theme}>
+          <NavRail />
+          <main className="hub-main">
+            <Outlet />
+          </main>
+          {rightPane}
+        </div>
       </div>
     </PageLayoutContext.Provider>
   );
