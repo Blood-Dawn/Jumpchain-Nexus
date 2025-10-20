@@ -89,6 +89,7 @@
   max-height: 35vh;
   overflow: auto;
   padding-right: 0.25rem;
+  padding-bottom: 0.75rem;
   scrollbar-color: color-mix(in srgb, var(--kb-accent) 70%, transparent) transparent;
 }
 
@@ -202,13 +203,13 @@
   border: 1px solid var(--kb-border-muted);
   background: color-mix(in srgb, var(--kb-surface) 94%, var(--kb-surface-raised));
   scrollbar-color: color-mix(in srgb, var(--kb-accent) 70%, transparent) transparent;
-  padding-bottom: 0.25rem;
+  padding-bottom: 0.75rem;
 }
 
 .knowledge-base__list ul {
   list-style: none;
   margin: 0;
-  padding: 0 0 1.25rem;
+  padding: 0 0 0.5rem;
 }
 
 .knowledge-base__list li + li {
@@ -396,7 +397,7 @@
 .knowledge-base__import-drawer ul {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0.75rem;
   display: grid;
   gap: 0.6rem;
   overflow: auto;

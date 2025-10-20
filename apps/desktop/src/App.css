@@ -1581,6 +1581,7 @@ a:hover {
   gap: 1rem;
   overflow: auto;
   padding-right: 0.25rem;
+  padding-bottom: 0.75rem;
 }
 
 .jmh-search__group h2 {
@@ -1594,7 +1595,7 @@ a:hover {
 .jmh-search__group ul {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1993,6 +1994,7 @@ a:hover {
   flex: 1;
   overflow-y: auto;
   padding-right: 0.5rem;
+  padding-bottom: 0.75rem;
   color: rgba(240, 247, 255, 0.8);
 }
 
