@@ -38,6 +38,7 @@ import {
   loadWarehousePersonalRealitySummary,
   updateWarehousePersonalRealitySummary,
 } from "../../db/dao";
+import { derivePersonalRealitySummary } from "../../db/personalReality";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { formatChipLabel, getChipStyle, getChipVisual } from "../chipAppearance";
@@ -56,6 +57,11 @@ interface WarehouseFormState {
 interface UpdatePayload {
   id: string;
   updates: Parameters<typeof updateInventoryItem>[1];
+}
+
+interface SearchableItem {
+  record: InventoryItemRecord;
+  searchText: string;
 }
 
 const scopeKey = ["warehouse-items"] as const;
@@ -78,6 +84,27 @@ const formatNumber = (value: number): string => {
     return "0";
   }
   return numberFormatter.format(value);
+};
+
+const compareInventoryItems = (a: InventoryItemRecord, b: InventoryItemRecord): number => {
+  const orderA = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
+  const orderB = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+  const createdA = a.created_at ?? "";
+  const createdB = b.created_at ?? "";
+  if (createdA && createdB) {
+    const comparison = createdA.localeCompare(createdB);
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+  return a.id.localeCompare(b.id);
+};
+
+const sortInventoryItems = (items: InventoryItemRecord[]): InventoryItemRecord[] => {
+  return [...items].sort(compareInventoryItems);
 };
 
 const parseTags = (raw: string | null): string[] => {
@@ -282,6 +309,24 @@ const CosmicWarehouse: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (payload: UpdatePayload) => updateInventoryItem(payload.id, payload.updates),
     onSuccess: (item) => {
+      let updatedItems: InventoryItemRecord[] | undefined;
+      queryClient.setQueryData<InventoryItemRecord[] | undefined>(scopeKey, (current) => {
+        if (!current) {
+          return current;
+        }
+        const replaced = current.map((existing) => (existing.id === item.id ? item : existing));
+        const sorted = sortInventoryItems(replaced);
+        updatedItems = sorted;
+        return sorted;
+      });
+      if (updatedItems) {
+        updatePersonalRealityCache(updatedItems);
+      } else {
+        queryClient.invalidateQueries({ queryKey: scopeKey }).catch(() => undefined);
+        if (isPersonalReality) {
+          queryClient.invalidateQueries({ queryKey: personalRealityKey }).catch(() => undefined);
+        }
+      }
       setSelectedId(item.id);
       setFocusId(item.id);
       setPendingFocusId(item.id);
