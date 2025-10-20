@@ -28,6 +28,17 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import StatisticsHub from "./index";
 import type { StatisticsSnapshot } from "../../db/dao";
 
+class MockResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  // @ts-expect-error - JSDOM environment does not provide ResizeObserver
+  globalThis.ResizeObserver = MockResizeObserver;
+}
+
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
@@ -71,7 +82,7 @@ describe("StatisticsHub filters", () => {
       </QueryClientProvider>
     );
 
-    const assetSelect = screen.getByLabelText(/Asset Type/i) as HTMLSelectElement;
+    const assetSelect = screen.getByTestId("asset-filter") as HTMLSelectElement;
     expect(assetSelect.value).toBe("all");
 
     fireEvent.change(assetSelect, { target: { value: "perk" } });

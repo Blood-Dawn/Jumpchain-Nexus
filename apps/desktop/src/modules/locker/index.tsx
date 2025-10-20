@@ -460,6 +460,7 @@ const CosmicLocker: React.FC = () => {
                   className={`locker__chip ${filterAccents.packed.className}${
                     filters.packed === option.value ? " locker__chip--active" : ""
                   }`}
+                  aria-label={`Status: ${option.label}`}
                   onClick={() => setFilters((prev) => ({ ...prev, packed: option.value as LockerFilters["packed"] }))}
                 >
                   <span className="locker__chip-band" aria-hidden="true" />
@@ -484,6 +485,7 @@ const CosmicLocker: React.FC = () => {
                   className={`locker__chip ${filterAccents.priority.className}${
                     filters.priority === option.value ? " locker__chip--active" : ""
                   }`}
+                  aria-label={`Priority: ${option.label}`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
@@ -513,6 +515,7 @@ const CosmicLocker: React.FC = () => {
                   className={`locker__chip ${filterAccents.bodyMod.className}${
                     filters.bodyMod === option.value ? " locker__chip--active" : ""
                   }`}
+                  aria-label={`Body Mod: ${option.label}`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,
@@ -541,6 +544,7 @@ const CosmicLocker: React.FC = () => {
                   className={`locker__chip ${filterAccents.booster.className}${
                     filters.booster === option.value ? " locker__chip--active" : ""
                   }`}
+                  aria-label={`Item Type: ${option.label}`}
                   onClick={() =>
                     setFilters((prev) => ({
                       ...prev,

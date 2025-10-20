@@ -28,15 +28,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./knowledgeBase.css";
 import {
+  clearKnowledgeBaseImportErrors,
   countKnowledgeArticles,
   deleteKnowledgeArticle,
+  deleteKnowledgeBaseImportError,
   ensureKnowledgeBaseSeeded,
   fetchKnowledgeArticles,
+  listAssetReferenceSummaries,
   listKnowledgeBaseImportErrors,
+  lookupAssetReferenceSummaries,
   recordKnowledgeBaseImportErrors,
-  deleteKnowledgeBaseImportError,
-  clearKnowledgeBaseImportErrors,
   upsertKnowledgeArticle,
+  type AssetReferenceSummary,
   type KnowledgeArticleQuery,
   type KnowledgeArticleRecord,
   type KnowledgeBaseImportError,
@@ -52,6 +55,7 @@ import {
 } from "../../services/knowledgeBaseImporter";
 import { confirmDialog } from "../../services/dialogService";
 import { getPlatform } from "../../services/platform";
+import { useJmhStore } from "../jmh/store";
 
 interface EditorState {
   open: boolean;
@@ -147,7 +151,13 @@ const KnowledgeBase = () => {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [importIssues, setImportIssues] = useState<KnowledgeBaseImportError[] | null>(null);
   const [isDropActive, setDropActive] = useState(false);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgressState | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const stageElementRef = useRef<HTMLElement | null>(null);
+  const pausedRef = useRef(false);
+  const pauseResolverRef = useRef<(() => void) | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const filters = useMemo<KnowledgeArticleQuery>(
     () => ({
@@ -277,11 +287,6 @@ const KnowledgeBase = () => {
         queryClient.invalidateQueries({ queryKey: ["knowledge-base", "count"] }),
       ]);
 
-      if (result.errors.length) {
-        await recordKnowledgeBaseImportErrors(result.errors);
-        await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
-      }
-
       const importedCount = result.saved.length;
       const skippedCount = result.errors.length;
 
@@ -293,8 +298,12 @@ const KnowledgeBase = () => {
         parts.push(`${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped`);
         console.warn("Knowledge base import issues", result.errors);
         setImportIssues(result.errors);
+        setImportDrawerOpen(true);
+        await recordKnowledgeBaseImportErrors(result.errors);
+        await queryClient.invalidateQueries({ queryKey: ["knowledge-base", "import-errors"] });
       } else {
         setImportIssues(null);
+        setImportDrawerOpen(false);
       }
       if (parts.length === 0) {
         parts.push("No articles imported");
@@ -315,13 +324,44 @@ const KnowledgeBase = () => {
         return { cancelled: true, saved: [], errors: [] };
       }
 
-      const { saved, errors } = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      pausedRef.current = false;
+      setImportProgress({
+        status: "running",
+        processed: 0,
+        total: selection.drafts.length,
+        saved: 0,
+        failed: 0,
+        currentPath: selection.drafts[0]?.path ?? null,
+      });
 
-      return {
-        cancelled: false,
-        saved,
-        errors: [...selection.errors, ...errors],
-      };
+      try {
+        const result = await importKnowledgeBaseArticles(selection.drafts, upsertKnowledgeArticle, {
+          signal: controller.signal,
+          onProgress: async (progress) => {
+            await waitIfPaused();
+            setImportProgress({
+              status: pausedRef.current ? "paused" : "running",
+              processed: progress.processed,
+              total: progress.total,
+              saved: progress.saved,
+              failed: progress.failed,
+              currentPath: progress.currentPath,
+            });
+          },
+        });
+
+        return {
+          cancelled: Boolean(result.cancelled),
+          saved: result.saved ?? [],
+          errors: [...selection.errors, ...(result.errors ?? [])],
+        };
+      } finally {
+        abortControllerRef.current = null;
+        pausedRef.current = false;
+        pauseResolverRef.current = null;
+      }
     },
     onSuccess: async (result) => {
       await processImportResult(result);
@@ -329,6 +369,9 @@ const KnowledgeBase = () => {
     onError: (error) => {
       console.error("Failed to import articles", error);
       setFeedback(error instanceof Error ? error.message : "Failed to import articles");
+    },
+    onSettled: () => {
+      setImportProgress(null);
     },
   });
 
@@ -465,22 +508,37 @@ const KnowledgeBase = () => {
     return articles.find((article) => article.id === selectedId) ?? articles[0];
   }, [articles, selectedId]);
 
+  const relatedAssetIds = activeArticle?.related_asset_ids ?? [];
+
   const relatedAssetsQuery = useQuery({
     queryKey: [
       "knowledge-base",
       "article-assets",
       activeArticle?.id ?? "none",
-      activeArticle?.related_asset_ids.join(",") ?? "",
+      relatedAssetIds.join(","),
     ],
     queryFn: () =>
-      activeArticle && activeArticle.related_asset_ids.length
-        ? lookupAssetReferenceSummaries(activeArticle.related_asset_ids)
+      relatedAssetIds.length
+        ? lookupAssetReferenceSummaries(relatedAssetIds)
         : Promise.resolve([] as AssetReferenceSummary[]),
-    enabled: Boolean(activeArticle && activeArticle.related_asset_ids.length),
+    enabled: relatedAssetIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const importErrorsQuery = useQuery({
+    queryKey: ["knowledge-base", "import-errors"],
+    queryFn: listKnowledgeBaseImportErrors,
+  });
+
+  const assetOptionsQuery = useQuery({
+    queryKey: ["knowledge-base", "asset-options"],
+    queryFn: listAssetReferenceSummaries,
     staleTime: 5 * 60 * 1000,
   });
 
   const relatedAssets = relatedAssetsQuery.data ?? [];
+  const importErrors = importErrorsQuery.data ?? [];
+  const hasImportErrors = importErrors.length > 0;
   const relatedAssetError = relatedAssetsQuery.isError
     ? (relatedAssetsQuery.error as Error)
     : null;
@@ -933,7 +991,8 @@ const KnowledgeBase = () => {
           </>
         )}
         {articleQuery.isLoading && <p>Loading knowledge base…</p>}
-        {!articleQuery.isLoading && renderArticle(activeArticle)}
+        {!articleQuery.isLoading &&
+          renderArticle(activeArticle, relatedAssets, relatedAssetsQuery.isLoading, relatedAssetError)}
       </section>
 
       {importProgress && importArticles.isPending && (

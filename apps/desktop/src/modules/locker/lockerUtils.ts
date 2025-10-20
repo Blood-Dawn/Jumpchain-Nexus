@@ -195,6 +195,22 @@ function normalizeTagValue(tag: string): string {
   return tag.trim().toLowerCase();
 }
 
+function formatTagLabel(tag: string): string {
+  const trimmed = tag.trim();
+  if (!trimmed.length) {
+    return "";
+  }
+  const normalized = trimmed
+    .replace(/[_/]+/g, " ")
+    .replace(/-+/g, " ")
+    .replace(/:+/g, ": ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const titled = normalized.replace(/\b\w/g, (char) => char.toUpperCase());
+  return titled.length ? titled : trimmed;
+}
+
 function sanitizeIdentifier(value: string): string {
   return value
     .trim()
@@ -363,7 +379,8 @@ export function collectLockerTags(items: LockerItemAnalysis[]): LockerTagOption[
         return;
       }
       if (!labelMap.has(normalized)) {
-        labelMap.set(normalized, tag);
+        const label = formatTagLabel(tag);
+        labelMap.set(normalized, label);
       }
     });
   });
