@@ -2352,28 +2352,17 @@ export async function deleteNextAction(id: string): Promise<void> {
   await withInit((db) => db.execute(`DELETE FROM next_actions WHERE id = $1`, [id]));
 }
 
-async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
-  const assetRows = (await db.select<JumpAssetRecord[]>(
-    `SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata
-     FROM jump_assets
-     WHERE jump_id = $1`,
-    [jumpId]
-  )) as JumpAssetRecord[];
-
-  const toggleRows = (await db.select<JumpStipendToggleRow[]>(
-    `SELECT asset_id, enabled, override_total
-     FROM jump_stipend_toggles
-     WHERE jump_id = $1`,
-    [jumpId]
-  )) as JumpStipendToggleRow[];
-
-  const companionImportRows = (await db.select<CompanionImportRow[]>(
-    `SELECT id, asset_id, companion_name, option_value, selected
-     FROM companion_imports
-     WHERE jump_id = $1`,
-    [jumpId]
-  )) as CompanionImportRow[];
-
+function summarizeJumpAssetsForBudget(
+  assetRows: JumpAssetRecord[],
+  toggleRows: JumpStipendToggleRow[]
+): {
+  assetNameMap: Map<string, string | null>;
+  purchases: PurchaseCostInput[];
+  stipendAdjustments: number;
+  stipendPotential: number;
+  stipendToggles: JumpStipendToggleSummaryEntry[];
+  drawbackCredit: number;
+} {
   const toggleMap = new Map<string, JumpStipendToggleRow>();
   for (const row of toggleRows) {
     toggleMap.set(row.asset_id, row);
@@ -2430,6 +2419,23 @@ async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<
     }
   }
 
+  return {
+    assetNameMap,
+    purchases,
+    stipendAdjustments,
+    stipendPotential,
+    stipendToggles,
+    drawbackCredit,
+  };
+}
+
+function summarizeCompanionImports(
+  companionImportRows: CompanionImportRow[],
+  assetNameMap: Map<string, string | null>
+): {
+  companionImportSelections: CompanionImportSummaryEntry[];
+  companionImportCost: number;
+} {
   const companionImportSelections: CompanionImportSummaryEntry[] = companionImportRows.map((row) => {
     const optionValueRaw = row.option_value ?? 0;
     const optionValue = Number.isFinite(optionValueRaw) ? Number(optionValueRaw) : 0;
@@ -2450,6 +2456,45 @@ async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<
     const normalized = Number.isFinite(entry.optionValue) ? entry.optionValue : 0;
     return total + normalized;
   }, 0);
+
+  return { companionImportSelections, companionImportCost };
+}
+
+async function summarizeJumpBudgetWithDb(db: Database, jumpId: string): Promise<JumpBudgetSummary> {
+  const assetRows = (await db.select<JumpAssetRecord[]>(
+    `SELECT id, asset_type, name, cost, quantity, discounted, freebie, metadata
+     FROM jump_assets
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpAssetRecord[];
+
+  const toggleRows = (await db.select<JumpStipendToggleRow[]>(
+    `SELECT asset_id, enabled, override_total
+     FROM jump_stipend_toggles
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as JumpStipendToggleRow[];
+
+  const companionImportRows = (await db.select<CompanionImportRow[]>(
+    `SELECT id, asset_id, companion_name, option_value, selected
+     FROM companion_imports
+     WHERE jump_id = $1`,
+    [jumpId]
+  )) as CompanionImportRow[];
+
+  const {
+    assetNameMap,
+    purchases,
+    stipendAdjustments,
+    stipendPotential,
+    stipendToggles,
+    drawbackCredit,
+  } = summarizeJumpAssetsForBudget(assetRows, toggleRows);
+
+  const { companionImportSelections, companionImportCost } = summarizeCompanionImports(
+    companionImportRows,
+    assetNameMap
+  );
 
   const computation = computeBudget(purchases);
   const purchasesNetCost = computation.netCost;
